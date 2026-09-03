@@ -46,8 +46,10 @@ class VirtualSpec {
 /// monitors for the same Mac. On connect, the client **applies** its profile
 /// to the server (creates, deletes, resizes and scales virtuals until they
 /// match); if another client connects afterward, it applies its own and
-/// overrides the previous one. The server keeps the virtuals alive between
-/// connections, so reconnecting from the same client doesn't touch anything.
+/// overrides the previous one. When the last client leaves (or its connection
+/// drops) the server puts the Mac's displays back: virtuals destroyed, the
+/// dynamic main undone, physicals turned back on. The next connection simply
+/// re-applies its profile.
 ///
 /// It's saved as a peer option (`mac_monitor_profile`, JSON), and a snapshot
 /// of the server's real state (PeerInfo) is taken a moment after each

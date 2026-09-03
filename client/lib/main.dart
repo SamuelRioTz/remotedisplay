@@ -136,13 +136,28 @@ Future<void> main(List<String> args) async {
 
   _runClientApp();
 
+  // Links that arrive while the app is already running. Two paths, both
+  // ending in flutter_hbb's handleUriLink:
+  //  - remotedisplay://connection/new/<ip>?password=… opened from the system
+  //    (Finder, browser, `open`): the uni_links plugin delivers it here;
+  //  - `remotedisplay --connect <ip> --password <pw>` from a second process:
+  //    the engine forwards it over the `_url` IPC socket as the global
+  //    `on_url_scheme_received` event, which only reaches the FfiModel if the
+  //    main window subscribes to global events (upstream does this in its
+  //    server page, which this client does not have).
+  // Without these two lines a link only worked as a launch argument.
+  gFFI.ffiModel.updateEventListener(gFFI.sessionId, '');
+  listenUniLinks();
+
   final windowOptions = hbb.getHiddenTitleBarWindowOptions(isMainWindow: true);
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     await restoreWindowPosition(WindowType.Main);
     // Direct launch (`remotedisplay --connect <ip> [--password <pw>]`,
-    // shortcuts/scripts): resolved by flutter_hbb's plumbing and the home is
-    // not shown — same behavior as the engine's main.
-    if (handleUriLink(cmdArgs: args)) {
+    // shortcuts/scripts) or launched by a remotedisplay:// link: resolved by
+    // flutter_hbb's plumbing and the home is not shown — same behavior as the
+    // engine's main.
+    final handledByUniLinks = await initUniLinks();
+    if (handledByUniLinks || handleUriLink(cmdArgs: args)) {
       await windowManager.setOpacity(1);
       await windowManager.hide();
       return;

@@ -37,6 +37,12 @@ class RelativeMouseState {
 
 class MainFlutterWindow: NSWindow {
     override func awakeFromNib() {
+        // remotedisplay: the engine is a dylib here, so nothing ignores SIGPIPE
+        // for us (a Rust *binary* does it before main; a cdylib inside a Flutter
+        // app does not). A write to a peer that already went away, e.g. during
+        // LAN discovery or an IPC probe, then kills the whole app silently with
+        // exit code 141. Ignore it before the first line of Rust runs.
+        signal(SIGPIPE, SIG_IGN)
         // remotedisplay: controller-ONLY client — without this, core_main
         // starts a full host (2111x listeners + responds to LAN discovery)
         // when it doesn't find a server already running (engine patch 15).
