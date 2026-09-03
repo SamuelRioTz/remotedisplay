@@ -29,6 +29,12 @@ make_dmg() { # make_dmg <App.app> <output.dmg> <volname>
   rm -rf "$stage"; echo "dmg: $dmg"
 }
 
+# 0) Engine: the macOS client embeds engine/rustdesk/target/release/liblibrustdesk.dylib
+#    (Xcode project) and the server bundles target/release/rustdesk. Build both here so
+#    the packages never ship a stale engine (the client dylib needs the `flutter` feature).
+export VCPKG_ROOT="${VCPKG_ROOT:-$HOME/vcpkg}"   # scrap/build.rs needs libyuv from vcpkg
+( cd "$ROOT/engine/rustdesk" && cargo build --release --features flutter --lib && cargo build --release --bin rustdesk )
+
 # 1) Android
 if [ $SKIP_ANDROID = 0 ]; then
   bash "$ROOT/tools/build-android.sh"
