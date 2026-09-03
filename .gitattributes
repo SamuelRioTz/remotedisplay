@@ -1,0 +1,5 @@
+* text=auto
+
+# remotedisplay: los .sh viajan al Mac — siempre LF
+*.sh text eol=lf
+*.plist text eol=lf

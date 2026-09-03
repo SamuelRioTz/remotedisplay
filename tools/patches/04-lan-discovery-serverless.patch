@@ -1,0 +1,221 @@
+diff --git a/engine/rustdesk/src/lan.rs b/engine/rustdesk/src/lan.rs
+index af9c948..ccff1b4 100644
+--- a/engine/rustdesk/src/lan.rs
++++ b/engine/rustdesk/src/lan.rs
+@@ -214,10 +214,37 @@ fn send_query() -> ResultType<Vec<UdpSocket>> {
+     for socket in &sockets {
+         allow_err!(socket.send_to(&out, maddr));
+     }
++    // remotedisplay: además del broadcast, ping UNICAST a cada host de las subredes
++    // locales (y peers de Tailscale). Cubre iOS, donde el broadcast está
++    // bloqueado sin el entitlement de multicast, y redes ruteadas (Tailscale)
++    // donde el broadcast no llega; el host responde igual con su identidad.
++    send_unicast_pings(&sockets, &out);
+     log::info!("discover ping sent");
+     Ok(sockets)
+ }
+ 
++static LAST_UNICAST_PING: std::sync::Mutex<Option<std::time::Instant>> =
++    std::sync::Mutex::new(None);
++
++fn send_unicast_pings(sockets: &[UdpSocket], out: &[u8]) {
++    {
++        let mut last = LAST_UNICAST_PING.lock().unwrap();
++        if let Some(t) = *last {
++            if t.elapsed().as_secs() < 4 {
++                return;
++            }
++        }
++        *last = Some(std::time::Instant::now());
++    }
++    let Some(socket) = sockets.last() else { return }; // el bind a 0.0.0.0
++    let port = get_broadcast_port();
++    let targets = scan_targets();
++    for ip in &targets {
++        allow_err!(socket.send_to(out, SocketAddr::from((*ip, port))));
++    }
++    log::info!("discover unicast ping: {} hosts", targets.len());
++}
++
+ fn wait_response(
+     socket: UdpSocket,
+     timeout: Option<std::time::Duration>,
+@@ -351,19 +378,23 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
+ // TODAS las subredes locales y en los peers de Tailscale, para encontrar hosts
+ // con el servicio corriendo sin depender de IDs ni de un servidor.
+ 
+-#[cfg(not(target_os = "ios"))]
+ fn get_scan_port() -> u16 {
+     config::Config::get_option("direct-access-port")
+         .parse::<u16>()
+         .unwrap_or((RENDEZVOUS_PORT + 2) as u16)
+ }
+ 
+-#[cfg(not(target_os = "ios"))]
+ fn is_tailscale_ip(u: u32) -> bool {
+     // 100.64.0.0/10 (CGNAT — rango de Tailscale)
+     (u & 0xFFC0_0000) == 0x6440_0000
+ }
+ 
++// iOS: Tailscale es una app aparte, sin CLI.
++#[cfg(target_os = "ios")]
++fn tailscale_peer_ips() -> Vec<Ipv4Addr> {
++    Vec::new()
++}
++
+ #[cfg(not(target_os = "ios"))]
+ fn tailscale_peer_ips() -> Vec<Ipv4Addr> {
+     let mut ips = Vec::new();
+@@ -400,35 +431,80 @@ fn tailscale_peer_ips() -> Vec<Ipv4Addr> {
+     ips
+ }
+ 
++/// (dirección, máscara) de cada interfaz IPv4 local.
+ #[cfg(not(target_os = "ios"))]
+-fn scan_targets() -> Vec<Ipv4Addr> {
+-    let mut targets: Vec<Ipv4Addr> = Vec::new();
+-    let mut seen: HashSet<u32> = HashSet::new();
++fn local_ipv4_networks() -> Vec<(Ipv4Addr, Ipv4Addr)> {
++    let mut out = Vec::new();
+     for interface in default_net::get_interfaces() {
+         for ipv4 in &interface.ipv4 {
+-            let addr = ipv4.addr;
+-            if addr.is_loopback() || addr.is_unspecified() {
+-                continue;
+-            }
+-            let addr_u = u32::from(addr);
+-            // Tailscale se maneja aparte (su /10 es demasiado grande para barrer)
+-            if is_tailscale_ip(addr_u) {
+-                continue;
+-            }
+-            let mask_u = u32::from(ipv4.netmask);
+-            // sólo subredes razonables (<= /22 => <= 1024 hosts)
+-            if mask_u == 0 || mask_u.count_ones() < 22 {
+-                continue;
+-            }
+-            let network = addr_u & mask_u;
+-            let broadcast = network | !mask_u;
+-            let mut h = network.wrapping_add(1);
+-            while h < broadcast {
+-                if h != addr_u && seen.insert(h) {
+-                    targets.push(Ipv4Addr::from(h));
++            out.push((ipv4.addr, ipv4.netmask));
++        }
++    }
++    out
++}
++
++/// iOS: `default_net` no está disponible; `getifaddrs` sí. Sólo interfaces
++/// activas, no loopback y con IP privada (evita barrer la red celular).
++#[cfg(target_os = "ios")]
++fn local_ipv4_networks() -> Vec<(Ipv4Addr, Ipv4Addr)> {
++    use hbb_common::libc;
++    let mut out = Vec::new();
++    unsafe {
++        let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
++        if libc::getifaddrs(&mut ifap) != 0 {
++            return out;
++        }
++        let mut cur = ifap;
++        while !cur.is_null() {
++            let ifa = &*cur;
++            let up = (ifa.ifa_flags & libc::IFF_UP as u32) != 0;
++            let lo = (ifa.ifa_flags & libc::IFF_LOOPBACK as u32) != 0;
++            if up
++                && !lo
++                && !ifa.ifa_addr.is_null()
++                && !ifa.ifa_netmask.is_null()
++                && (*ifa.ifa_addr).sa_family as i32 == libc::AF_INET
++            {
++                let sin = &*(ifa.ifa_addr as *const libc::sockaddr_in);
++                let mask = &*(ifa.ifa_netmask as *const libc::sockaddr_in);
++                let addr = Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
++                let netmask = Ipv4Addr::from(u32::from_be(mask.sin_addr.s_addr));
++                if addr.is_private() && !addr.is_link_local() {
++                    out.push((addr, netmask));
+                 }
+-                h = h.wrapping_add(1);
+             }
++            cur = ifa.ifa_next;
++        }
++        libc::freeifaddrs(ifap);
++    }
++    out
++}
++
++fn scan_targets() -> Vec<Ipv4Addr> {
++    let mut targets: Vec<Ipv4Addr> = Vec::new();
++    let mut seen: HashSet<u32> = HashSet::new();
++    for (addr, netmask) in local_ipv4_networks() {
++        if addr.is_loopback() || addr.is_unspecified() {
++            continue;
++        }
++        let addr_u = u32::from(addr);
++        // Tailscale se maneja aparte (su /10 es demasiado grande para barrer)
++        if is_tailscale_ip(addr_u) {
++            continue;
++        }
++        let mask_u = u32::from(netmask);
++        // sólo subredes razonables (<= /22 => <= 1024 hosts)
++        if mask_u == 0 || mask_u.count_ones() < 22 {
++            continue;
++        }
++        let network = addr_u & mask_u;
++        let broadcast = network | !mask_u;
++        let mut h = network.wrapping_add(1);
++        while h < broadcast {
++            if h != addr_u && seen.insert(h) {
++                targets.push(Ipv4Addr::from(h));
++            }
++            h = h.wrapping_add(1);
+         }
+     }
+     // Peers de Tailscale (vía CLI): se prueban aunque estén en otra red
+@@ -442,10 +518,8 @@ fn scan_targets() -> Vec<Ipv4Addr> {
+ 
+ // throttle: la pestaña "Discovered" llama a discover() en cada rebuild;
+ // evitamos relanzar el escaneo (128 hilos) más de una vez cada 4s.
+-#[cfg(not(target_os = "ios"))]
+ static LAST_SCAN: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+ 
+-#[cfg(not(target_os = "ios"))]
+ fn spawn_port_scan(tx: UnboundedSender<config::DiscoveryPeer>) {
+     {
+         let mut last = LAST_SCAN.lock().unwrap();
+@@ -461,7 +535,11 @@ fn spawn_port_scan(tx: UnboundedSender<config::DiscoveryPeer>) {
+     if targets.is_empty() {
+         return;
+     }
+-    log::info!("port scan: {} objetivos en el puerto {}", targets.len(), port);
++    log::info!(
++        "port scan: {} objetivos en el puerto {}",
++        targets.len(),
++        port
++    );
+     let queue = std::sync::Arc::new(std::sync::Mutex::new(targets));
+     let workers = 128usize;
+     for _ in 0..workers {
+@@ -489,6 +567,3 @@ fn spawn_port_scan(tx: UnboundedSender<config::DiscoveryPeer>) {
+         });
+     }
+ }
+-
+-#[cfg(target_os = "ios")]
+-fn spawn_port_scan(_tx: UnboundedSender<config::DiscoveryPeer>) {}
+diff --git a/engine/rustdesk/src/rendezvous_mediator.rs b/engine/rustdesk/src/rendezvous_mediator.rs
+index ecd2278..ded0012 100644
+--- a/engine/rustdesk/src/rendezvous_mediator.rs
++++ b/engine/rustdesk/src/rendezvous_mediator.rs
+@@ -140,8 +140,11 @@ impl RendezvousMediator {
+         });
+         #[cfg(target_os = "android")]
+         let start_lan_listening = true;
++        // remotedisplay: en modo serverless el descubrimiento LAN es la ÚNICA forma
++        // de encontrar el host, así que escuchar siempre (el server headless
++        // bundleado en Remote Display Server.app no cuenta como "instalado").
+         #[cfg(not(any(target_os = "android", target_os = "ios")))]
+-        let start_lan_listening = crate::platform::is_installed();
++        let start_lan_listening = crate::platform::is_installed() || is_serverless_lan();
+         if start_lan_listening {
+             std::thread::spawn(move || {
+                 allow_err!(super::lan::start_listening());

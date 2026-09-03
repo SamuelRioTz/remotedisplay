@@ -1,0 +1,103 @@
+diff --git a/engine/rustdesk/src/common.rs b/engine/rustdesk/src/common.rs
+index 2abbd99..d5938b1 100644
+--- a/engine/rustdesk/src/common.rs
++++ b/engine/rustdesk/src/common.rs
+@@ -581,6 +581,12 @@ impl Drop for CheckTestNatType {
+ }
+ 
+ pub fn test_nat_type() {
++    // remotedisplay: serverless (rendezvous → 127.0.0.1): no hay a quién preguntarle el
++    // NAT; sin esto el log se llena de "test nat: Failed to connect to 127.0.0.1:21116".
++    if crate::rendezvous_mediator::is_serverless_lan() {
++        Config::set_nat_type(NatType::SYMMETRIC as _);
++        return;
++    }
+     test_ipv6_sync();
+     use std::sync::atomic::{AtomicBool, Ordering};
+     std::thread::spawn(move || {
+@@ -1119,6 +1125,10 @@ pub fn get_local_option(key: &str) -> String {
+ }
+ 
+ pub fn get_audit_server(api: String, custom: String, typ: String) -> String {
++    // remotedisplay: sin servidor API en modo serverless → sin auditoría remota.
++    if crate::rendezvous_mediator::is_serverless_lan() {
++        return "".to_owned();
++    }
+     let url = get_api_server(api, custom);
+     if url.is_empty() || is_public(&url) {
+         return "".to_owned();
+diff --git a/engine/rustdesk/src/core_main.rs b/engine/rustdesk/src/core_main.rs
+index 1157420..c0f87b6 100644
+--- a/engine/rustdesk/src/core_main.rs
++++ b/engine/rustdesk/src/core_main.rs
+@@ -502,6 +502,19 @@ pub fn core_main() -> Option<Vec<String>> {
+                 println!("test-inject: before={:?} after={:?}", before, after);
+             }
+             return None;
++        } else if args[0] == "--check-perms" {
++            // remotedisplay: sonda de permisos TCC en un proceso FRESCO. macOS cachea
++            // CGPreflightScreenCaptureAccess por proceso: el --server que ya corre no
++            // ve un permiso recién concedido hasta reiniciarse, y la app UI tampoco.
++            // La app llama esto cada pocos segundos mientras falte setup y, si
++            // cambia, reinicia el motor (kickstart).
++            #[cfg(target_os = "macos")]
++            {
++                let acc = crate::platform::is_process_trusted(false);
++                let scr = crate::platform::is_can_screen_recording(false);
++                println!("{{\"accessibility\":{},\"screen\":{}}}", acc, scr);
++            }
++            return None;
+         } else if args[0] == "--set-lan-password" {
+             // remotedisplay: fija la contraseña permanente SIN el gate is_installed/root.
+             // El server serverless solo-LAN corre a nivel usuario (no como RustDesk.app
+diff --git a/engine/rustdesk/src/hbbs_http/sync.rs b/engine/rustdesk/src/hbbs_http/sync.rs
+index 1bb6194..911b576 100644
+--- a/engine/rustdesk/src/hbbs_http/sync.rs
++++ b/engine/rustdesk/src/hbbs_http/sync.rs
+@@ -37,6 +37,12 @@ pub fn signal_receiver() -> broadcast::Receiver<Vec<i32>> {
+ #[cfg(not(any(target_os = "ios")))]
+ fn start_hbbs_sync() -> broadcast::Sender<Vec<i32>> {
+     let (tx, _rx) = broadcast::channel::<Vec<i32>>(16);
++    // remotedisplay: SENDER es lazy y también lo inicializa `signal_receiver()` (cada
++    // conexión entrante), así que el gate de `start()` en rendezvous_mediator no
++    // alcanzaba: en serverless no arrancar el heartbeat/sysinfo a 127.0.0.1:21114.
++    if crate::rendezvous_mediator::is_serverless_lan() {
++        return tx;
++    }
+     std::thread::spawn(move || start_hbbs_sync_async());
+     return tx;
+ }
+diff --git a/engine/rustdesk/src/rendezvous_mediator.rs b/engine/rustdesk/src/rendezvous_mediator.rs
+index ded0012..0fa8ff0 100644
+--- a/engine/rustdesk/src/rendezvous_mediator.rs
++++ b/engine/rustdesk/src/rendezvous_mediator.rs
+@@ -851,7 +851,7 @@ impl RendezvousMediator {
+ 
+ // Serverless/LAN-only marker: this fork points the rendezvous server at loopback
+ // instead of a real server. Detect that so we can skip all rendezvous traffic.
+-fn is_serverless_lan() -> bool {
++pub fn is_serverless_lan() -> bool {
+     let servers = Config::get_rendezvous_servers();
+     if servers.is_empty() {
+         return true;
+diff --git a/engine/rustdesk/src/server.rs b/engine/rustdesk/src/server.rs
+index 89a17a9..a36dd05 100644
+--- a/engine/rustdesk/src/server.rs
++++ b/engine/rustdesk/src/server.rs
+@@ -722,6 +722,16 @@ async fn wait_initial_config_sync() {
+ 
+ #[cfg(any(target_os = "macos", target_os = "linux"))]
+ async fn sync_and_watch_config_dir(sync_done_tx: Option<tokio::sync::oneshot::Sender<()>>) {
++    // remotedisplay: en modo serverless el motor corre solo como LaunchAgent de usuario,
++    // sin el `--service` root con el que sincroniza la config → 30 reintentos de
++    // "failed to connect to ipc_service" y 3 s de espera al arrancar, para nada.
++    if crate::rendezvous_mediator::is_serverless_lan() {
++        if let Some(tx) = sync_done_tx {
++            let _ = tx.send(());
++        }
++        log::info!("serverless: config sync with ipc_service skipped");
++        return;
++    }
+     let mut cfg0 = (Config::get(), Config2::get());
+     let mut synced = false;
+     let mut is_root_config_empty = false;

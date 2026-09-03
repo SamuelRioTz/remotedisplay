@@ -1,0 +1,16 @@
+rendezvous_server = '127.0.0.1'
+nat_type = 0
+serial = 0
+
+[options]
+custom-rendezvous-server = '127.0.0.1'
+relay-server = ''
+api-server = ''
+key = ''
+direct-server = 'Y'
+direct-access-port = '21118'
+enable-check-update = 'N'
+allow-auto-update = 'N'
+enable-lan-discovery = 'Y'
+approve-mode = 'password'
+verification-method = 'use-permanent-password'

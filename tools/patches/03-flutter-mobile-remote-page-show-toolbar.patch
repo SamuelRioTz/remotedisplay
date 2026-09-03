@@ -1,0 +1,226 @@
+diff --git a/engine/rustdesk/flutter/lib/mobile/pages/remote_page.dart b/engine/rustdesk/flutter/lib/mobile/pages/remote_page.dart
+index 8395f45..288b5c6 100644
+--- a/engine/rustdesk/flutter/lib/mobile/pages/remote_page.dart
++++ b/engine/rustdesk/flutter/lib/mobile/pages/remote_page.dart
+@@ -40,19 +40,48 @@ void _disableAndroidSoftKeyboard({bool? isKeyboardVisible}) {
+   }
+ }
+ 
++/// remotedisplay: control externo mínimo de la RemotePage móvil, para clientes
++/// que ocultan su barra (`showToolbar: false`) y ponen la suya.
++class MobileRemotePageController {
++  VoidCallback? openKeyboard;
++  VoidCallback? hideKeyboard;
++
++  /// Estado real del "modo teclado" (campo de texto activo + teclas
++  /// auxiliares), válido también con teclado físico (inset 0).
++  bool Function()? isKeyboardShown;
++
++  /// Fila de teclas auxiliares (Ctrl/Alt/Esc…): null = automático (con el
++  /// teclado), true/false = forzada visible/oculta, independiente del teclado.
++  void Function(bool?)? setKeyHelpOverride;
++  bool? Function()? keyHelpOverride;
++
++  /// Si la fila está visible ahora (automático u override).
++  bool Function()? isKeyHelpShown;
++}
++
+ class RemotePage extends StatefulWidget {
+   RemotePage(
+       {Key? key,
+       required this.id,
+       this.password,
+       this.isSharedPassword,
+-      this.forceRelay})
++      this.forceRelay,
++      this.showToolbar = true,
++      this.keyHelpHorizontal = false,
++      this.controller})
+       : super(key: key);
+ 
+   final String id;
+   final String? password;
+   final bool? isSharedPassword;
+   final bool? forceRelay;
++  // remotedisplay: como `showToolbar` de la RemotePage desktop — oculta la barra
++  // inferior, la ayuda de gestos y el botón flotante.
++  final bool showToolbar;
++  // remotedisplay: teclas auxiliares (Ctrl/Alt/Esc/Tab/flechas…) en UNA fila con
++  // scroll horizontal en vez del Wrap de 3 filas (tablets con teclado físico).
++  final bool keyHelpHorizontal;
++  final MobileRemotePageController? controller;
+ 
+   @override
+   State<RemotePage> createState() => _RemotePageState(id);
+@@ -61,6 +90,7 @@ class RemotePage extends StatefulWidget {
+ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+   Timer? _timer;
+   bool _showBar = !isWebDesktop;
++  bool? _keyHelpOverride; // remotedisplay: ver MobileRemotePageController
+   bool _showGestureHelp = false;
+   String _value = '';
+   Orientation? _currentOrientation;
+@@ -93,6 +123,15 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+   @override
+   void initState() {
+     super.initState();
++    widget.controller?.openKeyboard = openKeyboard;
++    widget.controller?.hideKeyboard = _hideSoftKeyboard;
++    widget.controller?.isKeyboardShown = () => _showEdit;
++    widget.controller?.setKeyHelpOverride = (v) {
++      if (mounted) setState(() => _keyHelpOverride = v);
++    };
++    widget.controller?.keyHelpOverride = () => _keyHelpOverride;
++    widget.controller?.isKeyHelpShown =
++        () => _keyHelpOverride ?? (_showEdit || _showGestureHelp);
+     gFFI.ffiModel.updateEventListener(sessionId, widget.id);
+     gFFI.start(
+       widget.id,
+@@ -266,8 +305,14 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+       _iosKeyboardWorkaroundTimer = null;
+       _timer?.cancel();
+       _timer = Timer(kMobileDelaySoftKeyboardFocus, () {
+-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+-            overlays: SystemUiOverlay.values);
++        // remotedisplay: ver _openKeyboardUnlocked — en iOS con toolbar propia la
++        // barra de estado la maneja el cliente (botón de pantalla completa).
++        // iOS reporta "teclado visible" también con teclado físico (barra de
++        // atajos), así que sin esto la iPad sale de pantalla completa.
++        if (widget.showToolbar || !isIOS) {
++          SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
++              overlays: SystemUiOverlay.values);
++        }
+         _mobileFocusNode.requestFocus();
+       });
+     }
+@@ -426,24 +471,44 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+       setState(() => _showEdit = true);
+       _timer?.cancel();
+       _timer = Timer(kMobileDelaySoftKeyboardFocus, () {
+-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+-            overlays: SystemUiOverlay.values);
++        // remotedisplay: en iOS con toolbar propia no salir de pantalla completa
++        // acá — con teclado físico (iPad) no aparece teclado virtual y nadie
++        // volvería a ocultar la barra. Si el teclado virtual sí aparece,
++        // onSoftKeyboardChanged(true) restaura la barra como siempre.
++        if (widget.showToolbar || !isIOS) {
++          SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
++              overlays: SystemUiOverlay.values);
++        }
+         _mobileFocusNode.requestFocus();
+       });
+     });
+   }
+ 
+-  Widget _bottomWidget() => _showGestureHelp
+-      ? getGestureHelp()
+-      : (_showBar && gFFI.ffiModel.pi.displays.isNotEmpty
+-          ? getBottomAppBar()
+-          : Offstage());
++  // remotedisplay: mismo comportamiento que el botón flotante con el teclado abierto.
++  void _hideSoftKeyboard() {
++    setState(() => _showEdit = false);
++    gFFI.invokeMethod("enable_soft_keyboard", false);
++    _mobileFocusNode.unfocus();
++    _physicalFocusNode.requestFocus();
++    // Volver a pantalla completa (con teclado físico no llega el
++    // onSoftKeyboardChanged(false) que normalmente lo hace).
++    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
++  }
++
++  Widget _bottomWidget() => !widget.showToolbar
++      ? Offstage()
++      : _showGestureHelp
++          ? getGestureHelp()
++          : (_showBar && gFFI.ffiModel.pi.displays.isNotEmpty
++              ? getBottomAppBar()
++              : Offstage());
+ 
+   @override
+   Widget build(BuildContext context) {
+     final keyboardIsVisible =
+         keyboardVisibilityController.isVisible && _showEdit;
+-    final showActionButton = !_showBar || keyboardIsVisible || _showGestureHelp;
++    final showActionButton = widget.showToolbar &&
++        (!_showBar || keyboardIsVisible || _showGestureHelp);
+ 
+     return WillPopScope(
+       onWillPop: () async {
+@@ -668,7 +733,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+             ),
+             KeyHelpTools(
+                 keyboardIsVisible: keyboardIsVisible,
+-                showGestureHelp: _showGestureHelp),
++                showGestureHelp: _showGestureHelp,
++                horizontal: widget.keyHelpHorizontal,
++                visibleOverride: _keyHelpOverride),
+             SizedBox(
+               width: 0,
+               height: 0,
+@@ -918,12 +985,19 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+ class KeyHelpTools extends StatefulWidget {
+   final bool keyboardIsVisible;
+   final bool showGestureHelp;
++  // remotedisplay: una sola fila con scroll horizontal (ver RemotePage.keyHelpHorizontal).
++  final bool horizontal;
++  // remotedisplay: null = automático; true/false = forzar visible/oculta.
++  final bool? visibleOverride;
+ 
+   /// need to show by external request, etc [keyboardIsVisible] or [changeTouchMode]
+   bool get requestShow => keyboardIsVisible || showGestureHelp;
+ 
+   KeyHelpTools(
+-      {required this.keyboardIsVisible, required this.showGestureHelp});
++      {required this.keyboardIsVisible,
++      required this.showGestureHelp,
++      this.horizontal = false,
++      this.visibleOverride});
+ 
+   @override
+   State<KeyHelpTools> createState() => _KeyHelpToolsState();
+@@ -980,7 +1054,8 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
+         inputModel.shift ||
+         inputModel.command;
+ 
+-    if (!_pin && !hasModifierOn && !widget.requestShow) {
++    final autoShow = _pin || hasModifierOn || widget.requestShow;
++    if (!(widget.visibleOverride ?? autoShow)) {
+       gFFI.cursorModel
+           .keyHelpToolsVisibilityChanged(null, widget.keyboardIsVisible);
+       return Offstage();
+@@ -1121,6 +1196,35 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
+     Future.delayed(Duration(milliseconds: 500), () {
+       _updateRect();
+     });
++    if (widget.horizontal) {
++      // remotedisplay: los SizedBox(width: 9999) son saltos de fila del Wrap;
++      // en modo horizontal se reemplazan por un separador chico.
++      Widget sep() => SizedBox(width: space * 3);
++      final items = (modifiers + keys + (_fn ? fn : []) + (_more ? more : []))
++          .map((w) => w is SizedBox ? sep() : w)
++          .toList();
++      return Container(
++          key: _key,
++          width: double.infinity,
++          color: Color(0xAA000000),
++          padding: EdgeInsets.only(
++              top: _keyboardVisibilityController.isVisible ? 24 : 4,
++              bottom: 8,
++              left: 8,
++              right: 8),
++          child: SingleChildScrollView(
++            scrollDirection: Axis.horizontal,
++            child: Row(
++              mainAxisSize: MainAxisSize.min,
++              children: [
++                for (var i = 0; i < items.length; i++) ...[
++                  if (i > 0) SizedBox(width: space),
++                  items[i],
++                ],
++              ],
++            ),
++          ));
++    }
+     return Container(
+         key: _key,
+         color: Color(0xAA000000),

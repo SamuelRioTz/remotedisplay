@@ -1,0 +1,15 @@
+# raíz del monorepo (engine/rustdesk/ tiene su propio .gitignore)
+*.log
+logs/
+server-mac/.build/
+client/build/
+tools/config.local.json
+tools/out/
+release/out/
+# artefactos locales
+client/android/app/src/main/jniLibs/
+client/android/.gradle/
+*.bundle
+
+# tooling local
+.claude/

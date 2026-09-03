@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>app.remotedisplay.server</string>
+    <key>CFBundleExecutable</key>
+    <string>RemoteDisplayServer</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleName</key>
+    <string>Remote Display Server</string>
+    <key>CFBundleDisplayName</key>
+    <string>Remote Display Server</string>
+    <!-- Solo CFBundleIconFile (icns clásico). CFBundleIconName es para íconos de
+         asset catalog (Assets.car) que este bundle NO tiene: en macOS 26 esa clave
+         hacía que Ajustes del Sistema renderizara el ícono como ruido de píxeles. -->
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleSupportedPlatforms</key>
+    <array>
+        <string>MacOSX</string>
+    </array>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Remote Display Server answers discovery from clients on your local network and accepts their direct connections.</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Remote Display — serverless LAN-only remote desktop.</string>
+</dict>
+</plist>

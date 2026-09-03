@@ -1,0 +1,94 @@
+diff --git a/engine/rustdesk/flutter/lib/mobile/pages/remote_page.dart b/engine/rustdesk/flutter/lib/mobile/pages/remote_page.dart
+index 288b5c6..565f6dc 100644
+--- a/engine/rustdesk/flutter/lib/mobile/pages/remote_page.dart
++++ b/engine/rustdesk/flutter/lib/mobile/pages/remote_page.dart
+@@ -96,6 +96,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+   Orientation? _currentOrientation;
+   final _uniqueKey = UniqueKey();
+   Timer? _iosKeyboardWorkaroundTimer;
++  Timer? _focusRestoreTimer;
+ 
+   final _blockableOverlayState = BlockableOverlayState();
+ 
+@@ -159,8 +160,20 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+       if (gFFI.recordingModel.start) {
+         showToast(translate('Automatically record outgoing sessions'));
+       }
+-      _disableAndroidSoftKeyboard(
+-          isKeyboardVisible: keyboardVisibilityController.isVisible);
++      // remotedisplay: este callback se re-dispara en cada reconexión (la lista
++      // solo se limpia en FFI.close). Con el teclado virtual activo,
++      // _disableAndroidSoftKeyboard bloquearía el IME de la ventana
++      // (FLAG_ALT_FOCUSABLE_IM) con _showEdit aún true y el teclado quedaría
++      // muerto hasta cerrar la sesión.
++      if (!_showEdit) {
++        _disableAndroidSoftKeyboard(
++            isKeyboardVisible: keyboardVisibilityController.isVisible);
++      }
++      // remotedisplay: los diálogos de reconexión ("Connecting...") roban el foco
++      // primario con un FocusScopeNode propio y nadie lo devuelve al
++      // descartarlos (no son rutas), dejando muertos el teclado físico Y el
++      // virtual. Restaurar el estado de teclado que había antes de la caída.
++      _restoreKeyboardFocus();
+     });
+     WidgetsBinding.instance.addObserver(this);
+ 
+@@ -182,6 +195,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+   @override
+   Future<void> dispose() async {
+     WidgetsBinding.instance.removeObserver(this);
++    // remotedisplay: cancelar antes de los awaits — dispara requestFocus y los
++    // FocusNode se destruyen más abajo, antes de los cancel() tardíos.
++    _focusRestoreTimer?.cancel();
+     // Close the session up-front. `gFFI.close()` below only calls `sessionClose`
+     // after several awaits (canvas save, image update, the `enable_soft_keyboard`
+     // platform call), so if the app is backgrounded while this page is disposing,
+@@ -221,9 +237,31 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+   void didChangeAppLifecycleState(AppLifecycleState state) {
+     if (state == AppLifecycleState.resumed) {
+       trySyncClipboard();
++      // remotedisplay: al volver de background el SO invalida la conexión IME del
++      // TextFormField oculto y el foco puede haber quedado fuera de la página
++      // (teclado muerto tras cambiar de app). Rehacer el foco según el modo.
++      _restoreKeyboardFocus();
+     }
+   }
+ 
++  // remotedisplay: restaura foco/IME tras background o reconexión. Un
++  // requestFocus() pelado no alcanza cuando el nodo cree que aún tiene el
++  // foco pero la conexión IME fue invalidada, así que se rehace el ciclo
++  // completo. El delay deja pasar el requestFocus diferido de los diálogos
++  // (CustomAlertDialog) para que el nuestro sea el último y gane.
++  void _restoreKeyboardFocus() {
++    _focusRestoreTimer?.cancel();
++    _focusRestoreTimer = Timer(const Duration(milliseconds: 200), () {
++      if (!mounted) return;
++      if (_showEdit) {
++        _openKeyboardUnlocked();
++      } else {
++        _physicalFocusNode.unfocus();
++        _physicalFocusNode.requestFocus();
++      }
++    });
++  }
++
+   // For client side
+   // When swithing from other app to this app, try to sync clipboard.
+   void trySyncClipboard() {
+@@ -604,6 +642,16 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+     return RawPointerMouseRegion(
+       cursor: ffiModel.keyboard ? SystemMouseCursors.none : MouseCursor.defer,
+       inputModel: inputModel,
++      // remotedisplay: como en la RemotePage desktop — si el foco quedó fuera de
++      // la página (p.ej. robado por un diálogo de reconexión), tocar el canvas
++      // lo repara en vez de dejar el teclado muerto.
++      onPointerDown: (_) {
++        if (_showEdit) {
++          if (!_mobileFocusNode.hasFocus) _mobileFocusNode.requestFocus();
++        } else if (!_physicalFocusNode.hasFocus) {
++          _physicalFocusNode.requestFocus();
++        }
++      },
+       // Disable RawKeyFocusScope before the connecting is established.
+       // The "Delete" key on the soft keyboard may be grabbed when inputting the password dialog.
+       child: gFFI.ffiModel.pi.isSet.isTrue

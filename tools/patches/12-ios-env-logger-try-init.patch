@@ -1,0 +1,17 @@
+diff --git a/engine/rustdesk/src/flutter_ffi.rs b/engine/rustdesk/src/flutter_ffi.rs
+index 0777443..4ab5038 100644
+--- a/engine/rustdesk/src/flutter_ffi.rs
++++ b/engine/rustdesk/src/flutter_ffi.rs
+@@ -69,7 +69,11 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
+     #[cfg(target_os = "ios")]
+     {
+         use hbb_common::env_logger::*;
+-        init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "debug"));
++        // remotedisplay: try_init en vez de init_from_env — el 2º engine Flutter
++        // (vista del monitor externo del iPad) re-entra aquí y init_from_env
++        // hace panic si el logger del proceso ya quedó inicializado.
++        let _ = Builder::from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "debug"))
++            .try_init();
+         crate::common::test_nat_type();
+     }
+     #[cfg(any(target_os = "android", target_os = "ios"))]

@@ -1,0 +1,104 @@
+diff --git a/libs/hbb_common b/libs/hbb_common
+--- a/libs/hbb_common
++++ b/libs/hbb_common
+@@ -1 +1 @@
+-Subproject commit 7e1c392c62d39c364127307cd408421dd5f8cfb0
++Subproject commit 7e1c392c62d39c364127307cd408421dd5f8cfb0-dirty
+diff --git a/src/common.rs b/src/common.rs
+index b875d54..2abbd99 100644
+--- a/src/common.rs
++++ b/src/common.rs
+@@ -939,6 +939,9 @@ pub fn is_modifier(evt: &KeyEvent) -> bool {
+ }
+ 
+ pub fn check_software_update() {
++    // remotedisplay: LAN-only build, never phone home
++    #[allow(unreachable_code)]
++    return;
+     if is_custom_client() {
+         return;
+     }
+diff --git a/src/core_main.rs b/src/core_main.rs
+index 6b437a9..53c1228 100644
+--- a/src/core_main.rs
++++ b/src/core_main.rs
+@@ -715,6 +715,12 @@ pub fn core_main() -> Option<Vec<String>> {
+                 crate::ui_interface::start_option_status_sync();
+                 crate::flutter::connection_manager::start_cm_no_ui();
+             }
++            #[cfg(not(feature = "flutter"))]
++            #[cfg(not(any(target_os = "android", target_os = "ios")))]
++            {
++                crate::ui_interface::start_option_status_sync();
++                headless_cm::start_cm_no_ui();
++            }
+             return None;
+         } else if args[0] == "--whiteboard" {
+             #[cfg(not(any(target_os = "android", target_os = "ios")))]
+@@ -992,3 +998,36 @@ fn is_quick_support_exe(exe: &str) -> bool {
+     let exe = exe.to_lowercase();
+     exe.contains("-qs-") || exe.contains("-qs.exe") || exe.contains("_qs.exe")
+ }
++
++// remotedisplay: connection manager headless para builds sin flutter (sin sciter).
++// Ejecuta la logica IPC del CM con un handler de UI no-op, para que las
++// sesiones funcionen sin ninguna ventana en el host.
++#[cfg(not(feature = "flutter"))]
++#[cfg(not(any(target_os = "android", target_os = "ios")))]
++mod headless_cm {
++    use crate::ui_cm_interface::{start_ipc, Client, ConnectionManager, InvokeUiCM};
++
++    #[derive(Clone)]
++    pub struct HeadlessHandler;
++
++    impl InvokeUiCM for HeadlessHandler {
++        fn add_connection(&self, client: &Client) {
++            hbb_common::log::info!("cm-no-ui: nueva conexion id={}", client.id);
++        }
++        fn remove_connection(&self, id: i32, close: bool) {
++            hbb_common::log::info!("cm-no-ui: conexion {} cerrada (close={})", id, close);
++        }
++        fn new_message(&self, _id: i32, _text: String) {}
++        fn change_theme(&self, _dark: String) {}
++        fn change_language(&self) {}
++        fn show_elevation(&self, _show: bool) {}
++        fn update_voice_call_state(&self, _client: &Client) {}
++        fn file_transfer_log(&self, _action: &str, _log: &str) {}
++    }
++
++    pub fn start_cm_no_ui() {
++        start_ipc(ConnectionManager {
++            ui_handler: HeadlessHandler,
++        });
++    }
++}
+diff --git a/src/server/connection.rs b/src/server/connection.rs
+index bdf9cba..2fb0609 100644
+--- a/src/server/connection.rs
++++ b/src/server/connection.rs
+@@ -3459,10 +3459,9 @@ impl Connection {
+                             self.toggle_privacy_mode(t).await;
+                         }
+                     }
+-                    Some(misc::Union::ChatMessage(c)) => {
+-                        self.send_to_cm(ipc::Data::ChatMessage { text: c.text });
+-                        self.chat_unanswered = true;
+-                        self.update_auto_disconnect_timer();
++                    Some(misc::Union::ChatMessage(_c)) => {
++                        // remotedisplay: chat deshabilitado en este fork
++                        log::info!("chat ignorado (deshabilitado en remotedisplay)");
+                     }
+                     Some(misc::Union::Option(o)) => {
+                         if self.authed_conn_type() == Some(AuthConnType::Remote) {
+@@ -5848,6 +5847,11 @@ async fn start_ipc(
+         #[allow(unused_mut)]
+         #[allow(unused_assignments)]
+         let mut args = vec!["--cm"];
++        #[cfg(all(target_os = "macos", not(feature = "flutter")))]
++        {
++            // remotedisplay: sin UI sciter, usar CM headless
++            args = vec!["--cm-no-ui"];
++        }
+         #[allow(unused_mut)]
+         #[cfg(target_os = "linux")]
+         let mut user = None;

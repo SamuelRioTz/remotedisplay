@@ -1,0 +1,52 @@
+name: remotedisplay_client
+description: Remote Display — cliente propio (UI nueva) sobre el motor flutter_hbb.
+publish_to: "none"
+version: 0.3.0+3
+
+environment:
+  sdk: '^3.1.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # El motor + toda la plomería de sesión (render, input, multiwindow) se reusa
+  # como librería. NO se toca engine/ desde acá.
+  flutter_hbb:
+    path: ../engine/rustdesk/flutter
+
+  # Lo unico que importo directo para armar mi App/home. Fuentes = las de
+  # flutter_hbb para evitar conflictos de resolucion.
+  get: ^4.6.5
+  bot_toast: ^4.0.3
+  provider: ^6.0.5
+  window_manager:
+    git:
+      url: https://github.com/rustdesk-org/window_manager
+  desktop_multi_window:
+    git:
+      url: https://github.com/rustdesk-org/rustdesk_desktop_multi_window
+  # Deep links en movil (rustdesk://connection/new/<host>?password=…) — misma
+  # fuente que flutter_hbb para no duplicar la resolucion.
+  uni_links:
+    git:
+      url: https://github.com/rustdesk-org/uni_links
+      path: uni_links
+      ref: f416118d843a7e9ed117c7bb7bdc2deda5a9e86f
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.2
+
+# Mismos overrides que flutter_hbb (flutter_localizations arrastra intl).
+dependency_overrides:
+  intl: ^0.19.0
+  # Android: el engine lo pinea a 2.0.17; versiones nuevas compilan contra
+  # android-35 y el aapt2 de AGP 7.3.1 no puede leer ese android.jar.
+  flutter_plugin_android_lifecycle: 2.0.17
+
+flutter:
+  uses-material-design: true
