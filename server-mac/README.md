@@ -34,11 +34,15 @@ window doesn't close the app or the engine.
 
 1. First launch → the window opens: *Running · 2 permissions missing*, Setup "3 to do".
 2. **Grant… Screen Recording**: `CGRequestScreenCaptureAccess()` adds the app to the list and
-   Settings opens → *Screen & System Audio Recording*; the toggle asks for the admin password;
-   macOS offers "Quit & Reopen / Later" → *Later* is enough: the app detects the permission with a
-   probe in a fresh process (`remotedisplayd --check-perms`; TCC caches Screen Recording per
-   process) and restarts the engine on its own.
-3. **Grant… Accessibility**: Settings → *Accessibility*; toggle + admin password. No restart needed.
+   macOS shows its own dialog with *Open System Settings* → *Screen & System Audio Recording*;
+   the toggle asks for the admin password; macOS offers "Quit & Reopen / Later" → *Later* is
+   enough: the app detects the permission with a probe in a fresh process
+   (`remotedisplayd --check-perms`; TCC caches Screen Recording per process) and restarts the
+   engine on its own. The app does NOT open Settings itself on the first tap (it used to, on top
+   of the dialog, which was redundant); macOS shows the dialog at most once per launch and never
+   again after a Deny, so a second *Grant…* tap opens the Settings panel directly.
+3. **Grant… Accessibility**: same two-step behaviour; the dialog's *Open System Settings* lands
+   on *Accessibility*; toggle + admin password. No restart needed.
 4. **Set… Permanent password** (min. 6 characters) → `remotedisplayd --set-lan-password` over IPC.
 5. First client connection: macOS 26 shows *"remotedisplayd is requesting to bypass the
    system private window picker and directly access your screen and audio"* → **Allow**. This is

@@ -156,6 +156,7 @@ final class ServerController {
         let justGranted = (accessibilityOK && !prevAccessibility) || (screenOK && !prevScreen)
         prevScreen = screenOK
         prevAccessibility = accessibilityOK
+        forgetPromptsForGrantedPermissions()
         if justGranted && serviceRunning && !firstRefresh {
             restartEngine()
         }
@@ -415,18 +416,42 @@ final class ServerController {
         return p.terminationStatus
     }
 
-    // MARK: - Permissions (open panels / trigger prompts from the app)
+    // MARK: - Permissions
+
+    // The first tap asks macOS, whose own dialog offers "Open System Settings" and
+    // adds the app to the permission's list. Opening Settings at the same time put
+    // two things on screen for one action. macOS shows that dialog once and never
+    // again after it was answered (not even in a later launch), so once we have
+    // asked, a tap while the permission is still missing opens the exact Settings
+    // panel instead. The flag is cleared when the permission shows up as granted.
+    private static let screenPromptedKey = "screenRecordingPrompted"
+    private static let accessibilityPromptedKey = "accessibilityPrompted"
 
     func grantScreenRecording() {
-        NSLog("[remotedisplay] grantScreenRecording tapped")
-        Permissions.requestScreenRecording()
-        Permissions.openScreenRecordingSettings()
+        let prompted = UserDefaults.standard.bool(forKey: Self.screenPromptedKey)
+        NSLog("[remotedisplay] grantScreenRecording tapped (prompted before: %d)", prompted ? 1 : 0)
+        if prompted {
+            Permissions.openScreenRecordingSettings()
+        } else {
+            UserDefaults.standard.set(true, forKey: Self.screenPromptedKey)
+            Permissions.requestScreenRecording()
+        }
     }
 
     func grantAccessibility() {
-        NSLog("[remotedisplay] grantAccessibility tapped")
-        Permissions.requestAccessibility()
-        Permissions.openAccessibilitySettings()
+        let prompted = UserDefaults.standard.bool(forKey: Self.accessibilityPromptedKey)
+        NSLog("[remotedisplay] grantAccessibility tapped (prompted before: %d)", prompted ? 1 : 0)
+        if prompted {
+            Permissions.openAccessibilitySettings()
+        } else {
+            UserDefaults.standard.set(true, forKey: Self.accessibilityPromptedKey)
+            Permissions.requestAccessibility()
+        }
+    }
+
+    private func forgetPromptsForGrantedPermissions() {
+        if screenOK { UserDefaults.standard.removeObject(forKey: Self.screenPromptedKey) }
+        if accessibilityOK { UserDefaults.standard.removeObject(forKey: Self.accessibilityPromptedKey) }
     }
 
     // MARK: - Open at login

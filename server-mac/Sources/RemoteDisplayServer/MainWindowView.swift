@@ -89,7 +89,7 @@ struct MainWindowView: View {
             }
         } footer: {
             if !c.screenOK || !c.accessibilityOK {
-                Text("Permissions are granted in System Settings → Privacy & Security. The engine restarts automatically once granted.")
+                Text("Grant… asks macOS; choose “Open System Settings” in its dialog and turn on Remote Display Server. If no dialog appears, tap Grant… again to open the Settings panel. The engine restarts automatically once granted.")
             }
         }
     }
