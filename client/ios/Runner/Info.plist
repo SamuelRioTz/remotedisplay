@@ -30,10 +30,10 @@
 			<key>CFBundleURLIconFile</key>
 			<string></string>
 			<key>CFBundleURLName</key>
-			<string>com.carriez.rustdesk</string>
+			<string>app.remotedisplay.client</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>rustdesk</string>
+				<string>remotedisplay</string>
 			</array>
 		</dict>
 	</array>
@@ -46,7 +46,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access to scan QR codes</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Remote Display se conecta a tus equipos por la red local (sin servidores externos).</string>
+	<string>Remote Display connects to your computers on the local network (no external servers).</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs photo library access to get QR codes from image</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

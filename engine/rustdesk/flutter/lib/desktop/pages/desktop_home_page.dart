@@ -60,9 +60,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    // remotedisplay: home propio (UI moderna). El viejo layout de RustDesk
-    // (buildLeftPane/buildRightPane) queda disponible pero sin usar.
-    return _buildBlock(child: const RemotedeskHome());
+    // remotedisplay: our own home (modern UI). RustDesk's old layout
+    // (buildLeftPane/buildRightPane) remains available but unused.
+    return _buildBlock(child: const RemoteDisplayHome());
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -85,7 +85,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         child: loadLogo(),
       ),
       buildTip(context),
-      // remotedisplay: sistema de IDs eliminado (solo IP directa + descubrimiento LAN)
+      // remotedisplay: ID system removed (direct IP + LAN discovery only)
       FutureBuilder<Widget>(
         future: Future.value(
             Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
@@ -106,7 +106,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ),
       buildPluginEntry(),
     ];
-    // remotedisplay: OnlineStatusWidget (estado del servidor de ID / "Not ready") eliminado
+    // remotedisplay: OnlineStatusWidget (ID server status / "Not ready") removed
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
@@ -394,8 +394,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           ),
           if (!isOutgoingOnly)
             Text(
-              "Modo solo-LAN. Otros equipos te controlan por IP directa "
-              "en esta red (puerto 21118), sin ID ni servidor.",
+              "LAN-only mode. Other devices control you via direct IP "
+              "on this network (port 21118), with no ID or server.",
               overflow: TextOverflow.clip,
               style: Theme.of(context).textTheme.bodySmall,
             ),

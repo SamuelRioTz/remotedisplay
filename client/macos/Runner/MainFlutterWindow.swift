@@ -37,10 +37,10 @@ class RelativeMouseState {
 
 class MainFlutterWindow: NSWindow {
     override func awakeFromNib() {
-        // remotedisplay: cliente SOLO controlador — sin esto, core_main arranca
-        // un host completo (listeners 2111x + responde el discovery LAN)
-        // cuando no encuentra un server ya corriendo (parche 15 del engine).
-        setenv("REMOTEDESK_NO_SERVER", "1", 1)
+        // remotedisplay: controller-ONLY client — without this, core_main
+        // starts a full host (2111x listeners + responds to LAN discovery)
+        // when it doesn't find a server already running (engine patch 15).
+        setenv("REMOTEDISPLAY_NO_SERVER", "1", 1)
         rustdesk_core_main();
         let flutterViewController = FlutterViewController.init()
         let windowFrame = self.frame

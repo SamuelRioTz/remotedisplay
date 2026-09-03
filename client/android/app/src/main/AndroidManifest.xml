@@ -46,7 +46,7 @@
             android:name=".InputService"
             android:enabled="true"
             android:exported="false"
-            android:label="RustDesk Input"
+            android:label="Remote Display Input"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -76,13 +76,13 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="rustdesk" />
+                <data android:scheme="remotedisplay" />
             </intent-filter>
         </activity>
 
-        <!-- remotedisplay: trackpad en la pantalla del telefono (modo escritorio).
-             taskAffinity propia para poder vivir en el display del telefono
-             mientras MainActivity sigue en el monitor externo. -->
+        <!-- remotedisplay: trackpad on the phone screen (desktop mode).
+             Its own taskAffinity so it can live on the phone's display
+             while MainActivity stays on the external monitor. -->
         <activity
             android:name=".TrackpadActivity"
             android:exported="true"

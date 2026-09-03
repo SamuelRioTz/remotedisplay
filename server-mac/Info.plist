@@ -12,9 +12,9 @@
     <string>Remote Display Server</string>
     <key>CFBundleDisplayName</key>
     <string>Remote Display Server</string>
-    <!-- Solo CFBundleIconFile (icns clásico). CFBundleIconName es para íconos de
-         asset catalog (Assets.car) que este bundle NO tiene: en macOS 26 esa clave
-         hacía que Ajustes del Sistema renderizara el ícono como ruido de píxeles. -->
+    <!-- Only CFBundleIconFile (classic icns). CFBundleIconName is for asset
+         catalog icons (Assets.car), which this bundle does NOT have: on macOS 26 that
+         key made System Settings render the icon as pixel noise. -->
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleSupportedPlatforms</key>
@@ -24,7 +24,7 @@
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.0.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSPrincipalClass</key>
@@ -36,6 +36,6 @@
     <key>NSLocalNetworkUsageDescription</key>
     <string>Remote Display Server answers discovery from clients on your local network and accepts their direct connections.</string>
     <key>NSHumanReadableCopyright</key>
-    <string>Remote Display — serverless LAN-only remote desktop.</string>
+    <string>Copyright © 2026 Samuel Rioja. Licensed under AGPL-3.0. Based on RustDesk.</string>
 </dict>
 </plist>

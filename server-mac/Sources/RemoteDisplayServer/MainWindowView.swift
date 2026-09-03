@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Ventana principal: TODA la configuración y el estado, estilo Ajustes
-/// (Form agrupado). Qué está listo, qué falta y cómo conectarse.
+/// Main window: ALL the configuration and status, Settings-app style
+/// (grouped Form). What's ready, what's missing, and how to connect.
 struct MainWindowView: View {
     @Environment(ServerController.self) private var c
     @State private var showPasswordSheet = false
@@ -204,6 +204,18 @@ struct MainWindowView: View {
     private var aboutSection: some View {
         Section("About") {
             HStack { Text("Engine"); Spacer(); Text(c.engineVersion).foregroundStyle(.secondary) }
+            HStack {
+                Text("License")
+                Spacer()
+                Text("AGPL-3.0 · based on RustDesk").foregroundStyle(.secondary)
+            }
+            HStack {
+                Text("Source code")
+                Spacer()
+                Link("github.com/SamuelRioTz/remotedisplay",
+                     destination: URL(string: "https://github.com/SamuelRioTz/remotedisplay")!)
+                    .controlSize(.small)
+            }
             HStack {
                 Text("Logs")
                 Spacer()

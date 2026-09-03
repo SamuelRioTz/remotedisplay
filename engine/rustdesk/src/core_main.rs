@@ -45,11 +45,11 @@ pub fn core_main() -> Option<Vec<String>> {
     let mut _is_run_as_system = false;
     let mut _is_quick_support = false;
     let mut _is_flutter_invoke_new_connection = false;
-    // remotedisplay: los CLIENTES arrancan con REMOTEDESK_NO_SERVER=1 (lo setea
-    // su runner nativo antes de core_main) — nunca convertirse en host: el
-    // único server es Remote Display Server (remotedisplayd). Equivale a lanzar con
-    // el flag --no-server, que el usuario no puede garantizar en cada arranque.
-    let mut no_server = std::env::var("REMOTEDESK_NO_SERVER").map_or(false, |v| v == "1");
+    // remotedisplay: CLIENTS start up with REMOTEDISPLAY_NO_SERVER=1 (set by
+    // their native runner before core_main) — never becoming a host: the
+    // only server is Remote Display Server (remotedisplayd). Equivalent to launching with
+    // the --no-server flag, which the user can't guarantee on every launch.
+    let mut no_server = std::env::var("REMOTEDISPLAY_NO_SERVER").map_or(false, |v| v == "1");
     let mut arg_exe = Default::default();
     for arg in std::env::args() {
         if i == 0 {
@@ -420,9 +420,9 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             #[cfg(all(target_os = "macos", not(feature = "flutter")))]
             {
-                // remotedisplay: el MOTOR escribe su estado REAL de permisos a un
-                // archivo, para que la UI muestre lo que el motor de verdad tiene
-                // (no lo que la app cree por su propia identidad). Fuente de verdad.
+                // remotedisplay: the ENGINE writes its REAL permission state to a
+                // file, so the UI shows what the engine actually has
+                // (not what the app assumes based on its own identity). Source of truth.
                 std::thread::spawn(|| loop {
                     let acc = crate::platform::is_process_trusted(false);
                     let scr = crate::platform::is_can_screen_recording(false);
@@ -442,20 +442,20 @@ pub fn core_main() -> Option<Vec<String>> {
                     }
                     std::thread::sleep(std::time::Duration::from_secs(2));
                 });
-                // remotedisplay: TODO el input en macOS (mouse/teclado) se despacha a
-                // `QUEUE = Queue::main()` (la cola del hilo principal). La versión
-                // Flutter la bombea corriendo el tray en el hilo principal; como aquí
-                // NO hay tray, hay que correr el run loop del hilo principal para
-                // drenar esa cola — si no, los eventos se encolan pero la inyeccion
-                // (handle_mouse_/handle_key_) NUNCA se ejecuta.
+                // remotedisplay: ALL input on macOS (mouse/keyboard) is dispatched to
+                // `QUEUE = Queue::main()` (the main thread's queue). The Flutter
+                // version pumps it by running the tray on the main thread; since here
+                // there's NO tray, the main thread's run loop has to be run to
+                // drain that queue — otherwise events get queued but the injection
+                // (handle_mouse_/handle_key_) NEVER runs.
                 std::thread::spawn(move || crate::start_server(true, false));
-                // remotedisplay: NO un CFRunLoopRun pelado — CoreGraphics entrega las
-                // notificaciones de reconfiguracion de displays por el event loop de
-                // AppKit; sin bombearlo, la lista de displays del proceso queda
-                // congelada tras una transaccion de espejo (main dinamico) y los
-                // virtuales creados despues no se anuncian al cliente. Un
-                // NSApplication "Prohibited" (sin Dock ni menu) corriendo [NSApp run]
-                // drena tambien la cola principal de GCD (input) — ver macos.mm.
+                // remotedisplay: NOT a bare CFRunLoopRun — CoreGraphics delivers display
+                // reconfiguration notifications through AppKit's event loop;
+                // without pumping it, the process's display list stays
+                // frozen after a mirror transaction (dynamic main), and
+                // virtuals created afterward are never announced to the client. An
+                // NSApplication "Prohibited" (no Dock, no menu) running [NSApp run]
+                // also drains the GCD main queue (input) — see macos.mm.
                 extern "C" {
                     fn MacRunHeadlessAppLoop();
                 }
@@ -500,8 +500,8 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             return None;
         } else if args[0] == "--test-inject" {
-            // remotedisplay: prueba autocontenida de inyeccion de mouse (enigo).
-            // Mueve el cursor a 400,400 y reporta antes/despues. Sin cliente.
+            // remotedisplay: self-contained mouse injection test (enigo).
+            // Moves the cursor to 400,400 and reports before/after. No client involved.
             #[cfg(target_os = "macos")]
             {
                 use enigo::{Enigo, MouseControllable};
@@ -514,11 +514,11 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             return None;
         } else if args[0] == "--check-perms" {
-            // remotedisplay: sonda de permisos TCC en un proceso FRESCO. macOS cachea
-            // CGPreflightScreenCaptureAccess por proceso: el --server que ya corre no
-            // ve un permiso recién concedido hasta reiniciarse, y la app UI tampoco.
-            // La app llama esto cada pocos segundos mientras falte setup y, si
-            // cambia, reinicia el motor (kickstart).
+            // remotedisplay: TCC permission probe in a FRESH process. macOS caches
+            // CGPreflightScreenCaptureAccess per process: the already-running --server
+            // doesn't see a newly granted permission until it restarts, and neither does the UI app.
+            // The app calls this every few seconds while setup is incomplete and, if
+            // it changes, restarts the engine (kickstart).
             #[cfg(target_os = "macos")]
             {
                 let acc = crate::platform::is_process_trusted(false);
@@ -527,10 +527,10 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             return None;
         } else if args[0] == "--set-lan-password" {
-            // remotedisplay: fija la contraseña permanente SIN el gate is_installed/root.
-            // El server serverless solo-LAN corre a nivel usuario (no como RustDesk.app
-            // instalado), así que --password no sirve; esto habla con el --server en
-            // ejecución por IPC (mismo usuario) y aplica/persiste la contraseña.
+            // remotedisplay: sets the permanent password WITHOUT the is_installed/root gate.
+            // The serverless LAN-only server runs at the user level (not as an installed
+            // RustDesk.app), so --password doesn't work; this talks to the running
+            // --server over IPC (same user) and applies/persists the password.
             if !is_cli_setting_change_disabled()
                 && !config::Config::is_disable_change_permanent_password()
                 && args.len() == 2
@@ -1090,9 +1090,9 @@ fn is_quick_support_exe(exe: &str) -> bool {
     exe.contains("-qs-") || exe.contains("-qs.exe") || exe.contains("_qs.exe")
 }
 
-// remotedisplay: connection manager headless para builds sin flutter (sin sciter).
-// Ejecuta la logica IPC del CM con un handler de UI no-op, para que las
-// sesiones funcionen sin ninguna ventana en el host.
+// remotedisplay: headless connection manager for builds without flutter (no sciter).
+// Runs the CM's IPC logic with a no-op UI handler, so
+// sessions work without any window on the host.
 #[cfg(not(feature = "flutter"))]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod headless_cm {
@@ -1103,10 +1103,10 @@ mod headless_cm {
 
     impl InvokeUiCM for HeadlessHandler {
         fn add_connection(&self, client: &Client) {
-            hbb_common::log::info!("cm-no-ui: nueva conexion id={}", client.id);
+            hbb_common::log::info!("cm-no-ui: new connection id={}", client.id);
         }
         fn remove_connection(&self, id: i32, close: bool) {
-            hbb_common::log::info!("cm-no-ui: conexion {} cerrada (close={})", id, close);
+            hbb_common::log::info!("cm-no-ui: connection {} closed (close={})", id, close);
         }
         fn new_message(&self, _id: i32, _text: String) {}
         fn change_theme(&self, _dark: String) {}

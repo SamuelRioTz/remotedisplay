@@ -1,27 +1,27 @@
-// remotedisplay: home propio del cliente — UI moderna sobre el motor probado.
-// Reusa connect() y las vistas de peers (descubrimiento LAN/Tailscale + recientes,
-// con su menú de SimpleDisplay). No hay IDs, cuentas ni servidores: solo IP directa.
+// remotedisplay: the client's own home — modern UI on top of the proven engine.
+// Reuses connect() and the peer views (LAN/Tailscale discovery + recents,
+// with its SimpleDisplay menu). There are no IDs, accounts, or servers: just direct IP.
 //
-// Diseño: sistema de espaciado de 8px, jerarquía tipográfica clara, dark-aware,
-// hover states y un indicador de escaneo animado (feedback de "vivo").
+// Design: 8px spacing system, clear typographic hierarchy, dark-aware,
+// hover states, and an animated scanning indicator ("alive" feedback).
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 
-// Escala de espaciado (múltiplos de 8, base de la mayoría de design systems).
+// Spacing scale (multiples of 8, the base of most design systems).
 const double _xs = 4, _sm = 8, _md = 16, _lg = 24, _xl = 32;
 const _accent = MyTheme.accent;
 
-class RemotedeskHome extends StatefulWidget {
-  const RemotedeskHome({Key? key}) : super(key: key);
+class RemoteDisplayHome extends StatefulWidget {
+  const RemoteDisplayHome({Key? key}) : super(key: key);
 
   @override
-  State<RemotedeskHome> createState() => _RemotedeskHomeState();
+  State<RemoteDisplayHome> createState() => _RemoteDisplayHomeState();
 }
 
-class _RemotedeskHomeState extends State<RemotedeskHome> {
+class _RemoteDisplayHomeState extends State<RemoteDisplayHome> {
   final _ipCtrl = TextEditingController();
   final _pwCtrl = TextEditingController();
   final _ipFocus = FocusNode();
@@ -91,7 +91,7 @@ class _RemotedeskHomeState extends State<RemotedeskHome> {
                       height: 1.1,
                       color: titleColor)),
               const SizedBox(height: _xs / 2),
-              Text('Red local · sin servidores',
+              Text('Local network · no servers',
                   style: TextStyle(
                       fontSize: 13, color: Colors.grey.withOpacity(0.8))),
             ],
@@ -116,7 +116,7 @@ class _RemotedeskHomeState extends State<RemotedeskHome> {
               offset: const Offset(0, 8)),
         ],
       ),
-      // Filo de acento arriba: peso visual sin ruido.
+      // Accent edge on top: visual weight without noise.
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -136,7 +136,7 @@ class _RemotedeskHomeState extends State<RemotedeskHome> {
                 Row(children: [
                   const Icon(Icons.bolt_rounded, size: 18, color: _accent),
                   const SizedBox(width: _sm - 2),
-                  Text('Conectar a un equipo',
+                  Text('Connect to a computer',
                       style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -152,7 +152,7 @@ class _RemotedeskHomeState extends State<RemotedeskHome> {
                       child: _field(
                         controller: _ipCtrl,
                         focus: _ipFocus,
-                        hint: 'IP  (ej. 192.168.1.117)',
+                        hint: 'IP  (e.g. 192.168.1.117)',
                         icon: Icons.dns_rounded,
                         onSubmit: () => _connect(),
                       ),
@@ -162,7 +162,7 @@ class _RemotedeskHomeState extends State<RemotedeskHome> {
                       flex: 2,
                       child: _field(
                         controller: _pwCtrl,
-                        hint: 'Contraseña',
+                        hint: 'Password',
                         icon: Icons.lock_outline_rounded,
                         obscure: true,
                         onSubmit: () => _connect(),
@@ -177,13 +177,13 @@ class _RemotedeskHomeState extends State<RemotedeskHome> {
                   children: [
                     _quietButton(
                       icon: Icons.folder_open_rounded,
-                      label: 'Transferir archivos',
+                      label: 'Transfer files',
                       onTap: _connecting
                           ? null
                           : () => _connect(fileTransfer: true),
                     ),
                     const Spacer(),
-                    Text('Enter para conectar',
+                    Text('Press Enter to connect',
                         style: TextStyle(
                             fontSize: 11,
                             color: Colors.grey.withOpacity(0.6))),
@@ -252,7 +252,7 @@ class _RemotedeskHomeState extends State<RemotedeskHome> {
             : Row(mainAxisSize: MainAxisSize.min, children: const [
                 Icon(Icons.login_rounded, size: 18),
                 SizedBox(width: _sm),
-                Text('Conectar', style: TextStyle(fontWeight: FontWeight.w600)),
+                Text('Connect', style: TextStyle(fontWeight: FontWeight.w600)),
               ]),
       ),
     );
@@ -283,7 +283,7 @@ class _RemotedeskHomeState extends State<RemotedeskHome> {
             flex: 3,
             child: _panel(
               context,
-              title: 'PCs en tu red',
+              title: 'PCs on your network',
               icon: Icons.radar_rounded,
               trailing: const _ScanPulse(),
               child: DiscoveredPeersView(
@@ -296,7 +296,7 @@ class _RemotedeskHomeState extends State<RemotedeskHome> {
             flex: 2,
             child: _panel(
               context,
-              title: 'Recientes',
+              title: 'Recent',
               icon: Icons.history_rounded,
               child: RecentPeersView(
                 menuPadding: const EdgeInsets.symmetric(horizontal: _xs),
@@ -334,9 +334,9 @@ class _RemotedeskHomeState extends State<RemotedeskHome> {
   }
 }
 
-/// Indicador de escaneo: punto pulsante + texto, comunica "vivo" sin bloquear.
-/// (Investigación UX: nunca dejar la lista en silencio; un pulso mantiene la
-/// percepción de progreso durante el descubrimiento continuo.)
+/// Scanning indicator: pulsing dot + text, communicates "alive" without blocking.
+/// (UX research: never leave the list silent; a pulse maintains the
+/// perception of progress during continuous discovery.)
 class _ScanPulse extends StatefulWidget {
   const _ScanPulse({Key? key}) : super(key: key);
   @override
@@ -374,7 +374,7 @@ class _ScanPulseState extends State<_ScanPulse>
         ),
       ),
       const SizedBox(width: _sm - 2),
-      Text('Escaneando LAN y Tailscale',
+      Text('Scanning LAN and Tailscale',
           style: TextStyle(fontSize: 12, color: Colors.grey.withOpacity(0.75))),
     ]);
   }
@@ -413,7 +413,7 @@ class _SideRail extends StatelessWidget {
           const Spacer(),
           _RailIcon(
             icon: Icons.settings_rounded,
-            tooltip: 'Ajustes',
+            tooltip: 'Settings',
             onTap: () {
               if (DesktopSettingPage.tabKeys.isNotEmpty) {
                 DesktopSettingPage.switch2page(DesktopSettingPage.tabKeys[0]);
@@ -427,7 +427,7 @@ class _SideRail extends StatelessWidget {
   }
 }
 
-/// Icono del rail con hover state (feedback en desktop).
+/// Rail icon with hover state (desktop feedback).
 class _RailIcon extends StatefulWidget {
   final IconData icon;
   final String tooltip;

@@ -50,10 +50,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     argument.erase(argument.find_last_not_of(" \n\r\t"));
   }
 
-  // remotedisplay: cliente SOLO controlador — sin esto, core_main arranca un
-  // host completo (listeners 2111x + responde el discovery LAN) cuando no
-  // encuentra un server ya corriendo (parche 15 del engine).
-  _putenv_s("REMOTEDESK_NO_SERVER", "1");
+  // remotedisplay: controller-ONLY client — without this, core_main starts
+  // a full host (2111x listeners + responds to LAN discovery) when it
+  // doesn't find a server already running (engine patch 15).
+  _putenv_s("REMOTEDISPLAY_NO_SERVER", "1");
 
   int args_len = 0;
   char** c_args = rustdesk_core_main(&args_len);

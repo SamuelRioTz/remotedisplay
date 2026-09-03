@@ -1,7 +1,7 @@
 name: remotedisplay_client
-description: Remote Display — cliente propio (UI nueva) sobre el motor flutter_hbb.
+description: Remote Display — our own client (new UI) on top of the flutter_hbb engine.
 publish_to: "none"
-version: 0.3.0+3
+version: 1.0.0+1
 
 environment:
   sdk: '^3.1.0'
@@ -12,24 +12,26 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
-  # El motor + toda la plomería de sesión (render, input, multiwindow) se reusa
-  # como librería. NO se toca engine/ desde acá.
+  # The engine + all the session plumbing (render, input, multiwindow) is
+  # reused as a library. engine/ is NOT touched from here.
   flutter_hbb:
     path: ../engine/rustdesk/flutter
 
-  # Lo unico que importo directo para armar mi App/home. Fuentes = las de
-  # flutter_hbb para evitar conflictos de resolucion.
+  # The only ones I import directly to build my App/home. Sources = the same
+  # as flutter_hbb's to avoid resolution conflicts.
   get: ^4.6.5
   bot_toast: ^4.0.3
   provider: ^6.0.5
+  # "Source code" link on the home screen (AGPL §13); same version as flutter_hbb.
+  url_launcher: ^6.3.1
   window_manager:
     git:
       url: https://github.com/rustdesk-org/window_manager
   desktop_multi_window:
     git:
       url: https://github.com/rustdesk-org/rustdesk_desktop_multi_window
-  # Deep links en movil (rustdesk://connection/new/<host>?password=…) — misma
-  # fuente que flutter_hbb para no duplicar la resolucion.
+  # Deep links on mobile (remotedisplay://connection/new/<host>?password=…) — same
+  # source as flutter_hbb's to avoid duplicating the resolution.
   uni_links:
     git:
       url: https://github.com/rustdesk-org/uni_links
@@ -41,11 +43,11 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^2.0.2
 
-# Mismos overrides que flutter_hbb (flutter_localizations arrastra intl).
+# Same overrides as flutter_hbb (flutter_localizations pulls in intl).
 dependency_overrides:
   intl: ^0.19.0
-  # Android: el engine lo pinea a 2.0.17; versiones nuevas compilan contra
-  # android-35 y el aapt2 de AGP 7.3.1 no puede leer ese android.jar.
+  # Android: the engine pins it to 2.0.17; newer versions compile against
+  # android-35 and AGP 7.3.1's aapt2 can't read that android.jar.
   flutter_plugin_android_lifecycle: 2.0.17
 
 flutter:

@@ -9,16 +9,17 @@ import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:uni_links/uni_links.dart' show getInitialLink, uriLinkStream;
+import 'package:url_launcher/url_launcher.dart' show LaunchMode, launchUrl;
 import 'package:window_manager/window_manager.dart';
 
 import 'session/mobile_session.dart';
 
-/// Home del cliente — equipos descubiertos (tarjetas, 1 por máquina) +
-/// conexión manual. El descubrimiento lo hace el engine (broadcast UDP +
-/// escaneo del puerto directo en subredes locales y peers de Tailscale,
-/// ver engine lan.rs); llega por `load_lan_peers` a gFFI.lanPeersModel con
-/// id = IP. Acá agrupamos las IPs (LAN/Tailscale) de una misma máquina vía
-/// hostname + `tailscale status`, para mostrar UNA tarjeta por equipo.
+/// Client home — discovered machines (cards, 1 per machine) + manual
+/// connection. Discovery is done by the engine (UDP broadcast + direct port
+/// scan on local subnets and Tailscale peers, see engine lan.rs); it arrives
+/// via `load_lan_peers` into gFFI.lanPeersModel with id = IP. Here we group
+/// the IPs (LAN/Tailscale) of the same machine via hostname +
+/// `tailscale status`, to show ONE card per machine.
 class ClientHome extends StatefulWidget {
   const ClientHome({super.key});
 
@@ -36,12 +37,12 @@ class _Machine {
   String name;
   String platform = '';
   String username = '';
-  // Alguna de sus rutas tiene la contraseña guardada → un toque conecta.
+  // One of its routes has a saved password → one tap connects.
   bool saved = false;
   final List<_Route> routes = [];
   _Machine({required this.name});
 
-  /// LAN primero; Tailscale de respaldo.
+  /// LAN first; Tailscale as fallback.
   _Route get preferred =>
       routes.firstWhere((r) => !r.tailscale, orElse: () => routes.first);
 
@@ -56,24 +57,24 @@ class _ClientHomeState extends State<ClientHome> {
   bool _manualOpen = false;
   Timer? _scanTimer;
 
-  // IP de Tailscale → (hostname real, plataforma), vía `tailscale status --json`.
-  // El HostName del JSON es el hostname que reporta la máquina (no el nombre
-  // del dispositivo en el tailnet), así matchea con el hostname del broadcast
-  // LAN y podemos agrupar ambas IPs en una sola tarjeta.
+  // Tailscale IP → (real hostname, platform), via `tailscale status --json`.
+  // The HostName from the JSON is the hostname the machine reports (not the
+  // device name in the tailnet), so it matches the hostname from the LAN
+  // broadcast and we can group both IPs into a single card.
   Map<String, String> _tsName = {};
   Map<String, String> _tsPlatform = {};
-  Set<String> _tsSelf = {}; // IPs de ESTA máquina (no mostrarse a sí misma)
-  // TODAS las IPs del tailnet actual (self + peers). Si el CLI respondió y una
-  // IP CGNAT guardada no está acá, es de un tailnet viejo: no se muestra.
+  Set<String> _tsSelf = {}; // IPs of THIS machine (don't show ourselves)
+  // ALL IPs in the current tailnet (self + peers). If the CLI responded and a
+  // saved CGNAT IP isn't in here, it belongs to an old tailnet: don't show it.
   Set<String> _tsAll = {};
-  // IPs con contraseña guardada en el peer config del engine.
+  // IPs with a saved password in the engine's peer config.
   Set<String> _savedIps = {};
 
   @override
   void initState() {
     super.initState();
-    // Refuerzo del show de la ventana principal una vez montado el primer frame
-    // (ver nota en main.dart / RESULTADO del handoff sobre visibilidad standalone).
+    // Reinforce showing the main window once the first frame is mounted
+    // (see note in main.dart / RESULT of the handoff about standalone visibility).
     if (isDesktop) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         try {
@@ -85,12 +86,12 @@ class _ClientHomeState extends State<ClientHome> {
     }
     gFFI.lanPeersModel.addListener(_refreshSaved);
     gFFI.recentPeersModel.addListener(_refreshSaved);
-    bind.mainLoadLanPeers(); // lo cacheado, al instante
-    bind.mainLoadRecentPeers(); // identidad (hostname real) de IPs ya conectadas
+    bind.mainLoadLanPeers(); // the cached ones, instantly
+    bind.mainLoadRecentPeers(); // identity (real hostname) of already-connected IPs
     _discover();
-    // Deep links en móvil (rustdesk://connection/new/<host>?password=…):
-    // conectan con NUESTRA sesión móvil. En desktop los resuelve el engine
-    // (handleUriLink en main.dart), aquí solo el flujo móvil.
+    // Deep links on mobile (remotedisplay://connection/new/<host>?password=…):
+    // they connect with OUR mobile session. On desktop the engine resolves
+    // them (handleUriLink in main.dart), here only the mobile flow.
     if (!isDesktop) _initDeepLinks();
   }
 
@@ -111,7 +112,7 @@ class _ClientHomeState extends State<ClientHome> {
   void _handleDeepLink(String link) {
     final uri = Uri.tryParse(link);
     if (uri == null) return;
-    // Mismo formato que el engine: rustdesk://connection/new/<id>?password=…
+    // Same format as the engine: remotedisplay://connection/new/<id>?password=…
     final segs = uri.pathSegments;
     String? id;
     if (uri.host == 'connection' &&
@@ -141,20 +142,20 @@ class _ClientHomeState extends State<ClientHome> {
     bind.mainDiscover();
     bind.mainLoadRecentPeers();
     _loadTailscale();
-    // El engine va empujando load_lan_peers mientras llegan respuestas;
-    // el spinner solo cubre la ventana típica del escaneo (~5s).
+    // The engine keeps pushing load_lan_peers as responses arrive;
+    // the spinner only covers the typical scan window (~5s).
     _scanTimer?.cancel();
     _scanTimer = Timer(const Duration(seconds: 5), () {
       if (mounted) setState(() => _scanning = false);
     });
   }
 
-  /// Hostname real y OS de cada peer de Tailscale (misma CLI que usa el
-  /// engine para elegir objetivos de escaneo). Si no hay CLI, queda vacío y
-  /// las IPs de Tailscale se muestran sueltas.
+  /// Real hostname and OS of each Tailscale peer (same CLI the engine uses
+  /// to pick scan targets). If there's no CLI, it stays empty and Tailscale
+  /// IPs are shown ungrouped.
   Future<void> _loadTailscale() async {
-    // En Android/iOS Tailscale es una app aparte, sin CLI: las IPs 100.x se
-    // muestran sueltas (o agrupan por hostname de conexiones previas).
+    // On Android/iOS, Tailscale is a separate app with no CLI: 100.x IPs are
+    // shown ungrouped (or grouped by hostname from previous connections).
     if (!isDesktop) return;
     final candidates = Platform.isWindows
         ? ['tailscale', r'C:\Program Files\Tailscale\tailscale.exe']
@@ -219,8 +220,8 @@ class _ClientHomeState extends State<ClientHome> {
     }
   }
 
-  /// Qué IPs tienen contraseña guardada (consulta async al engine); se
-  /// recalcula cuando cambian los peers y al volver de una sesión.
+  /// Which IPs have a saved password (async query to the engine); it is
+  /// recalculated when peers change and when returning from a session.
   Future<void> _refreshSaved() async {
     final ids = <String>{
       ...gFFI.lanPeersModel.peers.map((p) => p.id),
@@ -242,20 +243,20 @@ class _ClientHomeState extends State<ClientHome> {
     setState(() => _connecting = true);
     try {
       if (isDesktop) {
-        // Abre nuestra ventana de sesión vía la plomería multi-window del engine.
+        // Opens our session window via the engine's multi-window plumbing.
         await connect(context, id, password: password);
       } else {
-        // Una Activity: la sesión es una ruta; volvemos acá al cerrarla.
+        // A single Activity: the session is a route; we come back here when it closes.
         await Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => MobileSessionScreen(id: id, password: password)));
       }
     } catch (_) {}
     await Future.delayed(const Duration(milliseconds: 700));
     if (mounted) setState(() => _connecting = false);
-    _refreshSaved(); // pudo haber marcado "recordar contraseña"
+    _refreshSaved(); // it may have checked "remember password"
   }
 
-  // 100.64.0.0/10 — rango CGNAT que usa Tailscale.
+  // 100.64.0.0/10 — CGNAT range used by Tailscale.
   bool _isTailscale(String ip) {
     final parts = ip.split('.');
     if (parts.length != 4 || parts[0] != '100') return false;
@@ -263,22 +264,22 @@ class _ClientHomeState extends State<ClientHome> {
     return b >= 64 && b <= 127;
   }
 
-  /// Primer label del hostname, normalizado ("Mac.lan" → "mac").
+  /// First label of the hostname, normalized ("Mac.lan" → "mac").
   String? _hostLabel(String hostname) {
     final label = hostname.split('.').first.trim().toLowerCase();
     return label.isEmpty ? null : label;
   }
 
-  /// Agrupa las entradas del engine (1 por IP) en máquinas (1 por equipo).
+  /// Groups the engine's entries (1 per IP) into machines (1 per computer).
   List<_Machine> _machines() {
-    // El engine puede guardar la misma IP dos veces (entrada identificada por
-    // broadcast + entrada pelada del escaneo de puerto): primero dedupe por
-    // IP prefiriendo la identificada.
+    // The engine can save the same IP twice (entry identified by broadcast +
+    // bare entry from the port scan): first dedupe by IP, preferring the
+    // identified one.
     final byIp = <String, Peer>{};
     for (final p in gFFI.lanPeersModel.peers) {
-      if (_tsSelf.contains(p.id)) continue; // esta máquina, no listarse sola
-      // IP CGNAT que ya no existe en el tailnet (quedó persistida en
-      // lan_peers de un tailnet anterior): tarjeta fantasma, no se lista.
+      if (_tsSelf.contains(p.id)) continue; // this machine, don't list ourselves
+      // CGNAT IP that no longer exists in the tailnet (left over in lan_peers
+      // from a previous tailnet): ghost card, don't list it.
       if (_isTailscale(p.id) && _tsAll.isNotEmpty && !_tsAll.contains(p.id)) {
         continue;
       }
@@ -288,11 +289,11 @@ class _ClientHomeState extends State<ClientHome> {
       }
     }
 
-    // Después, agrupar por identidad de máquina. Fuentes, en orden:
-    // hostname del broadcast LAN, hostname guardado de una conexión previa a
-    // esa IP (peers recientes — así la IP de Tailscale del Mac agrupa con su
-    // IP de LAN aunque el broadcast no cruce Tailscale), y hostname que
-    // reporta `tailscale status`. Sin nombre → tarjeta propia por IP.
+    // Then group by machine identity. Sources, in order: hostname from the
+    // LAN broadcast, hostname saved from a previous connection to that IP
+    // (recent peers — so the Mac's Tailscale IP groups with its LAN IP even
+    // if the broadcast doesn't cross into Tailscale), and hostname reported
+    // by `tailscale status`. No name → its own card per IP.
     final recentById = {
       for (final r in gFFI.recentPeersModel.peers)
         if (r.hostname.isNotEmpty) r.id: r
@@ -331,15 +332,15 @@ class _ClientHomeState extends State<ClientHome> {
     for (final m in machines) {
       m.routes.sort((a, b) => (a.tailscale ? 1 : 0) - (b.tailscale ? 1 : 0));
     }
-    // Identificadas arriba, IPs sueltas abajo.
+    // Identified ones on top, loose IPs below.
     return [
       ...machines.where((m) => m.identified),
       ...machines.where((m) => !m.identified),
     ];
   }
 
-  /// Quita el equipo de la lista de descubiertos (pulsación larga en la
-  /// tarjeta; reaparece si sigue en la red al volver a escanear).
+  /// Removes the machine from the discovered list (long press on the
+  /// card; it reappears if it's still on the network on the next scan).
   Future<void> _forgetMachine(_Machine m) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -374,7 +375,7 @@ class _ClientHomeState extends State<ClientHome> {
       body: SafeArea(
         child: Stack(
           children: [
-            // Brillos suaves de fondo
+            // Soft background glows
             Positioned(
                 top: -140, right: -100, child: _glow(ui.accent, 380, dark)),
             Positioned(
@@ -424,8 +425,8 @@ class _ClientHomeState extends State<ClientHome> {
               ),
             ),
             if (isDesktop) ...[
-              // La ventana no tiene barra de título nativa: franja superior
-              // arrastrable + controles de ventana propios.
+              // The window has no native title bar: a draggable top strip
+              // + our own window controls.
               Positioned(
                 top: 0,
                 left: 0,
@@ -497,8 +498,8 @@ class _ClientHomeState extends State<ClientHome> {
         children: [
           Row(
             children: [
-              // Marca: tile con gradiente + monitor (el mismo glifo del ícono
-              // de la app, ver tools/branding/make-icons.ps1).
+              // Brand mark: gradient tile + monitor (the same glyph as the app
+              // icon, see tools/branding/make-icons.ps1).
               Container(
                 width: 38,
                 height: 38,
@@ -530,6 +531,18 @@ class _ClientHomeState extends State<ClientHome> {
           const SizedBox(height: 4),
           Text('Connect to your computer',
               style: TextStyle(color: ui.muted, fontSize: 14)),
+          const SizedBox(height: 6),
+          // AGPL §13: users interacting over the network must be offered the source.
+          GestureDetector(
+            onTap: () => launchUrl(
+                Uri.parse('https://github.com/SamuelRioTz/remotedisplay'),
+                mode: LaunchMode.externalApplication),
+            child: Text('Free software · AGPL-3.0 · Source code',
+                style: TextStyle(
+                    color: ui.muted,
+                    fontSize: 12,
+                    decoration: TextDecoration.underline)),
+          ),
         ],
       );
 
@@ -599,8 +612,8 @@ class _ClientHomeState extends State<ClientHome> {
     );
   }
 
-  /// Tarjeta "Conexión manual", colapsada por defecto (se abre sola si no se
-  /// encontró ningún equipo).
+  /// "Manual connection" card, collapsed by default (opens on its own if no
+  /// machine was found).
   Widget _manualCard(_Ui ui, {required bool forceOpen}) {
     final open = _manualOpen || forceOpen;
 
@@ -723,9 +736,9 @@ class _ClientHomeState extends State<ClientHome> {
   }
 }
 
-/// Tarjeta de un equipo descubierto: ícono, nombre, y sus rutas (LAN /
-/// Tailscale) como chips — tocar la tarjeta conecta por la mejor ruta,
-/// tocar un chip conecta por esa IP.
+/// Card for a discovered machine: icon, name, and its routes (LAN /
+/// Tailscale) as chips — tapping the card connects via the best route,
+/// tapping a chip connects via that IP.
 class _MachineCard extends StatefulWidget {
   final _Machine machine;
   final _Ui ui;
@@ -759,7 +772,7 @@ class _MachineCardState extends State<_MachineCard> {
       case kPeerPlatformAndroid:
         return Icons.smartphone_outlined;
       default:
-        return Icons.dns_outlined; // solo IP (sin info de plataforma)
+        return Icons.dns_outlined; // IP only (no platform info)
     }
   }
 
@@ -861,8 +874,8 @@ class _MachineCardState extends State<_MachineCard> {
     );
   }
 
-  /// Indicador de acceso guardado (contraseña recordada, un toque conecta):
-  /// una llave chica y apagada al lado de la flecha, sin fondo ni texto.
+  /// Indicator for saved access (password remembered, one tap connects):
+  /// a small, dim key next to the arrow, with no background or text.
   Widget _savedBadge(_Ui ui) => Tooltip(
         message: 'Password saved: one tap connects',
         child: Padding(
@@ -901,7 +914,7 @@ class _MachineCardState extends State<_MachineCard> {
   }
 }
 
-/// Paleta dark-first (con variante clara).
+/// Dark-first palette (with a light variant).
 class _Ui {
   final bool dark;
   _Ui(this.dark);
@@ -910,8 +923,8 @@ class _Ui {
   Color get violet => const Color(0xFF8B5CF6);
   Color get accentSoft =>
       dark ? const Color(0xFF93B8FA) : const Color(0xFF2563EB);
-  // Dark = OLED: fondo negro PURO (píxel apagado) y superficies apenas
-  // elevadas, para aprovechar pantallas OLED (tablet/teléfono).
+  // Dark = OLED: PURE black background (pixel off) and barely elevated
+  // surfaces, to take advantage of OLED screens (tablet/phone).
   Color get bg => dark ? Colors.black : const Color(0xFFF4F5F8);
   Color get card => dark ? const Color(0xFF101114) : Colors.white;
   Color get field => dark ? const Color(0xFF1B1D22) : const Color(0xFFF0F1F3);
