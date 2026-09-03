@@ -46,6 +46,14 @@ impl Capturer {
 
 impl crate::TraitCapturer for Capturer {
     fn frame<'a>(&'a mut self, _timeout_ms: std::time::Duration) -> io::Result<Frame<'a>> {
+        // remotedisplay: a stopped stream never delivers frames again; return a
+        // real error (not WouldBlock) so the video service recreates the capturer.
+        if self.inner.is_stopped() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "display stream stopped",
+            ));
+        }
         match self.frame.try_lock() {
             Ok(mut handle) => {
                 let mut frame = None;
@@ -115,14 +123,14 @@ impl Display {
     pub fn all() -> io::Result<Vec<Display>> {
         let online =
             quartz::Display::online().map_err(|_| io::Error::from(io::ErrorKind::Other))?;
-        // remotedisplay: ocultar los displays que espejan a otro (SimpleDisplay "apaga"
-        // displays espejándolos al principal); capturarlos duplica el contenido.
+        // remotedisplay: hide displays that mirror another one (SimpleDisplay "turns off"
+        // displays by mirroring them onto the main); capturing them would duplicate the content.
         let mut displays: Vec<Display> = online
             .iter()
             .filter(|d| !d.is_mirror_slave())
             .map(|d| Display(*d))
             .collect();
-        // Nunca devolver lista vacía por culpa del filtro.
+        // Never return an empty list because of the filter.
         if displays.is_empty() {
             displays = online.into_iter().map(Display).collect();
         }

@@ -634,7 +634,14 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                 crate::ipc::client_get_hwcodec_config_thread(0);
             }
             Err(err) => {
-                log::info!("server not started: {err:?}, no_server: {no_server}");
+                // remotedisplay: the client-only process (no_server) retries every second
+                // to sync config with a server that normally never appears; log it once.
+                static NO_SERVER_LOGGED: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !no_server || !NO_SERVER_LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    log::info!("server not started: {err:?}, no_server: {no_server}");
+                }
                 if no_server {
                     hbb_common::sleep(1.0).await;
                     std::thread::spawn(|| start_server(false, true));
@@ -722,9 +729,9 @@ async fn wait_initial_config_sync() {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn sync_and_watch_config_dir(sync_done_tx: Option<tokio::sync::oneshot::Sender<()>>) {
-    // remotedisplay: en modo serverless el motor corre solo como LaunchAgent de usuario,
-    // sin el `--service` root con el que sincroniza la config → 30 reintentos de
-    // "failed to connect to ipc_service" y 3 s de espera al arrancar, para nada.
+    // remotedisplay: in serverless mode the engine only runs as a user LaunchAgent,
+    // without the root `--service` it would sync config with → 30 retries of
+    // "failed to connect to ipc_service" and 3s of waiting on startup, for nothing.
     if hbb_common::config::Config::is_serverless_lan() {
         if let Some(tx) = sync_done_tx {
             let _ = tx.send(());

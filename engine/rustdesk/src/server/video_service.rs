@@ -566,7 +566,19 @@ fn run(vs: VideoService) -> ResultType<()> {
 
     let display_idx = vs.idx;
     let sp = vs.sp;
-    let mut c = get_capturer(vs.source, display_idx, last_portable_service_running)?;
+    let mut c = match get_capturer(vs.source, display_idx, last_portable_service_running) {
+        Ok(c) => c,
+        Err(e) => {
+            // remotedisplay: the display of a secondary window may have vanished (e.g. a
+            // physical display turned off = mirrored). Re-announce the display list so
+            // the client can react, and back off instead of retrying every second.
+            if vs.source.is_monitor() {
+                crate::display_service::check_displays_changed().ok();
+                std::thread::sleep(Duration::from_secs(5));
+            }
+            return Err(e);
+        }
+    };
     #[cfg(windows)]
     if !scrap::codec::enable_directx_capture() && !c.is_gdi() {
         log::info!("disable dxgi with option, fall back to gdi");
@@ -655,6 +667,9 @@ fn run(vs: VideoService) -> ResultType<()> {
     let capture_width = c.width;
     let capture_height = c.height;
     let (mut second_instant, mut send_counter) = (Instant::now(), 0);
+    // remotedisplay: huella de la topologia de displays al arrancar el capturer.
+    #[cfg(target_os = "macos")]
+    let topology = crate::platform::display_topology_hash();
 
     while sp.ok() {
         #[cfg(windows)]
@@ -715,6 +730,12 @@ fn run(vs: VideoService) -> ResultType<()> {
             // This check may be redundant, but it is better to be safe.
             // The previous check in `sp.is_option_true(OPTION_REFRESH)` block may be enough.
             try_broadcast_display_changed(&sp, display_idx, &c, false)?;
+            // remotedisplay: una reconfiguracion que no movio los bounds (p.ej. el modo
+            // del fisico espejado) puede dejar mudo al CGDisplayStream: recrear.
+            #[cfg(target_os = "macos")]
+            if crate::platform::display_topology_hash() != topology {
+                bail!("display topology changed");
+            }
         }
 
         frame_controller.reset();

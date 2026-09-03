@@ -910,16 +910,16 @@ extern "C" bool MacSetPrivacyMode(bool on) {
     }
 }
 
-// ==================== remotedisplay: displays virtuales (CGVirtualDisplay) ====================
+// ==================== remotedisplay: virtual displays (CGVirtualDisplay) ====================
 //
-// CGVirtualDisplay es API privada de CoreGraphics (la misma que usan Tart via
-// Virtualization.framework del lado host, DeskPad, BetterDisplay y SimpleDisplay).
-// Se instancia via NSClassFromString para no referenciar simbolos privados en el
-// link, con chequeo en runtime como red de seguridad si Apple la quita.
+// CGVirtualDisplay is a private CoreGraphics API (the same one used by Tart via
+// Virtualization.framework on the host side, DeskPad, BetterDisplay and SimpleDisplay).
+// It is instantiated via NSClassFromString to avoid referencing private symbols in the
+// link, with a runtime check as a safety net in case Apple removes it.
 //
-// Semantica de dimensiones: estas funciones reciben PUNTOS (la convencion de
-// resoluciones de RustDesk en macOS: MacGetModes/MacSetMode hablan en puntos).
-// El modo se declara en pixeles = puntos * 2 cuando hidpi esta activo.
+// Dimension semantics: these functions receive POINTS (the resolution convention
+// used by RustDesk on macOS: MacGetModes/MacSetMode speak in points).
+// The mode is declared in pixels = points * 2 when hidpi is active.
 
 @interface CGVirtualDisplayMode : NSObject
 - (instancetype)initWithWidth:(NSUInteger)width height:(NSUInteger)height refreshRate:(double)refreshRate;
@@ -948,28 +948,28 @@ extern "C" bool MacSetPrivacyMode(bool on) {
 - (BOOL)applySettings:(CGVirtualDisplaySettings *)settings;
 @end
 
-// vendor/product propios para poder identificar nuestros displays si hiciera falta
+// Our own vendor/product so we can identify our displays if ever needed
 #define RD_VDISPLAY_VENDOR_ID 0x7264   // "rd"
 #define RD_VDISPLAY_PRODUCT_ID 0x0001
 
 struct RDVDisplayEntry {
     CGVirtualDisplay *display; // retained (MRC)
-    uint32_t width;            // puntos
+    uint32_t width;            // points
     uint32_t height;
     bool hidpi;
     double refreshRate;
-    std::string iccPath;       // el .icc que macOS generó para este display
-    uint32_t serial;           // slot estable (para que macOS reuse su perfil)
-    bool hidpiRequested = false; // lo pedido por el cliente; `hidpi` es el backing real medido
+    std::string iccPath;       // the .icc macOS generated for this display
+    uint32_t serial;           // stable slot (so macOS reuses its profile)
+    bool hidpiRequested = false; // what the client requested; `hidpi` is the actual measured backing
 };
 
 static std::mutex g_rdVDisplayMutex;
 static std::map<uint32_t, RDVDisplayEntry> g_rdVDisplays;
 
-// Pool de seriales estables: vendor/product/serial fijos hacen que macOS
-// identifique al display como el MISMO y REUSE su perfil ICC en vez de generar
-// uno nuevo por cada create (que es lo que disparaba a colorsyncd). Cada "slot"
-// (serial 1,2,3…) reusa su .icc; al destruir se libera el slot para el próximo.
+// Pool of stable serials: fixed vendor/product/serial makes macOS
+// identify the display as the SAME one and REUSE its ICC profile instead of generating
+// a new one on every create (which is what was driving colorsyncd's CPU up). Each "slot"
+// (serial 1,2,3…) reuses its .icc; on destroy, the slot is freed for the next one.
 static std::set<uint32_t> g_rdUsedSerials;
 static uint32_t rdAllocSerialLocked() {
     for (uint32_t s = 1; s < 4096; s++) {
@@ -987,7 +987,7 @@ static void rdFreeSerialLocked(uint32_t serial) {
 static NSString *const kRDVDisplayName = @"Remote Display Virtual";
 static NSString *const kRDColorSyncDir = @"/Library/ColorSync/Profiles/Displays";
 
-// Snapshot de todos los .icc presentes (para diff antes/después de crear).
+// Snapshot of all .icc files present (for a before/after diff around create).
 static NSSet<NSString *> *rdSnapshotICCs() {
     NSMutableSet *s = [NSMutableSet set];
     NSArray *files = [[NSFileManager defaultManager]
@@ -998,8 +998,8 @@ static NSSet<NSString *> *rdSnapshotICCs() {
     return s;
 }
 
-// El .icc que apareció respecto a `before` (el que macOS generó para el nuevo
-// display). Poll: la generación es asíncrona tras crear el display.
+// The .icc that appeared relative to `before` (the one macOS generated for the new
+// display). Polls, since generation is asynchronous after creating the display.
 static std::string rdFindNewICC(NSSet<NSString *> *before) {
     for (int i = 0; i < 20; i++) {
         NSSet *now = rdSnapshotICCs();
@@ -1014,22 +1014,22 @@ static std::string rdFindNewICC(NSSet<NSString *> *before) {
     return "";
 }
 
-// Borra un .icc concreto. Los .icc viven en /Library/ColorSync/Profiles/Displays
-// (root:wheel): si remotedisplayd corre sin privilegios el borrado FALLA silencioso
-// y el archivo queda (límite de plataforma, igual que SimpleDisplay — sin
-// impacto de CPU/memoria gracias al sRGB asignado; el recurso pesado sí se
-// libera). Si corre con privilegios (o el user está en wheel), limpia bien.
+// Deletes one specific .icc. The .icc files live under /Library/ColorSync/Profiles/Displays
+// (root:wheel): if remotedisplayd runs without privileges the delete FAILS silently
+// and the file is left behind (a platform limitation, same as SimpleDisplay — no
+// CPU/memory impact thanks to the assigned sRGB profile; the heavy resource is
+// still freed). If it runs with privileges (or the user is in wheel), it cleans up properly.
 static void rdRemoveICC(const std::string &path) {
     if (path.empty()) return;
     [[NSFileManager defaultManager]
         removeItemAtPath:[NSString stringWithUTF8String:path.c_str()] error:nil];
 }
 
-// Barrido de respaldo: borra los .icc de nuestros displays (prefijo del nombre)
-// que NO estén en uso por un display vivo (`keep`). Cubre el caso en que el
-// tracking 1:1 se desincroniza (p.ej. creación de muchos a la vez). El físico
-// de la VM se llama "Apple Virtual-…" y NO matchea el prefijo, así que se
-// preserva. Llamar SOLO con el mutex tomado.
+// Backup sweep: deletes .icc files belonging to our displays (name prefix)
+// that are NOT in use by a live display (`keep`). Covers the case where the
+// 1:1 tracking gets out of sync (e.g. creating many at once). The VM's
+// physical display is named "Apple Virtual-…" and does NOT match the prefix, so it's
+// preserved. Call ONLY with the mutex held.
 static void rdSweepOrphanICCsLocked() {
     NSMutableSet<NSString *> *keep = [NSMutableSet set];
     for (auto const &kv : g_rdVDisplays) {
@@ -1048,14 +1048,168 @@ static void rdSweepOrphanICCsLocked() {
     }
 }
 
-// Estado del "main dinamico" (caso 1): fisico espejado sobre nuestro virtual.
-// El virtual se CACHEA y se recicla entre ON/OFF: destruir un display que fue
-// master de un mirror set deja un fantasma en la lista activa de WindowServer
-// (verificado en macOS 26, ninguna reconfiguracion lo purga). Apagado = el
-// virtual pasa a esclavo del fisico (sale de la lista activa, invisible).
+// State of the "dynamic main" (case 1): physical mirrored onto our virtual.
+// The virtual is CACHED and recycled between ON/OFF: destroying a display that was
+// the master of a mirror set leaves a ghost in WindowServer's active list
+// (verified on macOS 26, no reconfiguration purges it). Off = the
+// virtual becomes a slave of the physical (leaves the active list, invisible).
 static uint32_t g_rdDynMainVirtual = 0;
 static uint32_t g_rdDynMainPhysical = 0;
 static bool g_rdDynMainActive = false;
+
+// ==================== remotedisplay: mode of the mirrored physical display ====================
+//
+// When a physical display mirrors (in hardware) one of our virtuals, macOS re-picks the
+// physical's mode on every mode change of the master. Measured on the Mac Studio
+// (2026-09-02, J560T09 native 2560x1600 mirroring a 3440x1440 virtual): after
+// resizing the virtual with the mirror active, the physical ended up at 800x500 @144,
+// the panel frozen (the clock stopped advancing), and the cursor composited by
+// software inside the framebuffer (double cursor on the client). Fix: remember
+// the mode the physical had before mirroring it, re-set it when the mirror or
+// a resize of the master changes it, and restore it when unmirroring.
+// NOTE: re-setting the mode is a configuration transaction (see the nudge note
+// in MacResizeVirtualDisplay). It only commits if the mode is wrong, and at
+// that point there was already a mirror transaction with the same arrangement.
+extern "C" bool MacIsOurVirtualDisplay(uint32_t displayID); // defined further below
+
+static std::map<uint32_t, CGDisplayModeRef> g_rdMirrorModes; // physical -> previous mode (retained); guarded by g_rdVDisplayMutex
+
+static bool rdSameMode(CGDisplayModeRef a, CGDisplayModeRef b) {
+    if (!a || !b) return false;
+    return CGDisplayModeGetPixelWidth(a) == CGDisplayModeGetPixelWidth(b)
+        && CGDisplayModeGetPixelHeight(a) == CGDisplayModeGetPixelHeight(b)
+        && CGDisplayModeGetWidth(a) == CGDisplayModeGetWidth(b)
+        && CGDisplayModeGetHeight(a) == CGDisplayModeGetHeight(b);
+}
+
+// Native mode (flag) with the largest pixel area; without the flag, the largest area.
+static CGDisplayModeRef rdCopyNativeMode(CGDirectDisplayID display) {
+    CFArrayRef modes = getAllModes(display);
+    if (!modes) return NULL;
+    CGDisplayModeRef best = NULL, biggest = NULL;
+    size_t bestArea = 0, biggestArea = 0;
+    CFIndex n = CFArrayGetCount(modes);
+    for (CFIndex i = 0; i < n; i++) {
+        CGDisplayModeRef m = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, i);
+        size_t area = CGDisplayModeGetPixelWidth(m) * CGDisplayModeGetPixelHeight(m);
+        if (area > biggestArea) { biggestArea = area; biggest = m; }
+        if ((CGDisplayModeGetIOFlags(m) & kDisplayModeNativeFlag) && area > bestArea) { bestArea = area; best = m; }
+    }
+    CGDisplayModeRef r = best ? best : biggest;
+    if (r) CGDisplayModeRetain(r);
+    CFRelease(modes);
+    return r;
+}
+
+// Saves the physical's current mode (only once) before mirroring it.
+static void rdRememberPhysicalMode(CGDirectDisplayID display) {
+    CGDisplayModeRef m = CGDisplayCopyDisplayMode(display);
+    if (!m) return;
+    std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+    if (g_rdMirrorModes.find(display) != g_rdMirrorModes.end()) {
+        CGDisplayModeRelease(m);
+        return;
+    }
+    g_rdMirrorModes[display] = m; // retained by the Copy
+    NSLog(@"remotedisplay vdisplay: physical %u at %zux%zu px before mirroring (remembered)",
+          display, CGDisplayModeGetPixelWidth(m), CGDisplayModeGetPixelHeight(m));
+}
+
+// Desired mode for a mirrored physical display: the remembered one, or the native one.
+static CGDisplayModeRef rdCopyWantedMode(CGDirectDisplayID display) {
+    {
+        std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+        auto it = g_rdMirrorModes.find(display);
+        if (it != g_rdMirrorModes.end()) {
+            CGDisplayModeRetain(it->second);
+            return it->second;
+        }
+    }
+    return rdCopyNativeMode(display);
+}
+
+// Sets `mode` on `display` (session transaction) and waits for the current mode to reflect it.
+static bool rdApplyModeAndWait(CGDirectDisplayID display, CGDisplayModeRef mode, int timeoutMs) {
+    CGDisplayConfigRef config;
+    if (CGBeginDisplayConfiguration(&config) != kCGErrorSuccess) return false;
+    if (CGConfigureDisplayWithDisplayMode(config, display, mode, NULL) != kCGErrorSuccess) {
+        CGCancelDisplayConfiguration(config);
+        return false;
+    }
+    if (CGCompleteDisplayConfiguration(config, kCGConfigureForSession) != kCGErrorSuccess) {
+        CGCancelDisplayConfiguration(config);
+        return false;
+    }
+    for (int waited = 0; waited <= timeoutMs; waited += 100) {
+        CGDisplayModeRef cur = CGDisplayCopyDisplayMode(display);
+        bool ok = rdSameMode(cur, mode);
+        if (cur) CGDisplayModeRelease(cur);
+        if (ok) return true;
+        usleep(100 * 1000);
+    }
+    return false;
+}
+
+// If the mirrored physical ended up in a mode different from the desired one, re-set it. true if it's fine.
+static bool rdEnsureMirroredPhysicalMode(CGDirectDisplayID display, const char *why) {
+    CGDisplayModeRef want = rdCopyWantedMode(display);
+    if (!want) return false;
+    CGDisplayModeRef cur = CGDisplayCopyDisplayMode(display);
+    bool ok = rdSameMode(cur, want);
+    if (!ok) {
+        NSLog(@"remotedisplay vdisplay: physical %u ended up at %zux%zu px after %s, re-setting to %zux%zu px",
+              display, cur ? CGDisplayModeGetPixelWidth(cur) : 0, cur ? CGDisplayModeGetPixelHeight(cur) : 0,
+              why, CGDisplayModeGetPixelWidth(want), CGDisplayModeGetPixelHeight(want));
+        ok = rdApplyModeAndWait(display, want, 3000);
+        NSLog(@"remotedisplay vdisplay: physical %u mode %s", display, ok ? "re-set" : "COULD NOT re-set");
+    }
+    if (cur) CGDisplayModeRelease(cur);
+    CGDisplayModeRelease(want);
+    return ok;
+}
+
+// After mirroring or changing `master`'s mode, watches for `settleMs` the
+// physicals mirroring it and re-sets their mode if macOS changed it (the slave's
+// mode re-selection is asynchronous: it can arrive a few hundred ms later).
+// With no physicals mirroring `master` it returns immediately (a normal resize doesn't pay the wait).
+static void rdRepairMirrorSlavesOf(CGDirectDisplayID master, const char *why, int settleMs) {
+    for (int waited = 0; waited <= settleMs; waited += 250) {
+        uint32_t count = 0, slaves = 0;
+        CGDirectDisplayID online[16];
+        CGGetOnlineDisplayList(16, online, &count);
+        for (uint32_t i = 0; i < count; i++) {
+            CGDirectDisplayID d = online[i];
+            if (d == master || CGDisplayMirrorsDisplay(d) != master) continue;
+            if (MacIsOurVirtualDisplay(d)) continue;
+            slaves++;
+            rdEnsureMirroredPhysicalMode(d, why);
+        }
+        if (slaves == 0 || waited >= settleMs) break;
+        usleep(250 * 1000);
+    }
+}
+
+// When unmirroring: if macOS didn't return the physical to its previous mode, restore it; and forget it.
+static void rdRestorePhysicalMode(CGDirectDisplayID display, const char *why) {
+    CGDisplayModeRef want = NULL;
+    {
+        std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+        auto it = g_rdMirrorModes.find(display);
+        if (it == g_rdMirrorModes.end()) return;
+        want = it->second; // ownership of the reference passes to this function
+        g_rdMirrorModes.erase(it);
+    }
+    CGDisplayModeRef cur = CGDisplayCopyDisplayMode(display);
+    if (!rdSameMode(cur, want)) {
+        NSLog(@"remotedisplay vdisplay: physical %u ended up at %zux%zu px after %s, restoring %zux%zu px",
+              display, cur ? CGDisplayModeGetPixelWidth(cur) : 0, cur ? CGDisplayModeGetPixelHeight(cur) : 0,
+              why, CGDisplayModeGetPixelWidth(want), CGDisplayModeGetPixelHeight(want));
+        bool ok = rdApplyModeAndWait(display, want, 3000);
+        NSLog(@"remotedisplay vdisplay: physical %u mode %s", display, ok ? "restored" : "COULD NOT restore");
+    }
+    if (cur) CGDisplayModeRelease(cur);
+    CGDisplayModeRelease(want);
+}
 
 static dispatch_queue_t rdVDisplayQueue() {
     static dispatch_queue_t q = NULL;
@@ -1080,11 +1234,11 @@ static void rdPruneTerminatedVDisplaysLocked() {
     }
 }
 
-// ColorSync: portado de SimpleDisplay. macOS genera un perfil de color CUSTOM
-// para cada display virtual y colorsyncd lo valida en loop (CPU alta); ademas
-// deja un .icc huerfano en /Library/ColorSync/Profiles/Displays por cada
-// display creado. Asignar sRGB (perfil del sistema) al crear evita AMBOS: no
-// se genera perfil custom -> sin loop de CPU y sin .icc huerfano.
+// ColorSync: ported from SimpleDisplay. macOS generates a CUSTOM color profile
+// for each virtual display and colorsyncd validates it in a loop (high CPU); it also
+// leaves an orphaned .icc under /Library/ColorSync/Profiles/Displays for each
+// display created. Assigning sRGB (the system profile) on create avoids BOTH: no
+// custom profile is generated -> no CPU loop and no orphaned .icc.
 static void rdAssignSRGBProfile(CGDirectDisplayID displayID) {
     CFUUIDRef uuid = CGDisplayCreateUUIDFromDisplayID(displayID);
     if (!uuid) return;
@@ -1104,9 +1258,9 @@ static void rdAssignSRGBProfile(CGDirectDisplayID displayID) {
     CFRelease(uuid);
 }
 
-// Borra en background los .icc huerfanos de este display (si por algun motivo
-// se generaron igual). Root-owned: puede fallar sin privilegios (mal menor),
-// pero con sRGB asignado normalmente no hay nada que borrar.
+// Deletes in the background any orphaned .icc files for this display (in case
+// they were generated anyway). Root-owned: can fail without privileges (a minor issue),
+// but with sRGB assigned there's normally nothing to delete.
 
 extern "C" bool MacVirtualDisplaySupported() {
     return NSClassFromString(@"CGVirtualDisplay") != nil &&
@@ -1115,18 +1269,18 @@ extern "C" bool MacVirtualDisplaySupported() {
            NSClassFromString(@"CGVirtualDisplayMode") != nil;
 }
 
-// Aplica un modo (en puntos) a un CGVirtualDisplay existente, sin recrearlo.
+// Applies a mode (in points) to an existing CGVirtualDisplay, without recreating it.
 static bool rdApplyVDisplayMode(CGVirtualDisplay *display, uint32_t width, uint32_t height,
                                 double refreshRate, bool hidpi) {
-    // hiDPI en CGVirtualDisplay (macOS 26, medido con los harness hidpi_test*):
-    // el modo se declara en PUNTOS. Con hiDPI=1 WindowServer genera la variante
-    // Retina (2x pixeles) pero SOLO la deja como modo actual cuando esos pixeles
-    // superan ~1920 de ancho; por debajo aplana a 1x con el doble de puntos, la
-    // seleccion explicita del modo (CGConfigureDisplayWithDisplayMode) falla y
-    // enumerar/configurar deja displays fantasma al destruir. Por eso Retina real
-    // solo cuando 2*width >= 1920 (a 1920 exactos si la elige: hidpi_test2); si
-    // no, 1x con los puntos pedidos (el cliente ya pide puntos = pixeles/escala:
-    // texto mas grande, algo mas suave).
+    // hiDPI on CGVirtualDisplay (macOS 26, measured with the hidpi_test* harnesses):
+    // the mode is declared in POINTS. With hiDPI=1 WindowServer generates the Retina
+    // variant (2x pixels) but ONLY keeps it as the current mode when those pixels
+    // exceed ~1920 in width; below that it flattens to 1x with double the points, the
+    // explicit mode selection (CGConfigureDisplayWithDisplayMode) fails, and
+    // enumerating/configuring leaves ghost displays on destroy. That's why real Retina
+    // only happens when 2*width >= 1920 (at exactly 1920 if it picks it: hidpi_test2); if
+    // not, 1x with the requested points (the client already requests points = pixels/scale:
+    // slightly bigger, somewhat smoother text).
     bool useHiDPI = hidpi && (2u * width >= 1920u);
     hidpi = useHiDPI;
     NSUInteger pxW = width;
@@ -1141,7 +1295,7 @@ static bool rdApplyVDisplayMode(CGVirtualDisplay *display, uint32_t width, uint3
     @try {
         ok = [display applySettings:settings];
     } @catch (NSException *e) {
-        NSLog(@"remotedisplay vdisplay: applySettings fallo: %@", e.reason);
+        NSLog(@"remotedisplay vdisplay: applySettings failed: %@", e.reason);
         ok = NO;
     }
     [settings release];
@@ -1152,7 +1306,7 @@ static bool rdApplyVDisplayMode(CGVirtualDisplay *display, uint32_t width, uint3
 extern "C" uint32_t MacCreateVirtualDisplay(uint32_t width, uint32_t height, double refreshRate,
                                             bool hidpi, const char *name) {
     if (!MacVirtualDisplaySupported()) {
-        NSLog(@"remotedisplay vdisplay: CGVirtualDisplay no disponible en este sistema");
+        NSLog(@"remotedisplay vdisplay: CGVirtualDisplay not available on this system");
         return 0;
     }
     Class descCls = NSClassFromString(@"CGVirtualDisplayDescriptor");
@@ -1162,17 +1316,17 @@ extern "C" uint32_t MacCreateVirtualDisplay(uint32_t width, uint32_t height, dou
     desc.name = name ? [NSString stringWithUTF8String:name] : @"Remote Display Virtual";
     desc.vendorID = RD_VDISPLAY_VENDOR_ID;
     desc.productID = RD_VDISPLAY_PRODUCT_ID;
-    // Serial ESTABLE por slot: así macOS reusa el perfil/ICC de ese slot en vez
-    // de generar uno nuevo cada vez (evita el churn de CPU de colorsyncd).
+    // STABLE serial per slot: this way macOS reuses that slot's profile/ICC instead
+    // of generating a new one each time (avoids colorsyncd's CPU churn).
     uint32_t serial;
     {
         std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
         serial = rdAllocSerialLocked();
     }
     desc.serialNumber = serial;
-    // Tamano fisico ~24" 16:9: define el DPI logico que reporta el sistema.
+    // Physical size ~24" 16:9: defines the logical DPI the system reports.
     desc.sizeInMillimeters = CGSizeMake(527, 296);
-    // maxPixels grandes para poder reconfigurar en caliente sin recrear.
+    // Large maxPixels so we can reconfigure on the fly without recreating.
     desc.maxPixelsWide = 8192;
     desc.maxPixelsHigh = 8192;
     desc.dispatchQueue = rdVDisplayQueue();
@@ -1181,14 +1335,14 @@ extern "C" uint32_t MacCreateVirtualDisplay(uint32_t width, uint32_t height, dou
         rdPruneTerminatedVDisplaysLocked();
     };
 
-    // Snapshot de .icc ANTES de crear, para identificar el que macOS generará.
+    // Snapshot of .icc files BEFORE creating, to identify the one macOS will generate.
     NSSet<NSString *> *iccBefore = rdSnapshotICCs();
 
     CGVirtualDisplay *display = nil;
     @try {
         display = [[displayCls alloc] initWithDescriptor:desc];
     } @catch (NSException *e) {
-        NSLog(@"remotedisplay vdisplay: creacion fallo: %@", e.reason);
+        NSLog(@"remotedisplay vdisplay: creation failed: %@", e.reason);
         display = nil;
     }
     [desc release];
@@ -1206,12 +1360,12 @@ extern "C" uint32_t MacCreateVirtualDisplay(uint32_t width, uint32_t height, dou
         return 0;
     }
     uint32_t displayID = [display displayID];
-    // Esperar a que el display aparezca activo (la creacion es asincrona en WindowServer).
+    // Wait for the display to appear active (creation is asynchronous in WindowServer).
     for (int i = 0; i < 50; i++) {
         if (CGDisplayIsActive(displayID)) break;
         usleep(100 * 1000);
     }
-    // Asignar sRGB para reducir el churn de CPU de colorsyncd.
+    // Assign sRGB to reduce colorsyncd's CPU churn.
     rdAssignSRGBProfile(displayID);
     {
         std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
@@ -1219,8 +1373,8 @@ extern "C" uint32_t MacCreateVirtualDisplay(uint32_t width, uint32_t height, dou
             RDVDisplayEntry{display, width, height, hidpi, refreshRate, "", serial};
         g_rdVDisplays[displayID].hidpiRequested = hidpi;
     }
-    // Identificar el .icc que macOS generó para ESTE display EN BACKGROUND: el
-    // diff hace poll (la generación es asíncrona) y NO debe bloquear el create.
+    // Identify the .icc macOS generated for THIS display IN THE BACKGROUND: the
+    // diff polls (generation is asynchronous) and must NOT block the create.
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         std::string iccPath = rdFindNewICC(iccBefore);
         if (iccPath.empty()) return;
@@ -1229,11 +1383,11 @@ extern "C" uint32_t MacCreateVirtualDisplay(uint32_t width, uint32_t height, dou
         if (it != g_rdVDisplays.end() && it->second.iccPath.empty()) {
             it->second.iccPath = iccPath;
         } else {
-            // El display ya se destruyó antes de resolver su .icc: borrarlo ya.
+            // The display was already destroyed before its .icc was resolved: delete it now.
             rdRemoveICC(iccPath);
         }
     });
-    NSLog(@"remotedisplay vdisplay: creado ID %u (%ux%u puntos, hidpi=%d)",
+    NSLog(@"remotedisplay vdisplay: created ID %u (%ux%u points, hidpi=%d)",
           displayID, width, height, hidpi);
     return displayID;
 }
@@ -1249,18 +1403,18 @@ extern "C" uint32_t MacListVirtualDisplays(uint32_t *ids, uint32_t max) {
     uint32_t n = 0;
     for (auto const &kv : g_rdVDisplays) {
         if (n >= max) break;
-        // El virtual del main dinamico oculto (cacheado, OFF) no se reporta.
+        // The hidden dynamic-main virtual (cached, OFF) is not reported.
         if (kv.first == g_rdDynMainVirtual && !g_rdDynMainActive) continue;
         ids[n++] = kv.first;
     }
     return n;
 }
 
-// Resize en caliente: applySettings sobre el display existente. El displayID
-// se mantiene estable (clave para que la sesion remota siga capturando).
-static bool rdRepairDynMainMirror(void); // definido junto a rdSetMirror
+// Hot resize: applySettings on the existing display. The displayID
+// stays stable (key for the remote session to keep capturing).
+static bool rdRepairDynMainMirror(void); // defined next to rdSetMirror
 
-// Espera a que CGDisplayBounds (puntos) refleje w x h.
+// Waits for CGDisplayBounds (points) to reflect w x h.
 static bool rdWaitBounds(uint32_t displayID, uint32_t w, uint32_t h, int timeoutMs) {
     for (int i = 0; i < timeoutMs / 100; i++) {
         CGRect b = CGDisplayBounds(displayID);
@@ -1270,11 +1424,11 @@ static bool rdWaitBounds(uint32_t displayID, uint32_t w, uint32_t h, int timeout
     return false;
 }
 
-// Espera a que el modo ACTUAL del display tenga el tamano en pixeles pedido.
-// Necesario para los toggles HiDPI con los mismos puntos: los bounds no cambian
-// (960x505 en 1x y en 2x), solo el backing.
-// Se exige ademas el tamano en PUNTOS: la variante "aplanada" (1x con el doble
-// de puntos) tiene los mismos pixeles que la Retina y no es lo pedido.
+// Waits for the display's CURRENT mode to have the requested pixel size.
+// Needed for HiDPI toggles with the same points: the bounds don't change
+// (960x505 in both 1x and 2x), only the backing does.
+// The size in POINTS is also required: the "flattened" variant (1x with double
+// the points) has the same pixels as Retina and is not what was requested.
 static bool rdWaitPixels(CGDirectDisplayID displayID, uint32_t pxW, uint32_t pxH, int timeoutMs) {
     for (int waited = 0; waited <= timeoutMs; waited += 100) {
         CGDisplayModeRef m = CGDisplayCopyDisplayMode(displayID);
@@ -1290,7 +1444,7 @@ static bool rdWaitPixels(CGDirectDisplayID displayID, uint32_t pxW, uint32_t pxH
     return false;
 }
 
-// Main o master de espejo: applySettings no conmuta sin una transaccion.
+// Main or mirror master: applySettings doesn't switch without a transaction.
 static bool rdNeedsNudge(uint32_t displayID) {
     if (CGMainDisplayID() == displayID) return true;
     uint32_t count = 0;
@@ -1302,7 +1456,7 @@ static bool rdNeedsNudge(uint32_t displayID) {
     return false;
 }
 
-// Commit trivial (origen a su mismo valor) que conmuta el modo ya declarado.
+// Trivial commit (origin set to its own value) that switches over the already-declared mode.
 static void rdNudge(uint32_t displayID) {
     CGDisplayConfigRef config;
     if (CGBeginDisplayConfiguration(&config) == kCGErrorSuccess) {
@@ -1326,10 +1480,10 @@ extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint
         refreshRate = it->second.refreshRate;
         hidpi = it->second.hidpiRequested;
     }
-    // Misma heuristica que rdApplyVDisplayMode: por debajo de ~1920 px de ancho
-    // WindowServer no ofrece la variante Retina; no esperar por ella.
+    // Same heuristic as rdApplyVDisplayMode: below ~1920 px wide
+    // WindowServer doesn't offer the Retina variant; don't wait for it.
     if (hidpi && 2 * width < 1920) {
-        NSLog(@"remotedisplay vdisplay: ID %u %ux%u puntos es chico para Retina, queda 1x", displayID, width, height);
+        NSLog(@"remotedisplay vdisplay: ID %u %ux%u points is too small for Retina, staying 1x", displayID, width, height);
         hidpi = false;
         std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
         auto it = g_rdVDisplays.find(displayID);
@@ -1339,11 +1493,11 @@ extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint
         return false;
     }
     bool needsNudge = rdNeedsNudge(displayID);
-    // Un applySettings mientras el display todavia conmuta el modo anterior
-    // (p.ej. recien cambiado a HiDPI) se descarta en silencio (macOS 26):
-    // esperar a que los bounds reflejen el modo y, si no, re-aplicar UNA vez.
-    // Sin transacciones de configuracion (esas vuelven fantasma al destruir).
-    // (Con nudge pendiente los bounds no cambian hasta el commit: se salta.)
+    // An applySettings call while the display is still switching from its previous mode
+    // (e.g. just switched to HiDPI) is silently dropped (macOS 26):
+    // wait for the bounds to reflect the mode and, if not, re-apply ONCE.
+    // No configuration transactions here (those turn into ghosts on destroy).
+    // (With a nudge pending, the bounds don't change until the commit: this is skipped.)
     if (!needsNudge) {
         bool settled = false;
         for (int attempt = 0; attempt < 2 && !settled; attempt++) {
@@ -1356,21 +1510,21 @@ extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint
                 usleep(100 * 1000);
             }
             if (!settled && attempt == 0) {
-                NSLog(@"remotedisplay vdisplay: ID %u no asento %ux%u, re-aplicando", displayID, width, height);
+                NSLog(@"remotedisplay vdisplay: ID %u did not settle at %ux%u, re-applying", displayID, width, height);
                 (void)rdApplyVDisplayMode(display, width, height, refreshRate, hidpi);
             }
         }
-        if (!settled) NSLog(@"remotedisplay vdisplay: ID %u sigue sin asentar %ux%u", displayID, width, height);
+        if (!settled) NSLog(@"remotedisplay vdisplay: ID %u still hasn't settled at %ux%u", displayID, width, height);
     }
-    // applySettings se auto-commitea en un display secundario sin espejo, pero
-    // NO cuando el display es main o master de un mirror set (macOS 26): ahi el
-    // modo queda declarado sin conmutar hasta la proxima transaccion de
-    // configuracion. En ese caso se commitea un "nudge" trivial (origen a su
-    // mismo valor). OJO: el nudge se hace SOLO cuando hace falta — cualquier
-    // commit snapshotea el arrangement en la config de sesion y un virtual
-    // presente en ese snapshot queda fantasma al destruirlo. El unico display
-    // que necesita nudge es el del main dinamico, que nunca se destruye
-    // (se cachea deshabilitado).
+    // applySettings auto-commits on a secondary display without a mirror, but
+    // NOT when the display is main or the master of a mirror set (macOS 26): there the
+    // mode stays declared without switching until the next configuration
+    // transaction. In that case a trivial "nudge" is committed (origin set to its
+    // own value). NOTE: the nudge is only done WHEN NEEDED — any
+    // commit snapshots the arrangement into the session config, and a virtual
+    // present in that snapshot turns into a ghost when destroyed. The only display
+    // that needs a nudge is the dynamic main's, which is never destroyed
+    // (it's cached disabled).
     if (needsNudge) {
         CGDisplayConfigRef config;
         if (CGBeginDisplayConfiguration(&config) == kCGErrorSuccess) {
@@ -1380,9 +1534,9 @@ extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint
                 CGCancelDisplayConfiguration(config);
             }
         }
-        // Escalada: a veces el nudge no-op se descarta (visto con displays
-        // re-habilitados). El modo nuevo ya esta declarado por applySettings:
-        // conmutar explicitamente via CGConfigureDisplayWithDisplayMode.
+        // Escalation: sometimes the no-op nudge gets dropped (seen with
+        // re-enabled displays). The new mode is already declared by applySettings:
+        // switch explicitly via CGConfigureDisplayWithDisplayMode.
         bool applied = false;
         for (int i = 0; i < 15; i++) {
             CGRect b = CGDisplayBounds(displayID);
@@ -1394,15 +1548,15 @@ extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint
         }
         if (!applied) {
             if (!MacSetMode(displayID, width, height, hidpi)) {
-                NSLog(@"remotedisplay vdisplay: escalada MacSetMode %ux%u fallo", width, height);
+                NSLog(@"remotedisplay vdisplay: escalation MacSetMode %ux%u failed", width, height);
             }
         }
     }
-    // Verificacion final. Si se pidio HiDPI y el modo no asento (p.ej. el
-    // display principal del main dinamico no acepta la variante Retina), caer
-    // a 1x con los MISMOS puntos: la escala se respeta aunque sin backing 2x.
+    // Final verification. If HiDPI was requested and the mode didn't settle (e.g. the
+    // dynamic main's primary display doesn't accept the Retina variant), fall back
+    // to 1x with the SAME points: the scale is honored even without 2x backing.
     if (hidpi && !rdWaitPixels(displayID, 2 * width, 2 * height, 5000)) {
-        NSLog(@"remotedisplay vdisplay: ID %u no acepto %ux%u en HiDPI, cayendo a 1x", displayID, width, height);
+        NSLog(@"remotedisplay vdisplay: ID %u did not accept %ux%u in HiDPI, falling back to 1x", displayID, width, height);
         hidpi = false;
         (void)rdApplyVDisplayMode(display, width, height, refreshRate, false);
         if (needsNudge) {
@@ -1410,11 +1564,11 @@ extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint
             rdNudge(displayID);
         }
         if (!rdWaitBounds(displayID, width, height, 4000)) {
-            NSLog(@"remotedisplay vdisplay: ID %u tampoco asento %ux%u en 1x", displayID, width, height);
+            NSLog(@"remotedisplay vdisplay: ID %u did not settle at %ux%u in 1x either", displayID, width, height);
         }
     }
-    // Bandera final segun el backing REAL del modo actual (si ya esta en el
-    // tamano pedido en puntos): 2x => HiDPI, 1x => no.
+    // Final flag based on the REAL backing of the current mode (if it's already at the
+    // requested size in points): 2x => HiDPI, 1x => not.
     {
         CGDisplayModeRef m = CGDisplayCopyDisplayMode(displayID);
         if (m) {
@@ -1423,7 +1577,7 @@ extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint
             if (w == width) {
                 bool live = pw == 2 * width;
                 if (pw == width || live) {
-                    if (live != hidpi) NSLog(@"remotedisplay vdisplay: ID %u backing real hidpi=%d (esperado %d)", displayID, live, hidpi);
+                    if (live != hidpi) NSLog(@"remotedisplay vdisplay: ID %u actual backing hidpi=%d (expected %d)", displayID, live, hidpi);
                     hidpi = live;
                 }
             }
@@ -1439,7 +1593,10 @@ extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint
         }
     }
     NSLog(@"remotedisplay vdisplay: resize ID %u -> %ux%u (hidpi=%d)", displayID, width, height, hidpi);
-    // Cambiar el modo de otro display disuelve el espejo del main dinamico (macOS 26).
+    // A physical mirroring this virtual may have changed mode with the
+    // resize (macOS re-picks the slave's mode): re-set it.
+    rdRepairMirrorSlavesOf(displayID, "master resize", 1500);
+    // Changing another display's mode dissolves the dynamic main's mirror (macOS 26).
     {
         uint32_t vid = 0;
         { std::lock_guard<std::mutex> lock(g_rdVDisplayMutex); vid = g_rdDynMainActive ? g_rdDynMainVirtual : 0; }
@@ -1451,9 +1608,9 @@ extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint
     return true;
 }
 
-// Escala (HiDPI / "Retina") en caliente: cambia el flag y re-aplica el modo
-// actual en PUNTOS; el framebuffer pasa a 2x puntos (o vuelve a 1x). El cliente
-// decide puntos = pixeles de su ventana / escala (100/125/150/200 %).
+// Hot scale (HiDPI / "Retina") toggle: changes the flag and re-applies the
+// current mode in POINTS; the framebuffer switches to 2x points (or back to 1x). The client
+// decides points = its window's pixels / scale (100/125/150/200 %).
 extern "C" bool MacSetVirtualDisplayHiDPI(uint32_t displayID, bool hidpi) {
     CGVirtualDisplay *display = nil;
     uint32_t w = 0, h = 0;
@@ -1469,29 +1626,29 @@ extern "C" bool MacSetVirtualDisplayHiDPI(uint32_t displayID, bool hidpi) {
         h = it->second.height;
         refreshRate = it->second.refreshRate;
     }
-    // Solo se DECLARA el modo con el backing pedido, sin esperar: el tamano
-    // actual puede no admitir Retina (p.ej. 1920x1080 puntos = 3840x2160 px en
-    // una VM) y el cliente redimensiona al tamano final justo despues; ese
-    // resize aplica y verifica el backing (MacResizeVirtualDisplay).
-    NSLog(@"remotedisplay vdisplay: ID %u hidpi pedido=%d (declarando %ux%u puntos)", displayID, hidpi, w, h);
+    // The mode is only DECLARED with the requested backing, without waiting: the
+    // current size may not support Retina (e.g. 1920x1080 points = 3840x2160 px in
+    // a VM) and the client resizes to the final size right afterward; that
+    // resize applies and verifies the backing (MacResizeVirtualDisplay).
+    NSLog(@"remotedisplay vdisplay: ID %u hidpi requested=%d (declaring %ux%u points)", displayID, hidpi, w, h);
     (void)rdApplyVDisplayMode(display, w, h, refreshRate, hidpi && 2 * w >= 1920);
     return true;
 }
 
-// Reporta lo PEDIDO (lo que el cliente decidio y usa para su escala); el
-// backing real queda en `hidpi` para diagnostico (log del resize).
+// Reports what was REQUESTED (what the client decided and uses for its scale); the
+// actual backing is left in `hidpi` for diagnostics (resize log).
 extern "C" bool MacIsVirtualDisplayHiDPI(uint32_t displayID) {
     std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
     auto it = g_rdVDisplays.find(displayID);
     return it != g_rdVDisplays.end() && it->second.hidpiRequested;
 }
 
-// Loop principal del server headless: NSApplication sin UI (Prohibited) para que
-// AppKit bombee los eventos CGS. Sin esto, tras CGCompleteDisplayConfiguration
-// (espejo del main dinamico) CGGetOnlineDisplayList del proceso deja de ver los
-// displays nuevos (verificado con harness/mirror_enum_test2.mm: solo el event
-// loop de NSApp los refresca; CFRunLoopRunInMode no). [NSApp run] tambien drena
-// la cola principal de GCD, que usa la inyeccion de input.
+// Main loop of the headless server: NSApplication with no UI (Prohibited) so that
+// AppKit pumps CGS events. Without this, after CGCompleteDisplayConfiguration
+// (dynamic main mirroring) the process's CGGetOnlineDisplayList stops seeing
+// new displays (verified with harness/mirror_enum_test2.mm: only NSApp's event
+// loop refreshes them; CFRunLoopRunInMode does not). [NSApp run] also drains
+// the GCD main queue, which input injection uses.
 extern "C" void MacRunHeadlessAppLoop() {
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
@@ -1504,35 +1661,35 @@ extern "C" void MacRunHeadlessAppLoop() {
 extern "C" bool MacDynamicMainOff(); // definido mas abajo
 
 extern "C" bool MacDestroyVirtualDisplay(uint32_t displayID) {
-    // El virtual del main dinamico NO se destruye (es master de un espejo:
-    // destruirlo deja un display fantasma en macOS 26). "Eliminarlo" desde la
-    // UI = apagar el main dinamico: desespejar el fisico, devolverle el rol de
-    // principal y ocultar el virtual para reciclarlo.
+    // The dynamic main's virtual is NOT destroyed (it's the master of a mirror:
+    // destroying it leaves a ghost display on macOS 26). "Removing" it from the
+    // UI = turning off the dynamic main: unmirror the physical, give it back the
+    // main role, and hide the virtual so it can be recycled.
     bool isDynMain = false;
     {
         std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
         isDynMain = displayID != 0 && displayID == g_rdDynMainVirtual;
     }
     if (isDynMain) {
-        NSLog(@"remotedisplay vdisplay: destroy de %u = apagar main dinamico", displayID);
-        return MacDynamicMainOff(); // toma el lock por su cuenta
+        NSLog(@"remotedisplay vdisplay: destroy of %u = turning off dynamic main", displayID);
+        return MacDynamicMainOff(); // takes the lock on its own
     }
     std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
     auto it = g_rdVDisplays.find(displayID);
     if (it == g_rdVDisplays.end()) return false;
-    rdRemoveICC(it->second.iccPath);   // borrar el .icc exacto de este display
-    rdFreeSerialLocked(it->second.serial); // liberar el slot para reuso
-    [it->second.display release];      // soltar la ultima referencia lo destruye
+    rdRemoveICC(it->second.iccPath);   // delete this display's exact .icc
+    rdFreeSerialLocked(it->second.serial); // free the slot for reuse
+    [it->second.display release];      // releasing the last reference destroys it
     g_rdVDisplays.erase(it);
-    NSLog(@"remotedisplay vdisplay: destruido ID %u", displayID);
+    NSLog(@"remotedisplay vdisplay: destroyed ID %u", displayID);
     return true;
 }
 
 extern "C" void MacDestroyAllVirtualDisplays() {
     std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
     for (auto it = g_rdVDisplays.begin(); it != g_rdVDisplays.end();) {
-        // El virtual cacheado del main dinamico NO se destruye aca: queda
-        // oculto como esclavo de espejo y se recicla; muere con el proceso.
+        // The dynamic main's cached virtual is NOT destroyed here: it stays
+        // hidden as a mirror slave and gets recycled; it dies with the process.
         if (it->first == g_rdDynMainVirtual) {
             ++it;
             continue;
@@ -1545,11 +1702,11 @@ extern "C" void MacDestroyAllVirtualDisplays() {
     rdSweepOrphanICCsLocked();
 }
 
-// ==================== remotedisplay: main dinamico (caso 1, espejo estilo SimpleDisplay) ====================
+// ==================== remotedisplay: dynamic main (case 1, SimpleDisplay-style mirroring) ====================
 
-// Reubica origenes para que newMain quede en (0,0) — el "baile" de setMainDisplay
-// de SimpleDisplay, portado. kCGConfigureForSession: se auto-revierte en
-// logout/reboot si el proceso muere con el espejo puesto.
+// Relocates origins so newMain ends up at (0,0) — the setMainDisplay "dance"
+// from SimpleDisplay, ported over. kCGConfigureForSession: auto-reverts on
+// logout/reboot if the process dies with the mirror in place.
 static bool rdSetMainDisplay(CGDirectDisplayID newMain) {
     if (CGMainDisplayID() == newMain) return true;
     CGRect targetBounds = CGDisplayBounds(newMain);
@@ -1589,10 +1746,10 @@ static bool rdSetMirror(CGDirectDisplayID display, CGDirectDisplayID master) {
     return true;
 }
 
-// macOS 26 disuelve el espejo del main dinamico cuando cambia el modo de
-// CUALQUIER otro display (medido: harness/mirror_stability_test.mm). Si el
-// main dinamico sigue "activo" pero el fisico ya no espeja al virtual, se
-// re-espeja (mismos pasos que al encenderlo). true si quedo espejado.
+// macOS 26 dissolves the dynamic main's mirror when the mode of ANY other
+// display changes (measured: harness/mirror_stability_test.mm). If the
+// dynamic main is still "active" but the physical no longer mirrors the virtual, it's
+// re-mirrored (same steps as when turning it on). true if it ended up mirrored.
 static bool rdRepairDynMainMirror(void) {
     uint32_t vid = 0, physical = 0;
     {
@@ -1603,12 +1760,13 @@ static bool rdRepairDynMainMirror(void) {
     }
     if (vid == 0 || physical == 0) return true;
     if (CGDisplayMirrorsDisplay(physical) == vid) return true;
-    NSLog(@"remotedisplay vdisplay: espejo del main dinamico roto (fisico %u no espeja a %u): reparando", physical, vid);
+    NSLog(@"remotedisplay vdisplay: dynamic main's mirror broke (physical %u no longer mirrors %u): repairing", physical, vid);
     if (CGMainDisplayID() != vid && !rdSetMainDisplay(vid)) return false;
     if (!rdSetMirror(physical, vid)) return false;
     for (int t = 0; t < 30; t++) {
         if (CGDisplayMirrorsDisplay(physical) == vid) {
-            NSLog(@"remotedisplay vdisplay: espejo del main dinamico reparado");
+            NSLog(@"remotedisplay vdisplay: dynamic main's mirror repaired");
+            rdEnsureMirroredPhysicalMode(physical, "mirror repair");
             return true;
         }
         usleep(100 * 1000);
@@ -1616,7 +1774,7 @@ static bool rdRepairDynMainMirror(void) {
     return CGDisplayMirrorsDisplay(physical) == vid;
 }
 
-static bool rdSetDisplayEnabled(CGDirectDisplayID display, bool enabled); // definida mas abajo
+static bool rdSetDisplayEnabled(CGDirectDisplayID display, bool enabled); // defined further below
 
 extern "C" bool MacDynamicMainActive() {
     uint32_t vid = 0, physical = 0;
@@ -1628,13 +1786,13 @@ extern "C" bool MacDynamicMainActive() {
         physical = g_rdDynMainPhysical;
     }
     if (!active) return false;
-    // Autocorreccion: si el espejo se rompio por fuera (p.ej. el fisico cambio
-    // de modo o alguien lo desespejo), el main dinamico ya no existe de hecho.
-    // Marcarlo apagado y ocultar su virtual para que no quede como un monitor
-    // suelto (mismo camino que MacDynamicMainOff: se recicla, no se destruye).
+    // Self-correction: if the mirror broke from outside (e.g. the physical changed
+    // mode or someone unmirrored it), the dynamic main no longer effectively exists.
+    // Mark it off and hide its virtual so it doesn't stay around as a stray monitor
+    // (same path as MacDynamicMainOff: it's recycled, not destroyed).
     if (physical != 0 && CGDisplayMirrorsDisplay(physical) != vid) {
         if (rdRepairDynMainMirror()) return true;
-        NSLog(@"remotedisplay vdisplay: main dinamico roto por fuera (fisico %u ya no espeja a %u) y no se pudo reparar: apagando", physical, vid);
+        NSLog(@"remotedisplay vdisplay: dynamic main broke from outside (physical %u no longer mirrors %u) and could not be repaired: turning off", physical, vid);
         {
             std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
             g_rdDynMainActive = false;
@@ -1651,11 +1809,11 @@ extern "C" uint32_t MacDynamicMainVirtualID() {
     return g_rdDynMainVirtual;
 }
 
-// Enciende el main dinamico: crea un display virtual de width x height (puntos),
-// lo promueve a principal y espeja el monitor fisico principal sobre el.
-// El escritorio queda viviendo en el virtual (resoluciones arbitrarias en caliente)
-// y el fisico solo lo refleja.
-// Espera a que CGDisplayBounds(id) reporte w x h (el cambio de modo es asincrono).
+// Turns on the dynamic main: creates a virtual display of width x height (points),
+// promotes it to main, and mirrors the main physical monitor onto it.
+// The desktop ends up living on the virtual (arbitrary resolutions on the fly)
+// and the physical just reflects it.
+// Waits for CGDisplayBounds(id) to report w x h (mode change is asynchronous).
 static bool rdWaitForBounds(CGDirectDisplayID id, uint32_t w, uint32_t h, int timeoutMs) {
     for (int i = 0; i < timeoutMs / 100; i++) {
         CGRect b = CGDisplayBounds(id);
@@ -1665,7 +1823,7 @@ static bool rdWaitForBounds(CGDirectDisplayID id, uint32_t w, uint32_t h, int ti
     return false;
 }
 
-// Espera a que un display aparezca/desaparezca de la lista activa.
+// Waits for a display to appear/disappear from the active list.
 static bool rdIsInActiveList(CGDirectDisplayID id) {
     uint32_t count = 0;
     CGDirectDisplayID ids[16];
@@ -1684,9 +1842,9 @@ static bool rdWaitActiveState(CGDirectDisplayID id, bool wantActive, int timeout
     return false;
 }
 
-// CGSConfigureDisplayEnabled (SkyLight, privada): deshabilita/rehabilita un
-// display de verdad (sale/entra de la lista activa al instante, sin tocar el
-// resto). Resuelta por dlsym para no referenciar simbolos privados en el link.
+// CGSConfigureDisplayEnabled (SkyLight, private): truly disables/re-enables a
+// display (leaves/enters the active list instantly, without touching the
+// rest). Resolved via dlsym to avoid referencing private symbols in the link.
 typedef CGError (*RDConfigureDisplayEnabledFn)(CGDisplayConfigRef, CGDirectDisplayID, bool);
 static RDConfigureDisplayEnabledFn rdConfigureDisplayEnabledFn() {
     static RDConfigureDisplayEnabledFn fn = NULL;
@@ -1713,9 +1871,9 @@ static bool rdSetDisplayEnabled(CGDirectDisplayID display, bool enabled) {
     return true;
 }
 
-// Desespeja `display` y espera a que el cambio ASIENTE (sin relacion de espejo
-// y de vuelta en la lista activa). Encadenar configs de espejo sin esperar el
-// asentamiento crea ciclos de espejo y deja 0 displays activos (macOS 26).
+// Unmirrors `display` and waits for the change to SETTLE (no mirror relation
+// and back in the active list). Chaining mirror configs without waiting for
+// settling creates mirror cycles and leaves 0 active displays (macOS 26).
 static bool rdUnmirrorAndSettle(CGDirectDisplayID display, int timeoutMs) {
     if (CGDisplayMirrorsDisplay(display) == kCGNullDirectDisplay &&
         rdIsInActiveList(display)) {
@@ -1734,17 +1892,17 @@ static bool rdUnmirrorAndSettle(CGDirectDisplayID display, int timeoutMs) {
 
 extern "C" bool MacDynamicMainOn(uint32_t width, uint32_t height, bool hidpi) {
     if (MacDynamicMainActive()) {
-        // Ya activo: resize del virtual existente. WindowServer NO aplica
-        // cambios de modo a un display que es master de un mirror set
-        // (verificado en macOS 26): desespejar -> resize -> reespejar.
+        // Already active: resize the existing virtual. WindowServer does NOT apply
+        // mode changes to a display that is the master of a mirror set
+        // (verified on macOS 26): unmirror -> resize -> re-mirror.
         uint32_t vid = MacDynamicMainVirtualID();
         uint32_t physical = 0;
         {
             std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
             physical = g_rdDynMainPhysical;
         }
-        // El resize funciona con el espejo activo gracias al commit-nudge de
-        // MacResizeVirtualDisplay; el espejo del fisico se reescala solo.
+        // The resize works with the mirror active thanks to the commit-nudge in
+        // MacResizeVirtualDisplay; the physical's mirror rescales on its own.
         (void)physical;
         bool ok = MacResizeVirtualDisplay(vid, width, height);
         if (ok) {
@@ -1757,12 +1915,12 @@ extern "C" bool MacDynamicMainOn(uint32_t width, uint32_t height, bool hidpi) {
     uint32_t vid = 0;
     {
         std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
-        vid = g_rdDynMainVirtual; // reciclar el virtual cacheado si existe
+        vid = g_rdDynMainVirtual; // recycle the cached virtual if it exists
     }
     if (vid != 0) {
-        // Estaba deshabilitado (oculto): rehabilitarlo y esperar a que vuelva.
+        // Was disabled (hidden): re-enable it and wait for it to come back.
         if (!rdSetDisplayEnabled(vid, true) || !rdWaitActiveState(vid, true, 5000)) {
-            NSLog(@"remotedisplay vdisplay: el virtual cacheado %u no volvio a activo", vid);
+            NSLog(@"remotedisplay vdisplay: cached virtual %u did not become active again", vid);
             return false;
         }
         MacResizeVirtualDisplay(vid, width, height);
@@ -1773,12 +1931,13 @@ extern "C" bool MacDynamicMainOn(uint32_t width, uint32_t height, bool hidpi) {
     }
 
     if (!rdSetMainDisplay(vid)) {
-        NSLog(@"remotedisplay vdisplay: no se pudo promover el virtual a principal");
-        rdSetDisplayEnabled(vid, false); // volver a esconderlo
+        NSLog(@"remotedisplay vdisplay: could not promote the virtual to main");
+        rdSetDisplayEnabled(vid, false); // hide it again
         return false;
     }
+    rdRememberPhysicalMode(physical);
     if (!rdSetMirror(physical, vid)) {
-        NSLog(@"remotedisplay vdisplay: no se pudo espejar el fisico %u sobre el virtual %u", physical, vid);
+        NSLog(@"remotedisplay vdisplay: could not mirror physical %u onto virtual %u", physical, vid);
         rdSetMainDisplay(physical);
         rdSetDisplayEnabled(vid, false);
         return false;
@@ -1789,14 +1948,15 @@ extern "C" bool MacDynamicMainOn(uint32_t width, uint32_t height, bool hidpi) {
         g_rdDynMainPhysical = physical;
         g_rdDynMainActive = true;
     }
-    NSLog(@"remotedisplay vdisplay: main dinamico ON (virtual %u, fisico %u espejado)", vid, physical);
+    rdRepairMirrorSlavesOf(vid, "dynamic main ON", 1500);
+    NSLog(@"remotedisplay vdisplay: dynamic main ON (virtual %u, physical %u mirrored)", vid, physical);
     return true;
 }
 
-// Apaga el main dinamico: desespeja el fisico, lo repromueve, y esconde el
-// virtual DESHABILITANDOLO (CGSConfigureDisplayEnabled). No se destruye: los
-// ex-masters de mirror set quedan fantasma en WindowServer (macOS 26); el
-// virtual cacheado se recicla en el proximo ON y muere con el proceso.
+// Turns off the dynamic main: unmirrors the physical, repromotes it, and hides the
+// virtual by DISABLING it (CGSConfigureDisplayEnabled). It is not destroyed: former
+// mirror-set masters end up as ghosts in WindowServer (macOS 26); the
+// cached virtual is recycled on the next ON and dies with the process.
 extern "C" bool MacDynamicMainOff() {
     uint32_t vid = 0, physical = 0;
     {
@@ -1807,32 +1967,33 @@ extern "C" bool MacDynamicMainOff() {
         g_rdDynMainActive = false;
     }
     if (vid == 0) return true;
-    // 1. Desespejar el fisico y ESPERAR a que asiente (activo y sin espejo).
+    // 1. Unmirror the physical and WAIT for it to settle (active and without a mirror).
     bool ok = rdUnmirrorAndSettle(physical, 5000);
     if (!ok) {
-        NSLog(@"remotedisplay vdisplay: el desespejo del fisico %u no asento", physical);
+        NSLog(@"remotedisplay vdisplay: unmirroring physical %u did not settle", physical);
     }
-    // 2. Repromover el fisico y esperar a que sea el principal.
+    rdRestorePhysicalMode(physical, "dynamic main OFF");
+    // 2. Repromote the physical and wait for it to become main.
     if (!rdSetMainDisplay(physical)) {
-        NSLog(@"remotedisplay vdisplay: no se pudo repromover el fisico %u a principal", physical);
+        NSLog(@"remotedisplay vdisplay: could not repromote physical %u to main", physical);
     }
     for (int i = 0; i < 30; i++) {
         if (CGMainDisplayID() == physical) break;
         usleep(100 * 1000);
     }
-    // 3. Esconder el virtual deshabilitandolo (CGSConfigureDisplayEnabled):
-    //    sale de la lista activa al instante, sin los ciclos de espejo que
-    //    produce intentar re-espejarlo como esclavo (ex-master, macOS 26).
+    // 3. Hide the virtual by disabling it (CGSConfigureDisplayEnabled):
+    //    leaves the active list instantly, without the mirror cycles that
+    //    trying to re-mirror it as a slave would produce (ex-master, macOS 26).
     if (!rdSetDisplayEnabled(vid, false)) {
-        NSLog(@"remotedisplay vdisplay: no se pudo deshabilitar el virtual %u", vid);
+        NSLog(@"remotedisplay vdisplay: could not disable virtual %u", vid);
     }
     rdWaitActiveState(vid, false, 3000);
-    NSLog(@"remotedisplay vdisplay: main dinamico OFF (fisico %u principal, virtual %u oculto)", physical, vid);
+    NSLog(@"remotedisplay vdisplay: dynamic main OFF (physical %u main, virtual %u hidden)", physical, vid);
     return ok;
 }
 
-// Destruccion real del virtual del main dinamico (solo al bajar el proceso o
-// en reset explicito): puede dejar fantasma temporal si fue master de espejo.
+// Actual destruction of the dynamic main's virtual (only when the process shuts down or
+// on an explicit reset): can leave a temporary ghost if it was a mirror master.
 extern "C" void MacDynamicMainDestroy() {
     MacDynamicMainOff();
     uint32_t vid = 0;
@@ -1847,12 +2008,46 @@ extern "C" void MacDynamicMainDestroy() {
     }
 }
 
-// ==================== remotedisplay: apagar/prender monitores fisicos ====================
+// Fingerprint of the display topology (ids, active/main, mirror, bounds and
+// pixel mode). The video service compares it every second and recreates the
+// capturer if it changes: a CGDisplayStream can go silent after a
+// reconfiguration that does NOT move the captured display's bounds (e.g. the
+// mode change of a physical mirroring it), and scrap never notices.
+extern "C" uint64_t MacDisplayTopologyHash() {
+    uint64_t h = 1469598103934665603ULL; // FNV-1a
+    auto mix = [&h](uint64_t v) { h ^= v; h *= 1099511628211ULL; };
+    uint32_t count = 0;
+    CGDirectDisplayID online[16];
+    CGGetOnlineDisplayList(16, online, &count);
+    mix(count);
+    for (uint32_t i = 0; i < count; i++) {
+        CGDirectDisplayID d = online[i];
+        CGRect b = CGDisplayBounds(d);
+        mix(d);
+        mix(CGDisplayIsActive(d));
+        mix(CGDisplayIsMain(d));
+        mix(CGDisplayMirrorsDisplay(d));
+        mix((uint64_t)(int64_t)b.origin.x);
+        mix((uint64_t)(int64_t)b.origin.y);
+        mix((uint64_t)(int64_t)b.size.width);
+        mix((uint64_t)(int64_t)b.size.height);
+        CGDisplayModeRef m = CGDisplayCopyDisplayMode(d);
+        if (m) {
+            mix(CGDisplayModeGetPixelWidth(m));
+            mix(CGDisplayModeGetPixelHeight(m));
+            mix((uint64_t)(CGDisplayModeGetRefreshRate(m) * 100));
+            CGDisplayModeRelease(m);
+        }
+    }
+    return h;
+}
+
+// ==================== remotedisplay: turning physical monitors off/on ====================
 //
-// "Apagar" un monitor fisico = espejarlo sobre el display principal restante
-// (el disable de SimpleDisplay portado): la pantalla refleja el main y deja de
-// ser un desktop independiente (sale de la lista activa). "Prender" = quitar
-// el espejo. kCGConfigureForSession: se auto-revierte en logout/reboot.
+// "Turning off" a physical monitor = mirroring it onto the remaining main display
+// (SimpleDisplay's disable, ported over): the screen reflects the main and stops
+// being an independent desktop (leaves the active list). "Turning on" = removing
+// the mirror. kCGConfigureForSession: auto-reverts on logout/reboot.
 
 extern "C" uint32_t MacListActiveDisplays(uint32_t *ids, uint32_t max) {
     uint32_t count = 0;
@@ -1860,8 +2055,8 @@ extern "C" uint32_t MacListActiveDisplays(uint32_t *ids, uint32_t max) {
     return count;
 }
 
-// Displays online que no estan activos ni son virtuales nuestros = fisicos
-// apagados (espejados) que el cliente debe poder volver a prender.
+// Online displays that are neither active nor one of our virtuals = physicals
+// turned off (mirrored) that the client should be able to turn back on.
 extern "C" uint32_t MacListInactivePhysicalDisplays(uint32_t *ids, uint32_t max) {
     uint32_t online[16], active[16];
     uint32_t nOnline = 0, nActive = 0;
@@ -1884,8 +2079,8 @@ extern "C" uint32_t MacListInactivePhysicalDisplays(uint32_t *ids, uint32_t max)
 extern "C" bool MacSetPhysicalDisplayEnabled(uint32_t displayID, bool enabled) {
     if (MacIsOurVirtualDisplay(displayID)) return false;
     if (enabled) {
-        // Si este fisico esta espejado por el main dinamico, "prenderlo" es
-        // apagar el main dinamico (vuelve a ser principal, el virtual se oculta).
+        // If this physical is mirrored by the dynamic main, "turning it on" means
+        // turning off the dynamic main (it becomes main again, the virtual is hidden).
         {
             bool isDynMainPhysical = false;
             {
@@ -1893,35 +2088,36 @@ extern "C" bool MacSetPhysicalDisplayEnabled(uint32_t displayID, bool enabled) {
                 isDynMainPhysical = g_rdDynMainActive && displayID == g_rdDynMainPhysical;
             }
             if (isDynMainPhysical) {
-                NSLog(@"remotedisplay vdisplay: prender fisico %u = apagar main dinamico", displayID);
+                NSLog(@"remotedisplay vdisplay: turning on physical %u = turning off dynamic main", displayID);
                 return MacDynamicMainOff();
             }
         }
         if (rdIsInActiveList(displayID) &&
             CGDisplayMirrorsDisplay(displayID) == kCGNullDirectDisplay) {
-            return true; // ya prendido
+            return true; // already on
         }
         bool ok = rdUnmirrorAndSettle(displayID, 5000);
-        NSLog(@"remotedisplay vdisplay: fisico %u prendido (%d)", displayID, ok);
+        rdRestorePhysicalMode(displayID, "turn physical on");
+        NSLog(@"remotedisplay vdisplay: physical %u turned on (%d)", displayID, ok);
         return ok;
     }
-    // Apagar: necesita OTRO display activo que quede como principal.
+    // Turning off: needs ANOTHER active display to become main.
     uint32_t active[16];
     uint32_t nActive = 0;
     CGGetActiveDisplayList(16, active, &nActive);
-    if (!rdIsInActiveList(displayID)) return true; // ya apagado
+    if (!rdIsInActiveList(displayID)) return true; // already off
     if (nActive < 2) {
-        NSLog(@"remotedisplay vdisplay: no se apaga el fisico %u — es el unico display activo", displayID);
+        NSLog(@"remotedisplay vdisplay: not turning off physical %u — it's the only active display", displayID);
         return false;
     }
-    // Si es el principal, promover otro primero (el baile de SimpleDisplay).
+    // If it's the main display, promote another one first (SimpleDisplay's dance).
     if (CGMainDisplayID() == displayID) {
         uint32_t other = 0;
         for (uint32_t i = 0; i < nActive; i++) {
             if (active[i] != displayID) { other = active[i]; break; }
         }
         if (!rdSetMainDisplay(other)) {
-            NSLog(@"remotedisplay vdisplay: no se pudo transferir el principal a %u", other);
+            NSLog(@"remotedisplay vdisplay: could not transfer main to %u", other);
             return false;
         }
         for (int i = 0; i < 30; i++) {
@@ -1929,10 +2125,12 @@ extern "C" bool MacSetPhysicalDisplayEnabled(uint32_t displayID, bool enabled) {
             usleep(100 * 1000);
         }
     }
+    rdRememberPhysicalMode(displayID);
     bool ok = rdSetMirror(displayID, CGMainDisplayID());
     if (ok) {
         rdWaitActiveState(displayID, false, 3000);
+        rdRepairMirrorSlavesOf(CGMainDisplayID(), "turn physical off", 1500);
     }
-    NSLog(@"remotedisplay vdisplay: fisico %u apagado -> espeja al %u (%d)", displayID, CGMainDisplayID(), ok);
+    NSLog(@"remotedisplay vdisplay: physical %u turned off -> mirrors %u (%d)", displayID, CGMainDisplayID(), ok);
     return ok;
 }

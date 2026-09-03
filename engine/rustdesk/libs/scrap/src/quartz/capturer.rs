@@ -92,6 +92,11 @@ impl Capturer {
     pub fn display(&self) -> Display {
         self.display
     }
+    // remotedisplay: el stream avisa `Stopped` cuando WindowServer lo corta (p.ej.
+    // reconfiguracion de displays). Sin esto el capturer sigue "vivo" pero mudo.
+    pub fn is_stopped(&self) -> bool {
+        *self.stopped.lock().unwrap()
+    }
 }
 
 impl Drop for Capturer {

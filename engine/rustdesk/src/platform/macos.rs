@@ -80,12 +80,18 @@ extern "C" {
     fn majorVersion() -> u32;
     fn MacGetMode(display: u32, width: *mut u32, height: *mut u32) -> BOOL;
     fn MacSetMode(display: u32, width: u32, height: u32, tryHiDPI: bool) -> BOOL;
+    fn MacDisplayTopologyHash() -> u64;
     fn CGWarpMouseCursorPosition(newCursorPosition: CGPoint) -> CGError;
     fn CGAssociateMouseAndMouseCursorPosition(connected: BooleanT) -> CGError;
 }
 
 pub fn major_version() -> u32 {
     unsafe { majorVersion() }
+}
+
+// remotedisplay: fingerprint of the display topology (see MacDisplayTopologyHash in macos.mm).
+pub fn display_topology_hash() -> u64 {
+    unsafe { MacDisplayTopologyHash() }
 }
 
 pub fn is_process_trusted(prompt: bool) -> bool {
@@ -597,13 +603,13 @@ fn unsafe_get_cursor_data(hcursor: u64) -> ResultType<CursorData> {
         if nreps == 0 {
             bail!("Get empty [NSImage representations]");
         }
-        // remotedisplay: elegir la representación cuyo tamaño en PÍXELES coincida con
-        // los PUNTOS de la imagen (la variante 1x). Con un display Retina/HiDPI
-        // presente (p.ej. el ultrawide virtual de SimpleDisplay), reps[0] puede ser
-        // la variante 2x: el loop de abajo (que itera en puntos) leería solo el
-        // cuarto superior-izquierdo del bitmap y el cursor llegaría al viewer
-        // deformado y con la punta corrida respecto del hotspot -> "clicks
-        // descalibrados". Si solo hay reps escaladas, se muestrea con el factor.
+        // remotedisplay: pick the representation whose size in PIXELS matches
+        // the image's POINTS (the 1x variant). With a Retina/HiDPI display
+        // present (e.g. SimpleDisplay's virtual ultrawide), reps[0] can be
+        // the 2x variant: the loop below (which iterates in points) would only read the
+        // top-left quarter of the bitmap, and the cursor would reach the viewer
+        // distorted with its tip offset from the hotspot -> "miscalibrated
+        // clicks". If only scaled reps exist, sample using the factor.
         let mut rep: id = msg_send![reps, objectAtIndex: 0];
         for i in 0..nreps {
             let r: id = msg_send![reps, objectAtIndex: i];
@@ -634,7 +640,7 @@ fn unsafe_get_cursor_data(hcursor: u64) -> ResultType<CursorData> {
         // let cs: id = msg_send![class!(NSColorSpace), sRGBColorSpace];
         for y in 0..(size.height as i64) {
             for x in 0..(size.width as i64) {
-                // centro del texel escalado (con rep 1x queda px == x, py == y)
+                // center of the scaled texel (with a 1x rep, px == x, py == y)
                 let px = ((x as f64 + 0.5) * sx) as cocoa::foundation::NSInteger;
                 let py = ((y as f64 + 0.5) * sy) as cocoa::foundation::NSInteger;
                 let color: id = msg_send![rep, colorAtX:px y:py];
