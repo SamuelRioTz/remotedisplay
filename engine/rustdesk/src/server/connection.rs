@@ -6688,11 +6688,34 @@ mod raii {
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 display_service::restore_resolutions();
                 // Windows (IDD): virtuals are destroyed when the last client leaves.
-                // remotedisplay/macOS: NOT so — the virtual monitors and the dynamic main
-                // persist while the server keeps running, so the next connection
-                // finds them just as they were (requested by the user, 2026-09-02).
                 #[cfg(windows)]
                 let _ = virtual_display_manager::reset_all();
+                // remotedisplay/macOS: same idea — the last client leaving (or
+                // dropping) puts the displays back: physicals turned off come
+                // back on, the dynamic main is undone and the virtual monitors
+                // go away. Each client re-applies its own monitor profile on
+                // connect, so nothing is lost. The reset waits for macOS to
+                // settle (seconds): run it off the async runtime, and skip it if
+                // a client came back in the meantime.
+                #[cfg(target_os = "macos")]
+                if virtual_display_manager::is_virtual_display_supported() {
+                    std::thread::spawn(|| {
+                        let remotes = AUTHED_CONNS
+                            .lock()
+                            .unwrap()
+                            .iter()
+                            .filter(|c| c.conn_type == AuthConnType::Remote)
+                            .count();
+                        if remotes > 0 {
+                            log::info!("mac_vdisplay: a client is back, keeping the displays");
+                            return;
+                        }
+                        log::info!("mac_vdisplay: last client left, restoring the displays");
+                        if let Err(e) = virtual_display_manager::reset_all() {
+                            log::error!("mac_vdisplay: reset failed: {e}");
+                        }
+                    });
+                }
                 #[cfg(target_os = "linux")]
                 scrap::wayland::pipewire::try_close_session();
             }

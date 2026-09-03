@@ -11,6 +11,7 @@
 #include <map>
 #include <set>
 #include <mutex>
+#include <atomic>
 #include <string>
 
 extern "C" bool CanUseNewApiForScreenCaptureCheck() {
@@ -1101,18 +1102,46 @@ static CGDisplayModeRef rdCopyNativeMode(CGDirectDisplayID display) {
     return r;
 }
 
-// Saves the physical's current mode (only once) before mirroring it.
+// Saves the physical's OWN mode before mirroring it. Only a standalone display
+// (active, not mirroring anything) shows its own mode. When the dynamic main's
+// cached virtual is re-enabled, macOS can re-mirror the physical onto it on its
+// own, before we get here: the physical then reports the master's mode, and
+// remembering that poisoned the restore (measured in the test VM, 2026-09-03:
+// 1920x1080 "restored" to 1600x900 on the second connection). So: standalone ->
+// refresh the memory with the current mode; already mirrored -> keep what we
+// remembered in an earlier cycle, or fall back to the native mode if there is
+// nothing. The memory survives the restore (see rdRestorePhysicalMode).
 static void rdRememberPhysicalMode(CGDirectDisplayID display) {
-    CGDisplayModeRef m = CGDisplayCopyDisplayMode(display);
-    if (!m) return;
+    bool standalone = CGDisplayIsActive(display) &&
+                      CGDisplayMirrorsDisplay(display) == kCGNullDirectDisplay;
+    CGDisplayModeRef current = standalone ? CGDisplayCopyDisplayMode(display) : NULL;
+    CGDisplayModeRef native = standalone ? NULL : rdCopyNativeMode(display);
     std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
-    if (g_rdMirrorModes.find(display) != g_rdMirrorModes.end()) {
-        CGDisplayModeRelease(m);
+    auto it = g_rdMirrorModes.find(display);
+    if (standalone) {
+        if (!current) { if (native) CGDisplayModeRelease(native); return; }
+        if (it != g_rdMirrorModes.end()) {
+            CGDisplayModeRelease(it->second);
+            it->second = current;
+        } else {
+            g_rdMirrorModes[display] = current; // retained by the Copy
+        }
+        NSLog(@"remotedisplay vdisplay: physical %u at %zux%zu px before mirroring (remembered)",
+              display, CGDisplayModeGetPixelWidth(current), CGDisplayModeGetPixelHeight(current));
         return;
     }
-    g_rdMirrorModes[display] = m; // retained by the Copy
-    NSLog(@"remotedisplay vdisplay: physical %u at %zux%zu px before mirroring (remembered)",
-          display, CGDisplayModeGetPixelWidth(m), CGDisplayModeGetPixelHeight(m));
+    if (it != g_rdMirrorModes.end()) {
+        NSLog(@"remotedisplay vdisplay: physical %u is already mirroring %u: keeping the remembered %zux%zu px",
+              display, CGDisplayMirrorsDisplay(display),
+              CGDisplayModeGetPixelWidth(it->second), CGDisplayModeGetPixelHeight(it->second));
+        if (native) CGDisplayModeRelease(native);
+        return;
+    }
+    if (!native) return;
+    g_rdMirrorModes[display] = native;
+    NSLog(@"remotedisplay vdisplay: physical %u is already mirroring %u and nothing is remembered: assuming its native %zux%zu px",
+          display, CGDisplayMirrorsDisplay(display),
+          CGDisplayModeGetPixelWidth(native), CGDisplayModeGetPixelHeight(native));
 }
 
 // Desired mode for a mirrored physical display: the remembered one, or the native one.
@@ -1189,15 +1218,17 @@ static void rdRepairMirrorSlavesOf(CGDirectDisplayID master, const char *why, in
     }
 }
 
-// When unmirroring: if macOS didn't return the physical to its previous mode, restore it; and forget it.
+// When unmirroring: if macOS didn't return the physical to its previous mode, restore it.
+// The memory is KEPT: on the next cycle the physical may already be re-mirrored by the
+// time we would remember it (recycled virtual), and this entry is then the only truth.
 static void rdRestorePhysicalMode(CGDirectDisplayID display, const char *why) {
     CGDisplayModeRef want = NULL;
     {
         std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
         auto it = g_rdMirrorModes.find(display);
         if (it == g_rdMirrorModes.end()) return;
-        want = it->second; // ownership of the reference passes to this function
-        g_rdMirrorModes.erase(it);
+        want = it->second;
+        CGDisplayModeRetain(want); // our own reference; the map keeps its own
     }
     CGDisplayModeRef cur = CGDisplayCopyDisplayMode(display);
     if (!rdSameMode(cur, want)) {
@@ -1208,6 +1239,22 @@ static void rdRestorePhysicalMode(CGDirectDisplayID display, const char *why) {
         NSLog(@"remotedisplay vdisplay: physical %u mode %s", display, ok ? "restored" : "COULD NOT restore");
     }
     if (cur) CGDisplayModeRelease(cur);
+    // The unmirror settles asynchronously and macOS can re-pick the mode a moment
+    // AFTER our restore went through (measured in the test VM, 2026-09-03: restored
+    // to 1920x1080, then back at 1600x900 within a second). Watch for a while and
+    // put it back, the same way the mirror-on path does with rdRepairMirrorSlavesOf.
+    for (int waited = 0; waited < 2000; waited += 250) {
+        usleep(250 * 1000);
+        CGDisplayModeRef now = CGDisplayCopyDisplayMode(display);
+        bool same = rdSameMode(now, want);
+        if (!same) {
+            NSLog(@"remotedisplay vdisplay: physical %u flipped to %zux%zu px after the restore (%s), re-restoring %zux%zu px",
+                  display, now ? CGDisplayModeGetPixelWidth(now) : 0, now ? CGDisplayModeGetPixelHeight(now) : 0,
+                  why, CGDisplayModeGetPixelWidth(want), CGDisplayModeGetPixelHeight(want));
+            rdApplyModeAndWait(display, want, 3000);
+        }
+        if (now) CGDisplayModeRelease(now);
+    }
     CGDisplayModeRelease(want);
 }
 
@@ -1649,7 +1696,36 @@ extern "C" bool MacIsVirtualDisplayHiDPI(uint32_t displayID) {
 // new displays (verified with harness/mirror_enum_test2.mm: only NSApp's event
 // loop refreshes them; CFRunLoopRunInMode does not). [NSApp run] also drains
 // the GCD main queue, which input injection uses.
+// Shutdown of the headless server: launchd (`bootout`, `kickstart -k`, the app's
+// service toggle) sends SIGTERM, a terminal sends SIGINT. Put the displays back
+// before exiting, like SimpleDisplay did when it was quit: undo the dynamic main,
+// turn the physicals back on, destroy the virtuals. The work happens on a GCD
+// queue (a dispatch signal source, not a signal handler), so the display APIs
+// are safe to call and the main thread keeps pumping AppKit meanwhile.
+// launchd waits 20 s by default before SIGKILL; a reset takes a few seconds.
+extern "C" void remotedisplay_reset_displays(void) __attribute__((weak_import)); // Rust, virtual_display_manager.rs
+static void rdInstallShutdownHandlers() {
+    static dispatch_source_t sources[2];
+    static std::atomic<bool> done{false};
+    const int sigs[2] = {SIGTERM, SIGINT};
+    for (int i = 0; i < 2; i++) {
+        signal(sigs[i], SIG_IGN); // required for a dispatch signal source to see it
+        sources[i] = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, (uintptr_t)sigs[i], 0,
+                                            dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+        const int sig = sigs[i];
+        dispatch_source_set_event_handler(sources[i], ^{
+            if (done.exchange(true)) return;
+            NSLog(@"remotedisplay vdisplay: signal %d: restoring the displays before exiting", sig);
+            if (remotedisplay_reset_displays) remotedisplay_reset_displays();
+            NSLog(@"remotedisplay vdisplay: displays restored, exiting");
+            exit(0);
+        });
+        dispatch_resume(sources[i]);
+    }
+}
+
 extern "C" void MacRunHeadlessAppLoop() {
+    rdInstallShutdownHandlers();
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
         [app setActivationPolicy:NSApplicationActivationPolicyProhibited];
@@ -1809,6 +1885,12 @@ extern "C" uint32_t MacDynamicMainVirtualID() {
     return g_rdDynMainVirtual;
 }
 
+// The physical display currently mirrored by the dynamic main (0 if it's off).
+extern "C" uint32_t MacDynamicMainPhysicalID() {
+    std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+    return g_rdDynMainActive ? g_rdDynMainPhysical : 0;
+}
+
 // Turns on the dynamic main: creates a virtual display of width x height (points),
 // promotes it to main, and mirrors the main physical monitor onto it.
 // The desktop ends up living on the virtual (arbitrary resolutions on the fly)
@@ -1912,6 +1994,10 @@ extern "C" bool MacDynamicMainOn(uint32_t width, uint32_t height, bool hidpi) {
     }
 
     CGDirectDisplayID physical = CGMainDisplayID();
+    // Remember the physical's own mode NOW, while it is still standalone: in the test
+    // VM it was already mirroring the virtual right after the virtual appeared, and the
+    // later call below could only fall back to the native mode.
+    rdRememberPhysicalMode(physical);
     uint32_t vid = 0;
     {
         std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
