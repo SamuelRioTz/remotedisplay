@@ -29,12 +29,19 @@ final class ServerController {
     /// Hay contraseña permanente definida (RemoteDisplay.toml → password no vacío).
     var passwordSet = false
     var engineVersion = "—"
+    /// Motivo por el que el motor NO puede ejecutarse en este Mac (arquitectura,
+    /// permisos de archivo, binario ausente). Mientras no sea nil, nada funciona.
+    var engineProblem: String?
+    /// La app corre desde App Translocation (copiada sin el Finder / abierta desde
+    /// el DMG): la ruta del bundle es temporal y el LaunchAgent dejará de arrancar.
+    var translocated: Bool { Bundle.main.bundlePath.contains("/AppTranslocation/") }
 
     var isReady: Bool { serviceRunning && screenOK && accessibilityOK }
     var missingCount: Int {
         (serviceRunning ? 0 : 1) + (screenOK ? 0 : 1) + (accessibilityOK ? 0 : 1) + (passwordSet ? 0 : 1)
     }
     var statusLine: String {
+        if engineProblem != nil { return "Cannot run on this Mac" }
         if !serviceRunning { return "Stopped" }
         let perms = (screenOK ? 0 : 1) + (accessibilityOK ? 0 : 1)
         if perms > 0 { return "Running · \(perms) permission\(perms == 1 ? "" : "s") missing" }
@@ -87,6 +94,8 @@ final class ServerController {
     // MARK: - Ciclo de vida
 
     func start() {
+        engineProblem = Self.checkEngine(at: enginePath)
+        if let problem = engineProblem { NSLog("[remotedisplay] engine problem: %@", problem) }
         engineVersion = readEngineVersion()
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
@@ -213,16 +222,103 @@ final class ServerController {
         return out.isEmpty ? "—" : out
     }
 
-    /// Ejecuta y devuelve stdout (síncrono, procesos cortos).
+    /// Ejecuta y devuelve stdout (síncrono, procesos cortos). Nunca bloquea más de
+    /// unos segundos: si el proceso no arranca o no termina, devuelve "".
     private func run(_ path: String, _ args: [String]) -> String {
+        Self.runProcess(path, args, timeout: 5).output
+    }
+
+    /// Resultado de un proceso corto.
+    struct ProcessResult {
+        var output = ""
+        /// Código de salida; nil si no llegó a ejecutarse o no terminó a tiempo.
+        var status: Int32?
+        /// Motivo legible cuando no se pudo ejecutar o completar.
+        var failure: String?
+    }
+
+    /// Ejecuta un proceso con timeout. Lee stdout (y stderr si `mergeStderr`) en un
+    /// hilo aparte ANTES de esperar la salida: esperar primero deja el pipe sin
+    /// lector (deadlock si el hijo escribe mucho) y, si `run()` falla, leer hasta EOF
+    /// no termina nunca porque nadie cierra el extremo de escritura — exactamente el
+    /// cuelgue de "Saving…" que se veía al fijar la contraseña con un motor que no
+    /// puede ejecutarse (p. ej. binario arm64 en un Mac Intel).
+    static func runProcess(_ path: String, _ args: [String], timeout: TimeInterval, mergeStderr: Bool = false) -> ProcessResult {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
-        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
-        do { try p.run() } catch { return "" }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return String(data: data, encoding: .utf8) ?? ""
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = mergeStderr ? out : Pipe()
+        let exited = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in exited.signal() }
+        do {
+            try p.run()
+        } catch {
+            return ProcessResult(output: "", status: nil, failure: describeLaunchError(error, path: path))
+        }
+        var data = Data()
+        let readDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            data = out.fileHandleForReading.readDataToEndOfFile()
+            readDone.signal()
+        }
+        var result = ProcessResult()
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            p.terminate()
+            if exited.wait(timeout: .now() + 1) == .timedOut { kill(p.processIdentifier, SIGKILL) }
+            result.failure = "\(URL(fileURLWithPath: path).lastPathComponent) did not finish in \(Int(timeout)) s"
+        } else {
+            result.status = p.terminationStatus
+        }
+        if readDone.wait(timeout: .now() + 1) == .success {
+            result.output = String(data: data, encoding: .utf8) ?? ""
+        }
+        return result
+    }
+
+    private static func describeLaunchError(_ error: Error, path: String) -> String {
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        if let arch = checkEngine(at: path) { return arch }
+        return "Could not start \(name): \(error.localizedDescription)"
+    }
+
+    /// nil si el binario del motor existe, es ejecutable y contiene la arquitectura
+    /// de este Mac; si no, el motivo. Lee la cabecera Mach-O (thin o fat).
+    static func checkEngine(at path: String) -> String? {
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        guard FileManager.default.fileExists(atPath: path) else {
+            return "The engine (\(name)) is missing from the app bundle."
+        }
+        guard FileManager.default.isExecutableFile(atPath: path) else {
+            return "The engine (\(name)) is not executable. Reinstall the app from the DMG."
+        }
+        guard let fh = FileHandle(forReadingAtPath: path), let head = try? fh.read(upToCount: 4096), head.count >= 8 else {
+            return nil
+        }
+        try? fh.close()
+        func be32(_ o: Int) -> UInt32 { head.subdata(in: o..<o+4).withUnsafeBytes { UInt32(bigEndian: $0.load(as: UInt32.self)) } }
+        func le32(_ o: Int) -> UInt32 { head.subdata(in: o..<o+4).withUnsafeBytes { UInt32(littleEndian: $0.load(as: UInt32.self)) } }
+        let cpuArm64: UInt32 = 0x0100000C, cpuX86_64: UInt32 = 0x01000007
+        var archs: [UInt32] = []
+        switch be32(0) {
+        case 0xCAFEBABE: // fat, big-endian
+            let n = Int(be32(4))
+            for i in 0..<min(n, 8) { archs.append(be32(8 + i * 20)) }
+        case 0xCFFAEDFE: archs.append(le32(4))   // MH_MAGIC_64 little-endian on disk
+        case 0xFEEDFACF: archs.append(be32(4))
+        default: return nil                        // not Mach-O we understand: let exec decide
+        }
+        #if arch(arm64)
+        let want = cpuArm64, wantName = "Apple silicon", other = "Intel"
+        #else
+        let want = cpuX86_64, wantName = "Intel", other = "Apple silicon"
+        #endif
+        if archs.contains(want) { return nil }
+        if archs.contains(want == cpuArm64 ? cpuX86_64 : cpuArm64) {
+            return "This build of Remote Display Server only runs on \(other) Macs; this Mac is \(wantName)."
+        }
+        return "The engine (\(name)) is built for another CPU architecture."
     }
 
     /// Corta todas las sesiones reiniciando el motor (los clientes reconectan a mano).
@@ -245,6 +341,10 @@ final class ServerController {
     func setServiceEnabled(_ on: Bool) {
         serviceDesired = on
         if on {
+            if let problem = engineProblem {
+                NSLog("[remotedisplay] not starting the service: %@", problem)
+                return
+            }
             ensureConfig()
             writeAgentPlist()
             // Evitar doble-bind del puerto 21118 / socket IPC con la ruta headless
@@ -343,19 +443,36 @@ final class ServerController {
 
     // MARK: - Contraseña
 
+    /// Fija la contraseña permanente. `--set-lan-password` habla por IPC con el motor
+    /// en ejecución, así que exige el servicio encendido. Nunca deja la UI esperando:
+    /// falla con un mensaje claro si el motor no arranca o no responde.
     func changePassword(_ password: String, completion: @escaping (Bool, String) -> Void) {
+        if let problem = engineProblem {
+            completion(false, problem)
+            return
+        }
+        guard serviceRunning else {
+            completion(false, "Turn the service on first: the running engine stores the password.")
+            return
+        }
+        let path = enginePath
         DispatchQueue.global().async {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: self.enginePath)
-            p.arguments = ["--set-lan-password", password]
-            let out = Pipe(); p.standardOutput = out; p.standardError = out
-            try? p.run(); p.waitUntilExit()
-            let data = out.fileHandleForReading.readDataToEndOfFile()
-            let s = String(data: data, encoding: .utf8) ?? ""
-            let ok = s.contains("Done!")
+            let r = Self.runProcess(path, ["--set-lan-password", password], timeout: 15, mergeStderr: true)
+            let ok = r.output.contains("Done!")
+            let msg: String
+            if ok {
+                msg = "Password updated"
+            } else if let failure = r.failure {
+                msg = failure
+            } else {
+                let detail = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                msg = detail.isEmpty
+                    ? "The engine did not accept the password (exit status \(r.status ?? -1))."
+                    : detail.replacingOccurrences(of: "set-lan-password failed: ", with: "Could not set the password: ")
+            }
             DispatchQueue.main.async {
                 self.refresh()
-                completion(ok, ok ? "Password updated" : "Error: \(s.trimmingCharacters(in: .whitespacesAndNewlines))")
+                completion(ok, msg)
             }
         }
     }

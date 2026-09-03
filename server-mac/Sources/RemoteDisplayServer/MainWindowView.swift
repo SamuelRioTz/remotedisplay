@@ -8,6 +8,8 @@ struct MainWindowView: View {
     @State private var showPasswordSheet = false
     @State private var newPassword = ""
     @State private var passwordMsg = ""
+    @State private var passwordOK = false
+    @State private var saving = false
     @State private var copied: String?
 
     var body: some View {
@@ -48,8 +50,17 @@ struct MainWindowView: View {
                 Toggle("", isOn: Binding(get: { c.serviceRunning }, set: { c.setServiceEnabled($0) }))
                     .toggleStyle(.switch).labelsHidden()
                     .help("Service Active")
+                    .disabled(c.engineProblem != nil)
             }
             .padding(.vertical, 4)
+            if let problem = c.engineProblem {
+                Label(problem, systemImage: "exclamationmark.octagon.fill")
+                    .font(.system(size: 12.5)).foregroundStyle(.red)
+            } else if c.translocated {
+                Label("Running from a temporary location. Move Remote Display Server to the Applications folder with the Finder and reopen it, or the service will not start after a restart.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12.5)).foregroundStyle(.orange)
+            }
         }
     }
 
@@ -209,7 +220,16 @@ struct MainWindowView: View {
     // MARK: - Password sheet
 
     private func openPasswordSheet() {
-        newPassword = ""; passwordMsg = ""; showPasswordSheet = true
+        newPassword = ""; passwordMsg = ""; passwordOK = false; saving = false; showPasswordSheet = true
+    }
+
+    private func savePassword() {
+        guard !saving, newPassword.count >= 6 else { return }
+        saving = true; passwordOK = false; passwordMsg = ""
+        c.changePassword(newPassword) { ok, msg in
+            saving = false; passwordOK = ok; passwordMsg = msg
+            if ok { DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { showPasswordSheet = false } }
+        }
     }
 
     private var passwordSheet: some View {
@@ -219,19 +239,24 @@ struct MainWindowView: View {
                 .font(.caption).foregroundStyle(.secondary)
             SecureField("New password", text: $newPassword)
                 .textFieldStyle(.roundedBorder).frame(width: 280)
-            if !passwordMsg.isEmpty {
-                Text(passwordMsg).font(.caption).foregroundStyle(.secondary)
+                .disabled(saving)
+                .onSubmit { savePassword() }
+            if saving {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Saving…").font(.caption).foregroundStyle(.secondary)
+                }
+            } else if !passwordMsg.isEmpty {
+                Text(passwordMsg).font(.caption)
+                    .foregroundStyle(passwordOK ? Color.secondary : Color.red)
+                    .frame(width: 280, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Spacer()
                 Button("Cancel") { showPasswordSheet = false }.keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    passwordMsg = "Saving…"
-                    c.changePassword(newPassword) { ok, msg in
-                        passwordMsg = msg
-                        if ok { DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { showPasswordSheet = false } }
-                    }
-                }.keyboardShortcut(.defaultAction).disabled(newPassword.count < 6)
+                Button("Save") { savePassword() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(newPassword.count < 6 || saving)
             }
         }
         .padding(20)

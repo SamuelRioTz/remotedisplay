@@ -39,7 +39,7 @@ letterboxing, no scrolling, no fixed resolutions.
 - **No accounts, no cloud, no IDs.** Direct connection over your LAN or VPN
   (Tailscale works well), with a password you set. Nothing leaves your network.
 - Clients for **Windows, macOS, Android and iOS** (Flutter); server for **macOS 14+**
-  (menu-bar app).
+  on Apple silicon (menu-bar app).
 
 ## Downloads
 
@@ -47,8 +47,9 @@ Binaries are on the [Releases](https://github.com/SamuelRioTz/remotedisplay/rele
 page: Windows installer and portable zip, macOS client and server DMGs, Android APK,
 iOS IPA (development signing for now).
 
-The macOS builds are currently signed ad hoc; on first launch use right-click → Open,
-or allow the app in System Settings → Privacy & Security.
+The macOS builds are Apple silicon only for now (the engine is not built for Intel) and
+are signed ad hoc; on first launch use right-click → Open, or allow the app in System
+Settings → Privacy & Security.
 
 ## Quick start
 
