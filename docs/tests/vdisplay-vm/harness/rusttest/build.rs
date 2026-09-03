@@ -1,5 +1,5 @@
 fn main() {
-    // macos.mm real del engine (no una copia): el harness prueba el codigo vivo
+    // the engine's real macos.mm (not a copy): the harness tests the live code
     let mm = "../../../../engine/rustdesk/src/platform/macos.mm";
     cc::Build::new().flag("-std=c++17").file(mm).compile("macos");
     println!("cargo:rerun-if-changed={}", mm);

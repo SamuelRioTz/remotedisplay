@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# Compila el APK Android (arm64) EN el Mac y opcionalmente lo instala por adb.
-# Por defecto compila NUESTRO cliente (client/, home propia + sesión móvil del engine,
-# applicationId app.remotedisplay.client); con --engine compila el flutter_hbb del engine
-# (UI móvil upstream de RustDesk, com.carriez.flutter_hbb). Ambos usan la misma lib Rust
-# serverless (config.rs → 127.0.0.1) y conviven instalados.
+# Builds the Android APK (arm64) ON the Mac and optionally installs it via adb.
+# By default builds OUR client (client/, own home + engine's mobile session,
+# applicationId app.remotedisplay.client); with --engine it builds the engine's flutter_hbb
+# (RustDesk's upstream mobile UI, com.carriez.flutter_hbb). Both use the same serverless
+# Rust lib (config.rs → 127.0.0.1) and coexist installed side by side.
 #
-# Uso:  tools/build-android.sh [--engine] [--deps] [--install [SERIAL]]
-#   --engine   APK del engine en vez del client
-#   --deps     (re)construye las deps vcpkg para arm64-android (solo la 1ª vez, ~5 min)
-#   --install  instala el APK en la tablet/teléfono conectado por adb (SERIAL opcional)
+# Usage:  tools/build-android.sh [--engine] [--deps] [--install [SERIAL]]
+#   --engine   build the engine's APK instead of the client's
+#   --deps     (re)builds the vcpkg deps for arm64-android (only needed the 1st time, ~5 min)
+#   --install  installs the APK on the tablet/phone connected via adb (SERIAL optional)
 #
-# Requisitos (todos verificados en el Mac de sam, agosto 2026):
-#   - Flutter 3.24.5 en ~/flutter (NO el 3.44 del sistema)
-#   - Android SDK en ~/Library/Android/sdk con NDK r28c (28.2.13676358)
-#   - JDK 17 (brew install openjdk@17) → Gradle 7.6.4 NO corre con el JDK 21 de Android Studio.
-#     Se fija con `flutter config --jdk-dir /opt/homebrew/opt/openjdk@17` (ya hecho).
-#   - rustup target aarch64-linux-android + cargo-ndk (4.x anda; CI usa 3.1.2)
-#   - vcpkg en ~/vcpkg (mismo que usa el build del motor macOS)
-#   - Firma: engine/rustdesk/flutter/android/key.properties (gitignored) apuntando a
-#     ~/.remotedisplay/android-release.jks (alias remotedisplay). Identidad ESTABLE para que
-#     `adb install -r` actualice sin desinstalar.
+# Requirements (all verified on sam's Mac, August 2026):
+#   - Flutter 3.24.5 in ~/flutter (NOT the system's 3.44)
+#   - Android SDK in ~/Library/Android/sdk with NDK r28c (28.2.13676358)
+#   - JDK 17 (brew install openjdk@17) → Gradle 7.6.4 does NOT run with Android Studio's JDK 21.
+#     Set via `flutter config --jdk-dir /opt/homebrew/opt/openjdk@17` (already done).
+#   - rustup target aarch64-linux-android + cargo-ndk (4.x works; CI uses 3.1.2)
+#   - vcpkg in ~/vcpkg (same one the macOS engine build uses)
+#   - Signing: engine/rustdesk/flutter/android/key.properties (gitignored) pointing to
+#     ~/.remotedisplay/android-release.jks (alias remotedisplay). STABLE identity so that
+#     `adb install -r` updates without uninstalling.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,9 +31,9 @@ export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
 export VCPKG_ROOT="${VCPKG_ROOT:-$HOME/vcpkg}"
 export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@17}"
 export PATH="$FLUTTER_HOME/bin:$JAVA_HOME/bin:$PATH"
-# libsodium-sys corre ./configure solo con CC/CFLAGS → sin esto usa el ar/ranlib de macOS sobre
-# objetos ELF y el libsodium.a queda sin índice: la .so enlaza con sodium_* SIN RESOLVER y
-# no carga en el dispositivo. Forzar las herramientas del NDK:
+# libsodium-sys runs ./configure using only CC/CFLAGS → without this it uses macOS's ar/ranlib on
+# ELF objects and libsodium.a ends up without an index: the .so links against sodium_* UNRESOLVED
+# and fails to load on the device. Force the NDK's own tools:
 NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin"
 export AR="$NDK_BIN/llvm-ar" RANLIB="$NDK_BIN/llvm-ranlib"
 
@@ -43,20 +43,20 @@ while [ $# -gt 0 ]; do
     --engine) TARGET=engine ;;
     --deps) DO_DEPS=1 ;;
     --install) DO_INSTALL=1; if [ -n "${2:-}" ] && [[ "$2" != --* ]]; then SERIAL="$2"; shift; fi ;;
-    *) echo "arg desconocido: $1" >&2; exit 2 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
   shift
 done
 
-{ flutter --version 2>/dev/null || true; } | grep -q "Flutter 3.24.5" || { echo "ERROR: se requiere Flutter 3.24.5 en $FLUTTER_HOME" >&2; exit 1; }
+{ flutter --version 2>/dev/null || true; } | grep -q "Flutter 3.24.5" || { echo "ERROR: Flutter 3.24.5 is required in $FLUTTER_HOME" >&2; exit 1; }
 if [ "$TARGET" = client ]; then APPDIR="$ROOT/client"; else APPDIR="$ENGINE/flutter"; fi
-[ -f "$APPDIR/android/key.properties" ] || { echo "ERROR: falta $APPDIR/android/key.properties (ver header)" >&2; exit 1; }
+[ -f "$APPDIR/android/key.properties" ] || { echo "ERROR: missing $APPDIR/android/key.properties (see header)" >&2; exit 1; }
 
 cd "$ENGINE"
 
-# Un install-root POR PLATAFORMA: en modo manifest, `vcpkg install` de un triplet BORRA los
-# paquetes de otros triplets que viva en el mismo root (el install de iOS borró los de Android).
-# Los build.rs buscan $VCPKG_ROOT/installed/<triplet> → symlink al root propio.
+# One install-root PER PLATFORM: in manifest mode, `vcpkg install` for one triplet DELETES the
+# packages of other triplets living in the same root (the iOS install deleted Android's).
+# The build.rs scripts look for $VCPKG_ROOT/installed/<triplet> → symlink to its own root.
 if [ "$DO_DEPS" = 1 ] || [ ! -f "$VCPKG_ROOT/installed-android/arm64-android/lib/libvpx.a" ]; then
   echo "*** deps vcpkg arm64-android → $VCPKG_ROOT/installed-android"
   "$VCPKG_ROOT/vcpkg" install --triplet arm64-android --x-install-root="$VCPKG_ROOT/installed-android"
@@ -73,7 +73,7 @@ JNI="$APPDIR/android/app/src/main/jniLibs/arm64-v8a"
 mkdir -p "$JNI"
 SO="$ENGINE/target/aarch64-linux-android/release/liblibrustdesk.so"
 if "$NDK_BIN/llvm-nm" -D --undefined-only "$SO" | grep -q "sodium_"; then
-  echo "ERROR: la .so tiene simbolos sodium_* sin resolver (libsodium.a roto). Limpiar y reintentar:" >&2
+  echo "ERROR: the .so has unresolved sodium_* symbols (libsodium.a is broken). Clean and retry:" >&2
   echo "  cargo clean -p libsodium-sys --release --target aarch64-linux-android" >&2
   exit 1
 fi
@@ -89,10 +89,10 @@ flutter build apk --release --target-platform android-arm64 --split-per-abi
 OUT="$ROOT/tools/out"; mkdir -p "$OUT"
 if [ "$TARGET" = client ]; then APK="$OUT/remotedisplay-client-android-arm64.apk"; else APK="$OUT/remotedisplay-engine-android-arm64.apk"; fi
 cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$APK"
-echo "*** APK listo: $APK"
+echo "*** APK ready: $APK"
 
 if [ "$DO_INSTALL" = 1 ]; then
   ADB=(adb); [ -n "$SERIAL" ] && ADB=(adb -s "$SERIAL")
-  echo "*** instalando en ${SERIAL:-dispositivo adb}"
+  echo "*** installing on ${SERIAL:-adb device}"
   "${ADB[@]}" install -r "$APK"
 fi

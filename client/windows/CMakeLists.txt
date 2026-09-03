@@ -103,7 +103,7 @@ endif()
 # flutter_rust_bridge
 set(RUSTDESK_LIB_BUILD_TYPE $<IF:$<CONFIG:Debug>,debug,release>)
 message(STATUS "rustdesk lib build type: ${RUSTDESK_LIB_BUILD_TYPE}")
-# client/ vive fuera del engine: la DLL del motor sale de engine/rustdesk/target.
+# client/ lives outside the engine: the engine's DLL comes from engine/rustdesk/target.
 set(RUSTDESK_LIB "../../engine/rustdesk/target/${RUSTDESK_LIB_BUILD_TYPE}/librustdesk.dll")
 install(FILES "${RUSTDESK_LIB}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
 COMPONENT Runtime RENAME librustdesk.dll)

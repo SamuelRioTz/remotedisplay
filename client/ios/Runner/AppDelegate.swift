@@ -1,24 +1,24 @@
 import UIKit
 import Flutter
 
-// remotedisplay: Flutter en iOS no implementa cursores de mouse (MouseRegion.cursor no
-// hace nada en iPadOS), así que el puntero del trackpad se oculta nativamente con
-// UIPointerInteraction. Dart (MobileSessionScreen) manda por el canal
-// `remotedisplay/pointer` si ocultar y en qué rects (pill, menús) debe seguir visible.
+// remotedisplay: Flutter on iOS doesn't implement mouse cursors
+// (MouseRegion.cursor does nothing on iPadOS), so the trackpad pointer is
+// hidden natively with UIPointerInteraction. Dart (MobileSessionScreen)
+// sends over the `remotedisplay/pointer` channel whether to hide it and in
+// which rects (pill, menus) it must stay visible.
 @main
 @objc class AppDelegate: FlutterAppDelegate, UIPointerInteractionDelegate {
   private var pointerHidden = false
   private var visibleRects: [CGRect] = []
   private var pointerInteraction: UIPointerInteraction?
-  // Captura del puntero (pointer lock + GCMouse → deltas a Dart).
+  // Pointer capture (pointer lock + GCMouse → deltas to Dart).
   private var pointerCaptureBridge: PointerCaptureBridge?
 
-  // Monitor externo (iPad, app sin escenas → API clásica de UIScreen): un
-  // segundo FlutterEngine con ruta /extscreen dibuja en una UIWindow sobre la
-  // pantalla externa (reemplaza el mirroring del sistema mientras exista).
-  // Dart (isolate principal) gobierna attach/detach/setDisplay por
-  // `remotedisplay/extdisplay`; al isolate externo se le habla por
-  // `remotedisplay/extview`.
+  // External monitor (iPad, scene-less app → classic UIScreen API): a
+  // second FlutterEngine with route /extscreen draws into a UIWindow on the
+  // external screen (replaces system mirroring while it exists). Dart (main
+  // isolate) governs attach/detach/setDisplay over `remotedisplay/extdisplay`;
+  // the external isolate is talked to over `remotedisplay/extview`.
   private var extWindow: UIWindow?
   private var extEngine: FlutterEngine?
   private var extViewChannel: FlutterMethodChannel?
@@ -76,7 +76,7 @@ import Flutter
     session_get_rgba(nil, 0);
   }
 
-  // MARK: - Monitor externo
+  // MARK: - External monitor
 
   private func setupExternalDisplayChannel(controller: FlutterViewController) {
     let channel = FlutterMethodChannel(
@@ -99,8 +99,8 @@ import Flutter
         self.extViewChannel?.invokeMethod("setDisplay", arguments: ["display": display])
         result(nil)
       case "cursorPos":
-        // Posición del cursor remoto (coords globales) → overlay de la vista
-        // externa. Alta frecuencia: reenvío directo, sin tocar nada más.
+        // Remote cursor position (global coords) → external view's overlay.
+        // High frequency: direct forwarding, without touching anything else.
         self.extViewChannel?.invokeMethod("cursorPos", arguments: call.arguments)
         result(nil)
       default:
@@ -117,8 +117,8 @@ import Flutter
     ) { [weak self] _ in
       self?.teardownExternalScreen(notifyDart: true)
     }
-    // El monitor puede renegociar el modo DESPUÉS de conectar (también en
-    // hardware real): reencajar la ventana externa al nuevo bounds.
+    // The monitor can renegotiate its mode AFTER connecting (also on real
+    // hardware): refit the external window to the new bounds.
     NotificationCenter.default.addObserver(
       forName: UIScreen.modeDidChangeNotification, object: nil, queue: .main
     ) { [weak self] note in
@@ -132,9 +132,9 @@ import Flutter
   private func attachExternalScreen() {
     guard extEngine == nil else { return }
     guard let screen = UIScreen.screens.first(where: { $0 != UIScreen.main }) else { return }
-    // Subir al mejor modo disponible SOLO si mejora el actual — nunca
-    // degradar: availableModes puede venir incompleto (p.ej. el TVOut simulado
-    // lista solo 720x480 aunque el screen ya esté a 1080p).
+    // Switch to the best available mode ONLY if it improves on the current
+    // one — never downgrade: availableModes can come back incomplete (e.g.
+    // simulated TVOut lists only 720x480 even though the screen is already at 1080p).
     let area = { (m: UIScreenMode) in m.size.width * m.size.height }
     if let best = screen.availableModes.max(by: { area($0) < area($1) }) {
       let currentArea = screen.currentMode.map(area) ?? 0
@@ -144,7 +144,7 @@ import Flutter
     }
     screen.overscanCompensation = .scale
     let engine = FlutterEngine(name: "extscreen")
-    // Mismo main() de Dart; la ruta inicial elige el bootstrap _runExtScreen.
+    // Same Dart main(); the initial route picks the _runExtScreen bootstrap.
     engine.run(withEntrypoint: nil, initialRoute: "/extscreen")
     GeneratedPluginRegistrant.register(with: engine)
     let viewController = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
@@ -158,8 +158,8 @@ import Flutter
       name: "remotedisplay/extview", binaryMessenger: engine.binaryMessenger)
   }
 
-  /// Cierra la vista externa: primero `dispose` al isolate (cierra su
-  /// ui-session rust con gracia) y poco después se destruye el engine.
+  /// Closes the external view: first `dispose` to the isolate (gracefully
+  /// closes its rust ui-session) and shortly after the engine is destroyed.
   private func teardownExternalScreen(notifyDart: Bool) {
     guard let engine = extEngine else {
       if notifyDart { extDisplayChannel?.invokeMethod("disconnected", arguments: nil) }
@@ -172,9 +172,9 @@ import Flutter
     extWindow = nil
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
       win?.isHidden = true
-      // Orden importa: soltar el FlutterViewController ANTES de destruir el
-      // engine — el dealloc de la UIWindow dispara viewDidDisappear, que toca
-      // el engine (iosPlatformView) y segfaultea si ya está destruido.
+      // Order matters: release the FlutterViewController BEFORE destroying
+      // the engine — the UIWindow's dealloc triggers viewDidDisappear, which
+      // touches the engine (iosPlatformView) and segfaults if it's already destroyed.
       win?.rootViewController = nil
       engine.viewController = nil
       engine.destroyContext()
@@ -182,7 +182,7 @@ import Flutter
     if notifyDart { extDisplayChannel?.invokeMethod("disconnected", arguments: nil) }
   }
 
-  // Sin región → puntero normal (sobre pill/menús); con región → estilo oculto.
+  // No region → normal pointer (over pill/menus); with a region → hidden style.
   @available(iOS 13.4, *)
   func pointerInteraction(_ interaction: UIPointerInteraction,
                           regionFor request: UIPointerRegionRequest,

@@ -1,23 +1,24 @@
 import 'package:flutter_hbb/consts.dart';
 
-/// Eventos multiventana PROPIOS del client (complementan los kWindowEvent* del
-/// engine). Viajan por desktop_multi_window igual que los del engine; llevan
-/// prefijo `remotedisplay_` para no chocar con métodos futuros del engine.
+/// The client's OWN multi-window events (complementing the engine's
+/// kWindowEvent*). They travel over desktop_multi_window just like the
+/// engine's; they carry the `remotedisplay_` prefix to avoid clashing with
+/// future engine methods.
 
-/// main → ventana de sesión: "¿qué display de <peer> muestras?".
-/// args: peerId. Respuesta: jsonEncode({'window_id': int, 'display': int}),
-/// o null si esta ventana no es una sesión de ese peer.
+/// main → session window: "which display of <peer> are you showing?".
+/// args: peerId. Response: jsonEncode({'window_id': int, 'display': int}),
+/// or null if this window isn't a session for that peer.
 const String kClientEventGetSessionDisplays = 'remotedisplay_get_session_displays';
 
-/// ventana de sesión → main: "¿qué displays de <peer> están visibles en otras
-/// ventanas vivas?". args: peerId. Respuesta: jsonEncode([{window_id, display}]).
+/// session window → main: "which displays of <peer> are visible in other
+/// live windows?". args: peerId. Response: jsonEncode([{window_id, display}]).
 const String kClientEventQueryOpenDisplays = 'remotedisplay_query_open_displays';
 
-/// ventana de sesión → main: cerrar la ventana de sesión <window_id> (int).
+/// session window → main: close session window <window_id> (int).
 const String kClientEventCloseWindow = 'remotedisplay_close_window';
 
-/// Título de la ventana de sesión; incluye el display cuando se conoce
-/// (ventana-por-monitor: saber qué ventana muestra qué pantalla).
+/// Session window title; includes the display when known (window-per-
+/// monitor: knowing which window shows which screen).
 String sessionWindowTitle(String peerId, [int? display]) => display == null
     ? '$peerId · Remote Display'
     : display == kAllDisplayValue

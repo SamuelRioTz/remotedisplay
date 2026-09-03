@@ -214,10 +214,10 @@ fn send_query() -> ResultType<Vec<UdpSocket>> {
     for socket in &sockets {
         allow_err!(socket.send_to(&out, maddr));
     }
-    // remotedisplay: además del broadcast, ping UNICAST a cada host de las subredes
-    // locales (y peers de Tailscale). Cubre iOS, donde el broadcast está
-    // bloqueado sin el entitlement de multicast, y redes ruteadas (Tailscale)
-    // donde el broadcast no llega; el host responde igual con su identidad.
+    // remotedisplay: in addition to the broadcast, UNICAST ping each host in the
+    // local subnets (and Tailscale peers). Covers iOS, where broadcast is
+    // blocked without the multicast entitlement, and routed networks (Tailscale)
+    // where the broadcast doesn't reach; the host still responds with its identity.
     send_unicast_pings(&sockets, &out);
     log::info!("discover ping sent");
     Ok(sockets)
@@ -236,7 +236,7 @@ fn send_unicast_pings(sockets: &[UdpSocket], out: &[u8]) {
         }
         *last = Some(std::time::Instant::now());
     }
-    let Some(socket) = sockets.last() else { return }; // el bind a 0.0.0.0
+    let Some(socket) = sockets.last() else { return }; // the 0.0.0.0 bind
     let port = get_broadcast_port();
     let targets = scan_targets();
     for ip in &targets {
@@ -291,7 +291,7 @@ fn wait_response(
 
                             if local_mac.is_empty() && p.mac.is_empty() || local_mac != p.mac {
                                 allow_err!(tx.send(config::DiscoveryPeer {
-                                    // remotedisplay: usar la IP como identificador (conexión directa, sin ID)
+                                    // remotedisplay: use the IP as the identifier (direct connection, no ID)
                                     id: addr.ip().to_string(),
                                     ip_mac: HashMap::from([
                                         (addr.ip().to_string(), p.mac.clone(),)
@@ -327,7 +327,7 @@ fn spawn_wait_responses(sockets: Vec<UdpSocket>) -> UnboundedReceiver<config::Di
             ));
         });
     }
-    // remotedisplay: escaneo activo de puertos usando el mismo canal
+    // remotedisplay: active port scan using the same channel
     spawn_port_scan(tx.clone());
     rx
 }
@@ -373,10 +373,10 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
     Ok(())
 }
 
-// ── remotedisplay: descubrimiento por escaneo activo de puertos ──────────────────
-// Además del broadcast (misma subred), escanea el puerto de acceso directo en
-// TODAS las subredes locales y en los peers de Tailscale, para encontrar hosts
-// con el servicio corriendo sin depender de IDs ni de un servidor.
+// ── remotedisplay: discovery via active port scanning ──────────────────
+// In addition to the broadcast (same subnet), scans the direct-access port on
+// ALL local subnets and Tailscale peers, to find hosts
+// running the service without depending on IDs or a server.
 
 fn get_scan_port() -> u16 {
     config::Config::get_option("direct-access-port")
@@ -385,11 +385,11 @@ fn get_scan_port() -> u16 {
 }
 
 fn is_tailscale_ip(u: u32) -> bool {
-    // 100.64.0.0/10 (CGNAT — rango de Tailscale)
+    // 100.64.0.0/10 (CGNAT — Tailscale's range)
     (u & 0xFFC0_0000) == 0x6440_0000
 }
 
-// iOS: Tailscale es una app aparte, sin CLI.
+// iOS: Tailscale is a separate app, with no CLI.
 #[cfg(target_os = "ios")]
 fn tailscale_peer_ips() -> Vec<Ipv4Addr> {
     Vec::new()
@@ -414,8 +414,8 @@ fn tailscale_peer_ips() -> Vec<Ipv4Addr> {
     for bin in candidates {
         let mut cmd = std::process::Command::new(&bin);
         cmd.arg("status");
-        // Sin esto, en Windows cada `tailscale status` (uno por descubrimiento)
-        // abre y cierra una ventana de consola visible sobre la app GUI.
+        // Without this, on Windows each `tailscale status` call (one per discovery)
+        // opens and closes a console window visible over the GUI app.
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -440,7 +440,7 @@ fn tailscale_peer_ips() -> Vec<Ipv4Addr> {
     ips
 }
 
-/// (dirección, máscara) de cada interfaz IPv4 local.
+/// (address, netmask) of each local IPv4 interface.
 #[cfg(not(target_os = "ios"))]
 fn local_ipv4_networks() -> Vec<(Ipv4Addr, Ipv4Addr)> {
     let mut out = Vec::new();
@@ -452,8 +452,8 @@ fn local_ipv4_networks() -> Vec<(Ipv4Addr, Ipv4Addr)> {
     out
 }
 
-/// iOS: `default_net` no está disponible; `getifaddrs` sí. Sólo interfaces
-/// activas, no loopback y con IP privada (evita barrer la red celular).
+/// iOS: `default_net` is not available; `getifaddrs` is. Only interfaces
+/// that are active, non-loopback, and have a private IP (avoids scanning the cellular network).
 #[cfg(target_os = "ios")]
 fn local_ipv4_networks() -> Vec<(Ipv4Addr, Ipv4Addr)> {
     use hbb_common::libc;
@@ -497,12 +497,12 @@ fn scan_targets() -> Vec<Ipv4Addr> {
             continue;
         }
         let addr_u = u32::from(addr);
-        // Tailscale se maneja aparte (su /10 es demasiado grande para barrer)
+        // Tailscale is handled separately (its /10 is too large to scan)
         if is_tailscale_ip(addr_u) {
             continue;
         }
         let mask_u = u32::from(netmask);
-        // sólo subredes razonables (<= /22 => <= 1024 hosts)
+        // only reasonable subnets (<= /22 => <= 1024 hosts)
         if mask_u == 0 || mask_u.count_ones() < 22 {
             continue;
         }
@@ -516,7 +516,7 @@ fn scan_targets() -> Vec<Ipv4Addr> {
             h = h.wrapping_add(1);
         }
     }
-    // Peers de Tailscale (vía CLI): se prueban aunque estén en otra red
+    // Tailscale peers (via CLI): probed even if they're on a different network
     for ip in tailscale_peer_ips() {
         if seen.insert(u32::from(ip)) {
             targets.push(ip);
@@ -525,8 +525,8 @@ fn scan_targets() -> Vec<Ipv4Addr> {
     targets
 }
 
-// throttle: la pestaña "Discovered" llama a discover() en cada rebuild;
-// evitamos relanzar el escaneo (128 hilos) más de una vez cada 4s.
+// throttle: the "Discovered" tab calls discover() on every rebuild;
+// we avoid relaunching the scan (128 threads) more than once every 4s.
 static LAST_SCAN: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 
 fn spawn_port_scan(tx: UnboundedSender<config::DiscoveryPeer>) {
@@ -545,7 +545,7 @@ fn spawn_port_scan(tx: UnboundedSender<config::DiscoveryPeer>) {
         return;
     }
     log::info!(
-        "port scan: {} objetivos en el puerto {}",
+        "port scan: {} targets on port {}",
         targets.len(),
         port
     );

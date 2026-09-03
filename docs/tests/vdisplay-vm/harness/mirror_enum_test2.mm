@@ -1,4 +1,4 @@
-// ¿Que refresca la cache de displays del proceso tras la transaccion de espejo?
+// What refreshes the process's display cache after the mirror transaction?
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #include <CoreGraphics/CoreGraphics.h>
@@ -16,15 +16,15 @@ static void enumerate(const char *tag) {
 }
 int main() { @autoreleasepool {
     CGDisplayRegisterReconfigurationCallback(reconfCb, NULL);
-    enumerate("inicio");
+    enumerate("start");
     MacDynamicMainOn(1284, 702, false); sleep(3); enumerate("dyn-main ON");
-    uint32_t a = MacCreateVirtualDisplay(1920, 1080, 60, false, "RD A"); sleep(2); enumerate("tras crear A (esperado online=3)");
+    uint32_t a = MacCreateVirtualDisplay(1920, 1080, 60, false, "RD A"); sleep(2); enumerate("after creating A (expected online=3)");
     CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, false); enumerate("  + CFRunLoop 1s");
     { CGDisplayConfigRef c; if (CGBeginDisplayConfiguration(&c) == kCGErrorSuccess) CGCancelDisplayConfiguration(c); } enumerate("  + Begin/Cancel config");
     { CGDirectDisplayID r[16]; uint32_t m=0; CGGetDisplaysWithRect(CGRectMake(-100000,-100000,200000,200000), 16, r, &m); printf("  CGGetDisplaysWithRect -> %u\n", m); }
     { CGDirectDisplayID r[16]; uint32_t m=0; CGGetDisplaysWithPoint(CGPointMake(2000, 100), 16, r, &m); printf("  CGGetDisplaysWithPoint(2000,100) -> %u\n", m); }
     [[NSApplication sharedApplication] finishLaunching]; NSEvent *e; while ((e = [NSApp nextEventMatchingMask:NSEventMaskAny untilDate:[NSDate dateWithTimeIntervalSinceNow:0.5] inMode:NSDefaultRunLoopMode dequeue:YES])) [NSApp sendEvent:e];
     enumerate("  + NSApp event loop 0.5s");
-    MacDestroyVirtualDisplay(a); MacDynamicMainOff(); sleep(3); enumerate("fin");
+    MacDestroyVirtualDisplay(a); MacDynamicMainOff(); sleep(3); enumerate("end");
     return 0;
 } }

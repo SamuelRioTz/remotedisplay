@@ -1,4 +1,4 @@
-# Conecta al Mac por IP directa (sin ningun servidor de por medio).
+# Connects to the Mac via direct IP (no server in between).
 param(
     [string]$MacHost
 )

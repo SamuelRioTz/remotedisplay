@@ -1,5 +1,5 @@
-// ¿Ve el MISMO proceso los displays nuevos tras encender el main dinamico (espejo)?
-// Reproduce la secuencia del server: dyn-main ON -> crear 2 virtuales -> enumerar.
+// Does the SAME process see the new displays after turning on the dynamic main (mirror)?
+// Reproduces the server's sequence: dyn-main ON -> create 2 virtuals -> enumerate.
 #import <Foundation/Foundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <unistd.h>
@@ -14,13 +14,13 @@ static void enumerate(const char *tag) {
     uint32_t na=0; CGDirectDisplayID act[16]; CGGetActiveDisplayList(16, act, &na); printf(" | active=%u\n", na);
 }
 int main() { @autoreleasepool {
-    enumerate("inicio");
+    enumerate("start");
     MacDynamicMainOn(1284, 702, false); sleep(3); enumerate("dyn-main ON");
-    uint32_t a = MacCreateVirtualDisplay(1920, 1080, 60, false, "RD A"); sleep(2); enumerate("tras crear A");
-    uint32_t b = MacCreateVirtualDisplay(1920, 1080, 60, false, "RD B"); sleep(2); enumerate("tras crear B");
-    // ¿un run loop breve refresca la cache?
-    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5, false); enumerate("tras CFRunLoopRunInMode");
-    system("/tmp/dispinfo2 | head -6 | sed 's/^/    (proceso nuevo) /'");
-    MacDestroyVirtualDisplay(a); MacDestroyVirtualDisplay(b); MacDynamicMainOff(); sleep(3); enumerate("fin");
+    uint32_t a = MacCreateVirtualDisplay(1920, 1080, 60, false, "RD A"); sleep(2); enumerate("after creating A");
+    uint32_t b = MacCreateVirtualDisplay(1920, 1080, 60, false, "RD B"); sleep(2); enumerate("after creating B");
+    // does a brief run loop refresh the cache?
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5, false); enumerate("after CFRunLoopRunInMode");
+    system("/tmp/dispinfo2 | head -6 | sed 's/^/    (new process) /'");
+    MacDestroyVirtualDisplay(a); MacDestroyVirtualDisplay(b); MacDynamicMainOff(); sleep(3); enumerate("end");
     return 0;
 } }

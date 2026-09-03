@@ -2181,9 +2181,9 @@ pub mod sessions {
     pub fn session_switch_display(is_desktop: bool, session_id: SessionID, value: Vec<i32>) {
         for s in SESSIONS.read().unwrap().values() {
             let mut write_lock = s.ui_handler.session_handlers.write().unwrap();
-            // remotedisplay: displays que las OTRAS ui-sessions de este peer siguen
-            // mostrando (movil multi-sesion: iPad + monitor externo). En movil el
-            // set exclusivo de abajo les cortaria la captura.
+            // remotedisplay: displays that OTHER ui-sessions of this peer are still
+            // showing (mobile multi-session: iPad + external monitor). On mobile the
+            // exclusive set below would cut off their capture.
             let other_displays: Vec<i32> = write_lock
                 .iter()
                 .filter(|(k, _)| **k != session_id)
@@ -2205,10 +2205,10 @@ pub mod sessions {
                         if other_displays.is_empty() {
                             s.capture_displays(vec![], vec![], value);
                         } else {
-                            // remotedisplay: union con los displays de las otras
-                            // ui-sessions (misma semantica que el else de desktop,
-                            // que en movil no aplica porque usa los mapas del
-                            // renderer de texturas, vacios en soft render).
+                            // remotedisplay: union with the other ui-sessions' displays
+                            // (same semantics as desktop's else branch, which
+                            // doesn't apply on mobile because it uses the texture
+                            // renderer's maps, empty under soft render).
                             let mut caps = value.clone();
                             for d in other_displays.iter() {
                                 if !caps.contains(d) {

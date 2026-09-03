@@ -12,14 +12,14 @@ import 'external_screen.dart';
 import 'session_toolbar.dart';
 import 'trackpad_screen.dart';
 
-/// Sensibilidad de los deltas GCMouse → píxeles remotos (captura de puntero).
+/// Sensitivity of GCMouse deltas → remote pixels (pointer capture).
 const _kPointerCaptureSpeed = 2.0;
 
-/// Sesión en Android/iOS — el equivalente de ClientRemoteScreen (desktop):
-/// la RemotePage MÓVIL del engine (render, gestos táctiles, teclado virtual,
-/// clipboard) con su barra oculta (parche 03 del fork: `showToolbar`) y
-/// NUESTRA SessionToolbar encima. Es una ruta normal del Navigator: al cerrar
-/// la conexión (toolbar o botón atrás → clientClose) vuelve a la home.
+/// Session on Android/iOS — the equivalent of ClientRemoteScreen (desktop):
+/// the engine's MOBILE RemotePage (render, touch gestures, virtual keyboard,
+/// clipboard) with its bar hidden (fork patch 03: `showToolbar`) and OUR
+/// SessionToolbar on top. It's a normal Navigator route: closing the
+/// connection (toolbar or back button → clientClose) returns to the home.
 class MobileSessionScreen extends StatefulWidget {
   const MobileSessionScreen({super.key, required this.id, this.password});
 
@@ -32,19 +32,19 @@ class MobileSessionScreen extends StatefulWidget {
 
 class _MobileSessionScreenState extends State<MobileSessionScreen> {
   final _controller = MobileRemotePageController();
-  // Con trackpad/mouse (iPad, Android): ocultar el puntero LOCAL sobre el
-  // canvas remoto — el engine ya dibuja el cursor del equipo remoto, si no
-  // se ven dos. Persistente; toggle en Entrada → Cursor y teclas.
+  // With trackpad/mouse (iPad, Android): hide the LOCAL pointer over the
+  // remote canvas — the engine already draws the remote machine's cursor,
+  // otherwise you'd see two. Persistent; toggle in Input → Cursor and keys.
   late final ValueNotifier<bool> _hideLocalPointer =
       ValueNotifier(bind.mainGetLocalOption(key: kOptHideLocalPointer) != 'N');
 
-  // iPad: captura del puntero (relativo, cruza monitores). Ver
-  // kOptPointerCapture. La captura efectiva se suelta mientras haya un menú
-  // o popup abierto (para poder usarlos con el trackpad) y en dispose.
-  // OJO: default APAGADO (opt-in). En el iPad real el lock enganchaba pero
-  // GCMouse no entregaba deltas → puntero invisible y muerto; hasta cazar la
-  // causa (ver fila de diagnóstico en Entrada), el puntero absoluto de
-  // siempre es el comportamiento por defecto.
+  // iPad: pointer capture (relative, crosses monitors). See
+  // kOptPointerCapture. Effective capture is released while a menu or popup
+  // is open (so they can be used with the trackpad) and on dispose.
+  // NOTE: default OFF (opt-in). On a real iPad the lock engaged but GCMouse
+  // didn't deliver deltas → invisible, dead pointer; until the cause is
+  // tracked down (see the diagnostic row in Input), the absolute pointer is
+  // always the default behavior.
   late final ValueNotifier<bool> _pointerCapture =
       ValueNotifier(bind.mainGetLocalOption(key: kOptPointerCapture) == 'Y');
   bool _captureToastShown = false;
@@ -52,13 +52,13 @@ class _MobileSessionScreenState extends State<MobileSessionScreen> {
   Future<dynamic> _onPointerChannelCall(MethodCall call) async {
     switch (call.method) {
       case 'lockState':
-        // El sistema enganchó/soltó el pointer lock de verdad (no solo lo
-        // pedimos).
+        // The system actually engaged/released the pointer lock (not just
+        // that we requested it).
         final locked = (call.arguments as Map)['locked'] == true;
         if (locked) {
-          // Recentrar: si el cursor quedó fuera del display visible (o en el
-          // sentinel inicial -10000), un movimiento nulo lo clampa adentro —
-          // que el primer deslizamiento se VEA.
+          // Recenter: if the cursor ended up outside the visible display (or
+          // at the initial -10000 sentinel), a null move clamps it back in —
+          // so the first drag is VISIBLE.
           gFFI.cursorModel.moveRelativeAcrossDisplays(0, 0);
         }
         if (locked && !_captureToastShown) {
@@ -82,8 +82,8 @@ class _MobileSessionScreenState extends State<MobileSessionScreen> {
             }));
         break;
       case 'relWheel':
-        // Llegan pasos ENTEROS de rueda (la conversión px→pasos vive en el
-        // nativo, que conoce los límites de cada gesto — notch mínimo ±1).
+        // WHOLE wheel steps arrive here (the px→steps conversion lives in
+        // native code, which knows each gesture's limits — minimum notch ±1).
         final a = call.arguments as Map;
         final sx = (a['dx'] as num).toInt();
         final sy = (a['dy'] as num).toInt();
@@ -97,22 +97,22 @@ class _MobileSessionScreenState extends State<MobileSessionScreen> {
     return null;
   }
 
-  // iOS: Flutter no implementa MouseRegion.cursor en iPadOS → el Runner oculta
-  // el puntero con UIPointerInteraction; le mandamos si ocultar y dónde NO
-  // (la pill y, mientras está abierto, todo mientras haya un menú).
+  // iOS: Flutter doesn't implement MouseRegion.cursor on iPadOS → the Runner
+  // hides the pointer with UIPointerInteraction; we tell it whether to hide
+  // and where NOT to (the pill, and while it's open, everywhere a menu is open).
   static const _pointerChannel = MethodChannel('remotedisplay/pointer');
   Rect? _pillRect;
   bool _menuOpen = false;
 
-  // iPad + monitor externo: la vista externa muestra "el otro" display remoto
-  // (segundo engine sobre la UIScreen externa). Solo iOS: en Android el modo
-  // escritorio ya reparte pantallas vía DeX/trackpad.
+  // iPad + external monitor: the external view shows "the other" remote
+  // display (second engine on the external UIScreen). iOS only: on Android,
+  // desktop mode already splits screens via DeX/trackpad.
   ExternalScreenController? _extScreen;
 
   void _syncNativePointer() {
     if (!isIOS) return;
-    // Con un popup abierto el puntero SIEMPRE visible (los diálogos se
-    // renderizan sobre el canvas, donde normalmente lo ocultamos).
+    // With a popup open, the pointer is ALWAYS visible (dialogs render over
+    // the canvas, where we normally hide it).
     final dialogOpen = gFFI.dialogManager.visibleDialogCount.value > 0;
     final hide = _hideLocalPointer.value && !_menuOpen && !dialogOpen;
     final r = _pillRect;
@@ -124,12 +124,12 @@ class _MobileSessionScreenState extends State<MobileSessionScreen> {
               [r.left, r.top, r.width, r.height]
             ],
     }).catchError((_) {});
-    // Captura del puntero: activa durante la sesión salvo con menú/popup
-    // abierto (ahí el trackpad vuelve a controlar el puntero de iPadOS).
+    // Pointer capture: active during the session except with a menu/popup
+    // open (there, the trackpad goes back to controlling the iPadOS pointer).
     final capture = _pointerCapture.value && !_menuOpen && !dialogOpen;
-    // Con captura, el engine ignora los eventos de mouse físico: iPadOS
-    // entrega los clicks del trackpad TAMBIÉN como touches aunque el puntero
-    // esté bloqueado, y duplicaban el click que entra por GCMouse (parche 14).
+    // With capture on, the engine ignores physical mouse events: iPadOS
+    // delivers trackpad clicks ALSO as touches even while the pointer is
+    // locked, which duplicated the click coming in via GCMouse (patch 14).
     gFFI.inputModel.ignorePhysicalMouse = capture;
     _pointerChannel.invokeMethod('capture', {'on': capture}).catchError((_) {});
   }
@@ -142,17 +142,17 @@ class _MobileSessionScreenState extends State<MobileSessionScreen> {
     _hideLocalPointer.addListener(_syncNativePointer);
     _pointerCapture.addListener(_syncNativePointer);
     if (isIOS) {
-      // Deltas/botones/rueda del trackpad capturado (GCMouse, vía Runner).
+      // Deltas/buttons/wheel from the captured trackpad (GCMouse, via Runner).
       _pointerChannel.setMethodCallHandler(_onPointerChannelCall);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncNativePointer());
-    // iOS: re-sincronizar el puntero nativo cuando aparece/desaparece un popup.
+    // iOS: re-sync the native pointer when a popup appears/disappears.
     if (isIOS) {
       _dialogWorker = ever(gFFI.dialogManager.visibleDialogCount,
           (_) => _syncNativePointer());
     }
-    // Publicar la sesión para la TrackpadActivity (teléfono = trackpad
-    // mientras la sesión corre en el monitor externo; solo Android).
+    // Publish the session for the TrackpadActivity (phone = trackpad while
+    // the session runs on the external monitor; Android only).
     if (isAndroid) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         bind.mainSetLocalOption(
@@ -162,15 +162,15 @@ class _MobileSessionScreenState extends State<MobileSessionScreen> {
     if (isIOS) {
       final ext = ExternalScreenController(peerId: widget.id);
       _extScreen = ext;
-      // Aviso único cuando hay monitor + 2 displays remotos (el externo se
-      // abre a mano desde el menú Pantalla, como en desktop).
+      // One-time notice when there's a monitor + 2 remote displays (the
+      // external one is opened by hand from the Display menu, like on desktop).
       ext.onExternalAvailable = () =>
           showToast('External display detected — open the Display menu');
-      // El swap y el aviso dependen del estado de la sesión: el ffiModel
-      // notifica los cambios (peer info, switch de display) pero calla tras
-      // el primer frame — el imageModel notifica por frame y cubre ese hueco
-      // (onSessionUpdate corta en seco si no hay nada que hacer, así que el
-      // costo por frame es un par de comparaciones).
+      // The swap and the notice depend on the session's state: ffiModel
+      // notifies changes (peer info, display switch) but goes quiet after
+      // the first frame — imageModel notifies per frame and covers that gap
+      // (onSessionUpdate bails out immediately if there's nothing to do, so
+      // the per-frame cost is a couple of comparisons).
       gFFI.ffiModel.addListener(_onFfiModelChanged);
       gFFI.imageModel.addListener(_onFfiModelChanged);
       WidgetsBinding.instance.addPostFrameCallback((_) => ext.init());
@@ -209,15 +209,15 @@ class _MobileSessionScreenState extends State<MobileSessionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kColorCanvas,
-      // El teclado virtual empuja el body: la pill queda visible sobre él.
+      // The virtual keyboard pushes the body up: the pill stays visible above it.
       resizeToAvoidBottomInset: true,
       body: Stack(
         children: [
           ValueListenableBuilder<bool>(
             valueListenable: _hideLocalPointer,
-            // Obx: si hay un popup del engine abierto, el puntero local se
-            // muestra aunque esté oculto sobre el canvas (Android; en iOS lo
-            // hace _syncNativePointer con el mismo observable).
+            // Obx: if an engine popup is open, the local pointer is shown
+            // even while hidden over the canvas (Android; on iOS this is
+            // done by _syncNativePointer with the same observable).
             builder: (_, hide, child) => Obx(() {
               final dialogOpen =
                   gFFI.dialogManager.visibleDialogCount.value > 0;
@@ -228,10 +228,10 @@ class _MobileSessionScreenState extends State<MobileSessionScreen> {
                 child: child,
               );
             }),
-            // OLED: negro TOTAL alrededor del canvas. El Scaffold del
-            // RemotePage del engine no fija backgroundColor y hereda
-            // scaffoldBackgroundColor del theme (blanco/grafito #18191E):
-            // las franjas del SafeArea alrededor del video se veían grises.
+            // OLED: TOTAL black around the canvas. The engine's RemotePage
+            // Scaffold doesn't set backgroundColor and inherits
+            // scaffoldBackgroundColor from the theme (white/graphite
+            // #18191E): the SafeArea strips around the video looked gray.
             child: Theme(
               data: Theme.of(context)
                   .copyWith(scaffoldBackgroundColor: Colors.black),
@@ -247,7 +247,7 @@ class _MobileSessionScreenState extends State<MobileSessionScreen> {
           ),
           SessionToolbar(
             peerId: widget.id,
-            getFfi: () => gFFI, // en móvil el engine usa la sesión global
+            getFfi: () => gFFI, // on mobile the engine uses the global session
             mobile: _controller,
             externalScreen: _extScreen,
             pointerCapture: _pointerCapture,

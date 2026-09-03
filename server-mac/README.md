@@ -1,82 +1,82 @@
 # Remote Display Server (macOS)
 
-App nativa de barra de menú que corre el motor de Remote Display (host) en segundo
-plano en el Mac. Reemplaza al `RustDesk.app` completo de Flutter: solo el motor
-Rust headless + una UI mínima de control. Sin interfaz de cliente, sin Flutter.
+Native menu-bar app that runs the Remote Display engine (host) in the background
+on the Mac. Replaces the full Flutter `RustDesk.app`: just the headless
+Rust engine + a minimal control UI. No client interface, no Flutter.
 
-## Qué hace la UI
+## What the UI does
 
-Dos capas (agosto 2026), toda la UI en inglés:
+Two layers (August 2026), the whole UI in English:
 
-**Menú de la barra** (`StatusMenu`, estilo menú nativo) — solo lo necesario en
-segundo plano: línea de estado (`Ready · 192.168.1.117:21118` / `Running · N permission(s)
-missing` / `Stopped`), direcciones, sesiones activas, **Open Remote Display Server…** (⌘O),
-toggles *Service Active* y *Open at Login*, *Quit* (⌘Q). El ícono lleva badge de
-alerta si falta setup.
+**Menu bar** (`StatusMenu`, native menu style) — only what's needed in the
+background: status line (`Ready · 192.168.1.117:21118` / `Running · N permission(s)
+missing` / `Stopped`), addresses, active sessions, **Open Remote Display Server…** (⌘O),
+*Service Active* and *Open at Login* toggles, *Quit* (⌘Q). The icon carries an alert
+badge if setup is incomplete.
 
-**Ventana principal** (`MainWindowView`, `Form` agrupado estilo Ajustes, 560×700) —
-toda la configuración y el estado:
-- Estado + interruptor del servicio.
-- **Setup** (qué está y qué falta, con botón en cada pendiente): Service running,
-  Screen Recording, Accessibility, Permanent password. Contador "N to do / All set".
-- **Connect from another device**: LAN y Tailscale `ip:puerto` con copiar.
-- **Active sessions**: peers conectados (lsof del motor, puerto 21118) + *Disconnect all*
-  (reinicia el motor).
-- **Settings**: Open at Login, contraseña (Set…/Change…), modo de acceso.
-- **About**: versión del motor, abrir logs, revelar configuración.
+**Main window** (`MainWindowView`, grouped `Form` styled like Settings, 560×700) —
+all the configuration and status:
+- Status + service switch.
+- **Setup** (what's done and what's missing, with a button on each pending item): Service running,
+  Screen Recording, Accessibility, Permanent password. "N to do / All set" counter.
+- **Connect from another device**: LAN and Tailscale `ip:port` with copy.
+- **Active sessions**: connected peers (lsof on the engine, port 21118) + *Disconnect all*
+  (restarts the engine).
+- **Settings**: Open at Login, password (Set…/Change…), access mode.
+- **About**: engine version, open logs, reveal configuration.
 
-Se abre sola al arrancar si falta setup o contraseña; también con doble click en la app
-o click en el Dock. Mientras la ventana está abierta la app aparece en el Dock
-(`.regular`); al cerrarla vuelve a ser solo ícono de barra (`.accessory`). Cerrar la
-ventana no cierra la app ni el motor.
+Opens by itself on startup if setup or password is missing; also on double-click on the app
+or a Dock click. While the window is open the app shows up in the Dock
+(`.regular`); closing it goes back to being just a menu-bar icon (`.accessory`). Closing the
+window doesn't close the app or the engine.
 
-## Flujo de permisos (verificado en VM limpia, macOS 26.4, 2026-08-25)
+## Permissions flow (verified on a clean VM, macOS 26.4, 2026-08-25)
 
-1. Primer arranque → se abre la ventana: *Running · 2 permissions missing*, Setup "3 to do".
-2. **Grant… Screen Recording**: `CGRequestScreenCaptureAccess()` agrega la app a la lista y
-   se abre Ajustes → *Screen & System Audio Recording*; el toggle pide la contraseña de admin;
-   macOS ofrece "Quit & Reopen / Later" → *Later* basta: la app detecta el permiso con una
-   sonda en proceso fresco (`remotedisplayd --check-perms`; TCC cachea Screen Recording por
-   proceso) y reinicia el motor sola.
-3. **Grant… Accessibility**: Ajustes → *Accessibility*; toggle + contraseña admin. Sin reinicio.
-4. **Set… Permanent password** (mín. 6 caracteres) → `remotedisplayd --set-lan-password` por IPC.
-5. Primera conexión de un cliente: macOS 26 muestra *"remotedisplayd is requesting to bypass the
-   system private window picker and directly access your screen and audio"* → **Allow**. Es el
-   recordatorio periódico de captura de pantalla de Apple para apps sin picker; puede volver a
-   aparecer cada tanto.
-6. Si la app se lanza desde ssh (pruebas), los prompts de red local/TCC salen a nombre de
-   `sshd-session`; lanzada normalmente salen a nombre de Remote Display Server
-   (`NSLocalNetworkUsageDescription` en Info.plist).
+1. First launch → the window opens: *Running · 2 permissions missing*, Setup "3 to do".
+2. **Grant… Screen Recording**: `CGRequestScreenCaptureAccess()` adds the app to the list and
+   Settings opens → *Screen & System Audio Recording*; the toggle asks for the admin password;
+   macOS offers "Quit & Reopen / Later" → *Later* is enough: the app detects the permission with a
+   probe in a fresh process (`remotedisplayd --check-perms`; TCC caches Screen Recording per
+   process) and restarts the engine on its own.
+3. **Grant… Accessibility**: Settings → *Accessibility*; toggle + admin password. No restart needed.
+4. **Set… Permanent password** (min. 6 characters) → `remotedisplayd --set-lan-password` over IPC.
+5. First client connection: macOS 26 shows *"remotedisplayd is requesting to bypass the
+   system private window picker and directly access your screen and audio"* → **Allow**. This is
+   Apple's periodic screen-capture reminder for apps without a picker; it can come back
+   from time to time.
+6. If the app is launched from ssh (testing), the local network/TCC prompts appear under
+   `sshd-session`; launched normally they appear under Remote Display Server
+   (`NSLocalNetworkUsageDescription` in Info.plist).
 
-Códec: en modo serverless/LAN el motor (parche 06, `scrap/codec.rs`) elige **VP9** cuando el
-cliente está en *Auto*; AV1 solo si el cliente lo pide explícitamente. (`av1-test` NO sirve para
-esto: es una sonda de capacidad que el motor reescribe a `'Y'`.) Verificado en VM: con AV1 a 4K el
-cliente de 4 vCPU nunca recibía el primer frame ("Connecting…" para siempre).
+Codec: in serverless/LAN mode the engine (patch 06, `scrap/codec.rs`) picks **VP9** when the
+client is on *Auto*; AV1 only if the client asks for it explicitly. (`av1-test` doesn't help
+here: it's a capability probe that the engine rewrites to `'Y'`.) Verified on a VM: with AV1 at 4K the
+4-vCPU client never received the first frame (endless "Connecting…").
 
-Robustez: la app recuerda si el usuario quiere el servicio activo (`serviceDesired`) y, si el
-motor no está corriendo (murió, o no arrancó), lo relanza cada ≥10 s; el motor sin `--service`
-root ya no reintenta 30 veces el `ipc_service` ni prueba NAT contra 127.0.0.1 en serverless.
+Robustness: the app remembers whether the user wants the service active (`serviceDesired`) and, if the
+engine isn't running (it died, or never started), relaunches it every ≥10 s; the engine without a root
+`--service` no longer retries the `ipc_service` 30 times nor tests NAT against 127.0.0.1 in serverless mode.
 
-## Arquitectura
+## Architecture
 
-Un solo bundle, dos ejecutables:
+A single bundle, two executables:
 
 ```
 Remote Display Server.app/Contents/MacOS/
-├── RemoteDisplayServer   ← UI SwiftUI (MenuBarExtra)
-└── remotedisplayd        ← motor Rust (cargo, sin flutter) = binario `rustdesk`
+├── RemoteDisplayServer   ← SwiftUI UI (MenuBarExtra)
+└── remotedisplayd        ← Rust engine (cargo, no flutter) = the `rustdesk` binary
 ```
 
-El motor corre vía LaunchAgent (`~/Library/LaunchAgents/app.remotedisplay.server.plist`,
-`RunAtLoad`, **sin KeepAlive** — el motor forkea y KeepAlive causa doble-bind del
-puerto). Como el motor vive dentro del bundle y se firma con la misma identidad
-que la UI, comparten la atribución de permisos TCC.
+The engine runs via a LaunchAgent (`~/Library/LaunchAgents/app.remotedisplay.server.plist`,
+`RunAtLoad`, **no KeepAlive** — the engine forks and KeepAlive causes a double port
+bind). Since the engine lives inside the bundle and is signed with the same identity
+as the UI, they share TCC permission attribution.
 
-## Compilar
+## Building
 
-1. **Motor** (en el checkout del fork, en el Mac):
+1. **Engine** (in the fork's checkout, on the Mac):
    ```sh
-   cd engine/rustdesk   # el snapshot del fork
+   cd engine/rustdesk   # the fork's snapshot
    export PATH="$HOME/.cargo/bin:/usr/bin:/bin:/usr/sbin:/opt/homebrew/bin"
    export LIBCLANG_PATH=/opt/homebrew/opt/llvm@17/lib VCPKG_ROOT=$HOME/vcpkg
    export SDKROOT=$(xcrun --show-sdk-path)
@@ -87,52 +87,52 @@ que la UI, comparten la atribución de permisos TCC.
 2. **App**:
    ```sh
    cd server-mac
-   make sign ENGINE_BIN=/ruta/al/target/release/rustdesk
+   make sign ENGINE_BIN=/path/to/target/release/rustdesk
    # → .build/Remote Display Server.app
    ```
 
-`make sign` firma con el certificado estable `remotedisplay-cs` si existe en el
-llavero (permisos TCC sobreviven rebuilds); si no, firma ad-hoc (los permisos se
-reotorgan en cada rebuild).
+`make sign` signs with the stable `remotedisplay-cs` certificate if it exists in the
+keychain (TCC permissions survive rebuilds); otherwise it signs ad-hoc (permissions get
+re-granted on every rebuild).
 
-## Instalar
+## Installing
 
 ```sh
 cp -R ".build/Remote Display Server.app" /Applications/
 open "/Applications/Remote Display Server.app"
 ```
 
-Primera vez: activar "Servicio activo", conceder Grabación de pantalla +
-Accesibilidad (los botones de la UI abren el panel), fijar la contraseña.
-El cliente Windows conecta por IP directa al puerto 21118.
+First time: enable "Service Active", grant Screen Recording +
+Accessibility (the UI's buttons open the panel), set the password.
+The Windows client connects via direct IP on port 21118.
 
-## Capturas (VM limpia macOS 26.4, 2026-08-25)
+## Screenshots (clean VM, macOS 26.4, 2026-08-25)
 
-Flujo completo de setup y uso, tal como se ve en el banco Tart (reducidas; originales en `tools/out/`).
+Full setup and usage flow, as seen on the Tart test bench (resized; originals in `tools/out/`).
 
-**01. primer arranque ventana setup 3 to do**  
-![primer arranque ventana setup 3 to do](docs/screenshots/01-primer-arranque-ventana-setup-3-to-do.jpg)
+**01. first launch, setup window 3 to do**  
+![first launch setup window 3 to do](docs/screenshots/01-first-launch-setup-window-3-to-do.jpg)
 
-**02. grant screen recording abre ajustes**  
-![grant screen recording abre ajustes](docs/screenshots/02-grant-screen-recording-abre-ajustes.jpg)
+**02. grant screen recording opens settings**  
+![grant screen recording opens settings](docs/screenshots/02-grant-screen-recording-opens-settings.jpg)
 
-**03. toggle pide password admin**  
-![toggle pide password admin](docs/screenshots/03-toggle-pide-password-admin.jpg)
+**03. toggle asks for admin password**  
+![toggle asks for admin password](docs/screenshots/03-toggle-asks-admin-password.jpg)
 
-**04. quit and reopen o later**  
-![quit and reopen o later](docs/screenshots/04-quit-and-reopen-o-later.jpg)
+**04. quit and reopen or later**  
+![quit and reopen or later](docs/screenshots/04-quit-and-reopen-or-later.jpg)
 
-**05. screen recording concedido**  
-![screen recording concedido](docs/screenshots/05-screen-recording-concedido.jpg)
+**05. screen recording granted**  
+![screen recording granted](docs/screenshots/05-screen-recording-granted.jpg)
 
-**06. grant accessibility abre ajustes**  
-![grant accessibility abre ajustes](docs/screenshots/06-grant-accessibility-abre-ajustes.jpg)
+**06. grant accessibility opens settings**  
+![grant accessibility opens settings](docs/screenshots/06-grant-accessibility-opens-settings.jpg)
 
-**07. accessibility concedido**  
-![accessibility concedido](docs/screenshots/07-accessibility-concedido.jpg)
+**07. accessibility granted**  
+![accessibility granted](docs/screenshots/07-accessibility-granted.jpg)
 
-**08. permisos ok motor reiniciado**  
-![permisos ok motor reiniciado](docs/screenshots/08-permisos-ok-motor-reiniciado.jpg)
+**08. permissions ok, engine restarted**  
+![permissions ok engine restarted](docs/screenshots/08-permissions-ok-engine-restarted.jpg)
 
 **09. set password sheet**  
 ![set password sheet](docs/screenshots/09-set-password-sheet.jpg)
@@ -140,17 +140,17 @@ Flujo completo de setup y uso, tal como se ve en el banco Tart (reducidas; origi
 **10. all set ready**  
 ![all set ready](docs/screenshots/10-all-set-ready.jpg)
 
-**11. cliente conectado y prompt bypass window picker**  
-![cliente conectado y prompt bypass window picker](docs/screenshots/11-cliente-conectado-y-prompt-bypass-window-picker.jpg)
+**11. client connected and bypass window picker prompt**  
+![client connected and bypass window picker prompt](docs/screenshots/11-client-connected-and-bypass-window-picker-prompt.jpg)
 
 **12. active sessions disconnect all**  
 ![active sessions disconnect all](docs/screenshots/12-active-sessions-disconnect-all.jpg)
 
-**13. menu de la barra**  
-![menu de la barra](docs/screenshots/13-menu-de-la-barra.jpg)
+**13. menu bar**  
+![menu bar](docs/screenshots/13-menu-bar-menu.jpg)
 
-**14. cliente vm home**  
-![cliente vm home](docs/screenshots/14-cliente-vm-home.jpg)
+**14. client vm home**  
+![client vm home](docs/screenshots/14-client-vm-home.jpg)
 
-**15. cliente vm video vp9**  
-![cliente vm video vp9](docs/screenshots/15-cliente-vm-video-vp9.jpg)
+**15. client vm video vp9**  
+![client vm video vp9](docs/screenshots/15-client-vm-video-vp9.jpg)

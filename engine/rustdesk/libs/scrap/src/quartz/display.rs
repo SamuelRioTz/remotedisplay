@@ -58,8 +58,8 @@ impl Display {
         unsafe { CGDisplayIsBuiltin(self.0) != 0 }
     }
 
-    // remotedisplay: un display que espeja a otro devuelve el ID del espejado;
-    // kCGNullDirectDisplay (0) significa que no espeja a nadie.
+    // remotedisplay: a display mirroring another one returns the mirrored ID;
+    // kCGNullDirectDisplay (0) means it doesn't mirror anything.
     pub fn is_mirror_slave(self) -> bool {
         unsafe { CGDisplayMirrorsDisplay(self.0) != 0 }
     }

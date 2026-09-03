@@ -1,4 +1,4 @@
-// EXTRAIDO de virtual_display_manager.rs (desenvuelto el mod, use adaptados)
+// EXTRACTED from virtual_display_manager.rs (mod unwrapped, use statements adapted)
 
     use crate::stubs::*;
 
@@ -39,7 +39,7 @@
 
     #[inline]
     pub fn is_virtual_display(name: &str) -> bool {
-        // En macOS display.name() es el CGDirectDisplayID como string.
+        // On macOS display.name() is the CGDirectDisplayID as a string.
         name.parse::<u32>()
             .map(|id| unsafe { MacIsOurVirtualDisplay(id) })
             .unwrap_or(false)
@@ -65,13 +65,13 @@
             return dynamic_main(false, 0, 0);
         }
         if index < 0 {
-            // -1 = todos (convencion de Windows) — tambien apaga el main dinamico.
+            // -1 = all (Windows convention) — also turns off the dynamic main.
             let _ = dynamic_main(false, 0, 0);
             unsafe { MacDestroyAllVirtualDisplays() };
             return Ok(());
         }
-        // El "indice" que manda el cliente es la posicion en la lista de nuestros
-        // displays virtuales; si no matchea, probar como CGDirectDisplayID crudo.
+        // The "index" the client sends is the position in our list of virtual
+        // displays; if it doesn't match, try it as a raw CGDirectDisplayID.
         let displays = get_virtual_displays();
         let id = displays
             .get(index as usize)
@@ -83,8 +83,8 @@
         Ok(())
     }
 
-    /// Resize en caliente si `name` es uno de nuestros displays virtuales.
-    /// Devuelve Some(true/false) si lo era (exito/fallo), None si no lo era.
+    /// Hot resize if `name` is one of our virtual displays.
+    /// Returns Some(true/false) if it was one (success/failure), None if it wasn't.
     pub fn change_resolution_if_is_virtual_display(name: &str, w: u32, h: u32) -> Option<bool> {
         let id = name.parse::<u32>().ok()?;
         if unsafe { !MacIsOurVirtualDisplay(id) } {
@@ -107,8 +107,8 @@
         unsafe { MacDynamicMainVirtualID() }
     }
 
-    /// Caso 1: prende/apaga el "main dinamico" (fisico espejado sobre un virtual).
-    /// Con on=true y width/height en 0 usa el tamano por defecto.
+    /// Case 1: turns the "dynamic main" (physical mirrored onto a virtual) on/off.
+    /// With on=true and width/height at 0, uses the default size.
     pub fn dynamic_main(on: bool, width: u32, height: u32) -> ResultType<()> {
         if on {
             let w = if width == 0 { DEFAULT_WIDTH } else { width };

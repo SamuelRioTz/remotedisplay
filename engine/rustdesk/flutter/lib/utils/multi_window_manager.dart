@@ -66,12 +66,12 @@ class RustDeskMultiWindowManager {
   final List<int> _portForwardWindows = List.empty(growable: true);
   final List<int> _terminalWindows = List.empty(growable: true);
 
-  /// remotedisplay: invokeMethod tolerante a ventanas muertas. Las ventanas de
-  /// sesión del cliente propio se CIERRAN de verdad (no se ocultan como las
-  /// del tab page de RustDesk), así que las listas pueden acumular IDs de
-  /// ventanas que ya no existen; invocarlas lanza PlatformException y rompía
-  /// el flujo entero (síntoma: "Conectar" no hacía nada tras cerrar una
-  /// sesión). Si la llamada falla, se depura el ID y se devuelve null.
+  /// remotedisplay: invokeMethod tolerant of dead windows. Our own client's
+  /// session windows are ACTUALLY CLOSED (not hidden like RustDesk's tab
+  /// page windows), so the lists can accumulate IDs of windows that no
+  /// longer exist; invoking them throws PlatformException and used to break
+  /// the whole flow (symptom: "Connect" did nothing after closing a
+  /// session). If the call fails, the ID is pruned and null is returned.
   Future<dynamic> _invokeOrPrune(
       int windowId, String methodName, dynamic args) async {
     try {
@@ -83,7 +83,7 @@ class RustDeskMultiWindowManager {
     }
   }
 
-  /// remotedisplay: olvida una ventana muerta de todas las listas/sets.
+  /// remotedisplay: forgets a dead window from all lists/sets.
   void forgetWindow(int windowId) {
     _remoteDesktopWindows.remove(windowId);
     _fileTransferWindows.remove(windowId);
@@ -235,7 +235,7 @@ class RustDeskMultiWindowManager {
             }
             await _invokeOrPrune(windowId, methodName, msg);
             if (!windows.contains(windowId)) {
-              continue; // ventana muerta depurada — probar la siguiente
+              continue; // dead window pruned — try the next one
             }
             if (methodName != kWindowEventNewRemoteDesktop) {
               WindowController.fromWindowId(windowId).show();

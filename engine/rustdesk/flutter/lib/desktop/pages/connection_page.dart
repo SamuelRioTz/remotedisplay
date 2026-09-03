@@ -318,7 +318,7 @@ class _ConnectionPageState extends State<ConnectionPage>
             Expanded(child: PeerTabPage()),
           ],
         ).paddingOnly(left: 12.0)),
-        // remotedisplay: barra de estado "Connecting to the RustDesk network" eliminada (solo LAN)
+        // remotedisplay: "Connecting to the RustDesk network" status bar removed (LAN only)
       ],
     );
   }

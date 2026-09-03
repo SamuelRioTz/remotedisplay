@@ -1243,7 +1243,7 @@ List<TToggleMenu> toolbarKeyboardToggles(FFI ffi) {
 }
 
 bool showVirtualDisplayMenu(FFI ffi) {
-  // remotedisplay: hosts macOS con soporte CGVirtualDisplay
+  // remotedisplay: macOS hosts with CGVirtualDisplay support
   if (ffi.ffiModel.pi.platform == kPeerPlatformMacOS) {
     return ffi.ffiModel.pi.isMacVirtualDisplaySupported;
   }
@@ -1266,17 +1266,17 @@ List<Widget> getVirtualDisplayMenuChildren(
   }
   final pi = ffi.ffiModel.pi;
   final privacyModeState = PrivacyModeState.find(id);
-  // remotedisplay: hosts macOS (CGVirtualDisplay)
+  // remotedisplay: macOS hosts (CGVirtualDisplay)
   if (pi.platform == kPeerPlatformMacOS) {
     final virtualDisplays = pi.macVirtualDisplays;
-    // El main dinamico usa un virtual propio: no contarlo como "extra".
+    // The dynamic main uses its own virtual: don't count it as "extra".
     final extraCount =
         pi.macDynamicMainActive && virtualDisplays.isNotEmpty
             ? virtualDisplays.length - 1
             : virtualDisplays.length;
     return [
-      // Caso 1: el monitor principal se vuelve dinamico (espejado sobre un
-      // display virtual redimensionable en caliente).
+      // Case 1: the main monitor becomes dynamic (mirrored onto a
+      // virtual display that can be resized on the fly).
       Obx(() => CkbMenuButton(
             value: pi.macDynamicMainActive,
             onChanged: privacyModeState.isNotEmpty
@@ -1287,9 +1287,9 @@ List<Widget> getVirtualDisplayMenuChildren(
                           sessionId: ffi.sessionId,
                           index: kMacDynamicMainIndex,
                           on: value);
-                      // main dinamico implica seguir la ventana: prender la
-                      // resolucion dinamica y aplicar cuando asiente el switch
-                      // de display en el host.
+                      // dynamic main implies following the window: turn on
+                      // dynamic resolution and apply it once the display switch
+                      // settles on the host.
                       ffi.ffiModel.dynamicResolution.value = value;
                       if (value) {
                         Future.delayed(const Duration(seconds: 2), () {
@@ -1303,7 +1303,7 @@ List<Widget> getVirtualDisplayMenuChildren(
             ffi: ffi,
           )),
       Divider(),
-      // Caso 2: displays virtuales extra que extienden el escritorio.
+      // Case 2: extra virtual displays that extend the desktop.
       Obx(() => Row(
             children: [
               TextButton(

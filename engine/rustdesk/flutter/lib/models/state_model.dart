@@ -13,9 +13,9 @@ class StateGlobal {
   bool _isMinimized = false;
   final RxBool isMaximized = false.obs;
   final RxBool _showTabBar = true.obs;
-  // remotedisplay: la ventana de sesión del cliente propio usa marco nativo, sin
-  // tab bar ni padding frameless del engine — el canvas ocupa el view completo
-  // y el mapeo de coordenadas (CanvasModel.*ToEdge) no debe descontar edges.
+  // remotedisplay: our client's session window uses a native frame, with no
+  // tab bar or frameless engine padding — the canvas fills the whole view
+  // and coordinate mapping (CanvasModel.*ToEdge) must not subtract edges.
   bool edgeToEdgeSessionView = false;
   final RxDouble _resizeEdgeSize = RxDouble(windowResizeEdgeSize);
   final RxDouble _windowBorderWidth = RxDouble(kWindowBorderWidth);

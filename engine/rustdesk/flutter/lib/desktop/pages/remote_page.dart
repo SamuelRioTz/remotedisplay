@@ -60,8 +60,8 @@ class RemotePage extends StatefulWidget {
   final String? switchUuid;
   final bool? forceRelay;
   final bool? isSharedPassword;
-  // remotedisplay: permite a un frontend externo (client/) suprimir la RemoteToolbar
-  // integrada y superponer la suya propia. Default true = comportamiento upstream.
+  // remotedisplay: lets an external frontend (client/) suppress the built-in
+  // RemoteToolbar and overlay its own. Default true = upstream behavior.
   final bool showToolbar;
   final SimpleWrapper<State<RemotePage>?> _lastState = SimpleWrapper(null);
   final DesktopTabController? tabController;
@@ -300,7 +300,7 @@ class _RemotePageState extends State<RemotePage>
     super.onWindowResize();
     // Update pointer lock center when window is resized
     _updatePointerLockCenterIfNeeded();
-    // remotedisplay: resolucion dinamica — el display remoto sigue la ventana
+    // remotedisplay: dynamic resolution — the remote display follows the window
     _ffi.ffiModel.scheduleDynamicResolution();
   }
 

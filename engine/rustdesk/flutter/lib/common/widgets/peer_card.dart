@@ -629,7 +629,7 @@ abstract class BasePeerCard extends StatelessWidget {
     );
   }
 
-  // remotedisplay: control de displays virtuales (SimpleDisplay) del Mac vía SSH
+  // remotedisplay: control of virtual displays (SimpleDisplay) on the Mac via SSH
   @protected
   MenuEntryBase<String> _simpleDisplayAction(BuildContext context) {
     return MenuEntryButton<String>(
@@ -994,7 +994,7 @@ class RecentPeerCard extends BasePeerCard {
       menuItems.add(_terminalRunAsAdminAction(context));
     }
 
-    // remotedisplay: control de displays virtuales (SimpleDisplay) del Mac vía SSH
+    // remotedisplay: control of virtual displays (SimpleDisplay) on the Mac via SSH
     if (!isWeb) {
       menuItems.add(_simpleDisplayAction(context));
     }
@@ -1124,7 +1124,7 @@ class DiscoveredPeerCard extends BasePeerCard {
       menuItems.add(_terminalRunAsAdminAction(context));
     }
 
-    // remotedisplay: control de displays virtuales (SimpleDisplay) del Mac vía SSH
+    // remotedisplay: control of virtual displays (SimpleDisplay) on the Mac via SSH
     if (!isWeb) {
       menuItems.add(_simpleDisplayAction(context));
     }

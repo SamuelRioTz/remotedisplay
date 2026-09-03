@@ -69,9 +69,9 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     #[cfg(target_os = "ios")]
     {
         use hbb_common::env_logger::*;
-        // remotedisplay: try_init en vez de init_from_env — el 2º engine Flutter
-        // (vista del monitor externo del iPad) re-entra aquí y init_from_env
-        // hace panic si el logger del proceso ya quedó inicializado.
+        // remotedisplay: try_init instead of init_from_env — the 2nd Flutter engine
+        // (the iPad's external-monitor view) re-enters here, and init_from_env
+        // panics if the process's logger is already initialized.
         let _ = Builder::from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "debug"))
             .try_init();
         crate::common::test_nat_type();

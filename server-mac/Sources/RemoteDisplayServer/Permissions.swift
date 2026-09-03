@@ -3,11 +3,11 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-/// Estado y solicitud de los permisos TCC que el motor necesita para servir la
-/// pantalla y controlar el equipo. La app y el motor se firman con la MISMA
-/// identidad (cert estable), así que el permiso concedido a la app cubre al motor.
+/// Status and requesting of the TCC permissions the engine needs to serve the
+/// screen and control the machine. The app and the engine are signed with the SAME
+/// identity (stable cert), so the permission granted to the app also covers the engine.
 enum Permissions {
-    // MARK: - Estado
+    // MARK: - Status
 
     static func screenRecording() -> Bool {
         CGPreflightScreenCaptureAccess()
@@ -17,7 +17,7 @@ enum Permissions {
         AXIsProcessTrusted()
     }
 
-    // MARK: - Solicitud (dispara el diálogo nativo "Permitir")
+    // MARK: - Requesting (triggers the native "Allow" dialog)
 
     static func requestScreenRecording() {
         let r = CGRequestScreenCaptureAccess()
@@ -25,13 +25,13 @@ enum Permissions {
     }
 
     static func requestAccessibility() {
-        // Dispara el diálogo "…quiere controlar esta computadora" y agrega la app
-        // a la lista de Accesibilidad. Solo aparece si aún no está concedido.
+        // Triggers the "…would like to control this computer" dialog and adds the app
+        // to the Accessibility list. Only appears if not already granted.
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
 
-    // MARK: - Abrir el panel exacto
+    // MARK: - Open the exact panel
 
     static func openScreenRecordingSettings() {
         open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
@@ -46,7 +46,7 @@ enum Permissions {
         let ok = NSWorkspace.shared.open(url)
         NSLog("[remotedisplay] open settings %@ -> %d", urlString, ok ? 1 : 0)
         if !ok {
-            // Fallback: /usr/bin/open (mismo esquema x-apple.systempreferences).
+            // Fallback: /usr/bin/open (same x-apple.systempreferences scheme).
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
             p.arguments = [urlString]

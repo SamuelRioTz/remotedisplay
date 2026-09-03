@@ -37,9 +37,9 @@ pub fn signal_receiver() -> broadcast::Receiver<Vec<i32>> {
 #[cfg(not(any(target_os = "ios")))]
 fn start_hbbs_sync() -> broadcast::Sender<Vec<i32>> {
     let (tx, _rx) = broadcast::channel::<Vec<i32>>(16);
-    // remotedisplay: SENDER es lazy y también lo inicializa `signal_receiver()` (cada
-    // conexión entrante), así que el gate de `start()` en rendezvous_mediator no
-    // alcanzaba: en serverless no arrancar el heartbeat/sysinfo a 127.0.0.1:21114.
+    // remotedisplay: SENDER is lazy and is also initialized by `signal_receiver()` (on every
+    // incoming connection), so the gate in rendezvous_mediator's `start()` wasn't
+    // enough: in serverless mode, don't start the heartbeat/sysinfo to 127.0.0.1:21114.
     if hbb_common::config::Config::is_serverless_lan() {
         return tx;
     }

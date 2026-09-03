@@ -1,6 +1,6 @@
 import Foundation
 
-/// IPs locales del Mac para mostrar cómo conectarse (LAN + Tailscale).
+/// The Mac's local IPs, shown so people know how to connect (LAN + Tailscale).
 enum NetworkInfo {
     static func addresses() -> [(iface: String, ip: String)] {
         var result: [(String, String)] = []
@@ -32,7 +32,7 @@ enum NetworkInfo {
         return p.count == 4 && p[0] == 100 && p[1] >= 64 && p[1] <= 127
     }
 
-    /// IP de LAN (interfaz en*, excluyendo Tailscale).
+    /// LAN IP (en* interface, excluding Tailscale).
     static func primaryLAN() -> String? {
         addresses().first { $0.iface.hasPrefix("en") && !isTailscale($0.ip) }?.ip
     }

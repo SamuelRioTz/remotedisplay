@@ -14,28 +14,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // App de barra de menú: sin ícono en el Dock mientras no haya ventana.
+        // Menu bar app: no Dock icon while there's no window.
         NSApp.setActivationPolicy(.accessory)
         controller.start()
-        // Primer uso / falta setup → abrir la ventana de configuración sola.
+        // First run / setup incomplete → open the configuration window on its own.
         if !controller.isReady || !controller.passwordSet {
             showMainWindow()
         }
     }
 
-    // Doble click en la app (Finder) o click en el Dock → ventana principal.
+    // Double click on the app (Finder) or click on the Dock → main window.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showMainWindow()
         return true
     }
 
-    // Cerrar la ventana NO cierra la app: sigue en la barra de menú.
+    // Closing the window does NOT close the app: it stays in the menu bar.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    // El motor corre como LaunchAgent independiente: al cerrar la app sigue
-    // corriendo en segundo plano (para eso está "Service Active" / login item).
+    // The engine runs as an independent LaunchAgent: closing the app leaves it
+    // running in the background (that's what "Service Active" / login item is for).
 
-    // MARK: - Ventana principal (única)
+    // MARK: - Main window (single instance)
 
     func showMainWindow() {
         if mainWindow == nil {
@@ -50,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             w.delegate = self
             mainWindow = w
         }
-        // Con ventana visible la app se comporta como app normal (Dock, ⌘Tab).
+        // With a visible window the app behaves like a normal app (Dock, ⌘Tab).
         NSApp.setActivationPolicy(.regular)
         mainWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -58,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         guard (notification.object as? NSWindow) === mainWindow else { return }
-        // Volver a ser solo un ícono de la barra de menú.
+        // Go back to being just a menu bar icon.
         DispatchQueue.main.async { NSApp.setActivationPolicy(.accessory) }
     }
 }

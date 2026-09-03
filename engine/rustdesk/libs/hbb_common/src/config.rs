@@ -54,7 +54,7 @@ const SERIAL: i32 = 3;
 
 #[cfg(target_os = "macos")]
 lazy_static::lazy_static! {
-    pub static ref ORG: RwLock<String> = RwLock::new("".to_owned()); // remotedisplay: sin org -> ~/Library/Preferences/RemoteDisplay
+    pub static ref ORG: RwLock<String> = RwLock::new("".to_owned()); // remotedisplay: no org -> ~/Library/Preferences/RemoteDisplay
 }
 
 type Size = (i32, i32, i32, i32);
@@ -69,7 +69,7 @@ lazy_static::lazy_static! {
     static ref ONLINE: Mutex<HashMap<String, i64>> = Default::default();
     pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new("".to_owned());
     pub static ref EXE_RENDEZVOUS_SERVER: RwLock<String> = Default::default();
-    pub static ref APP_NAME: RwLock<String> = RwLock::new("RemoteDisplay".to_owned()); // remotedisplay: nombre de app/config/logs
+    pub static ref APP_NAME: RwLock<String> = RwLock::new("RemoteDisplay".to_owned()); // remotedisplay: app/config/log name
     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
@@ -933,7 +933,7 @@ impl Config {
         rendezvous_server
     }
 
-    /// remotedisplay: modo serverless/LAN = todos los rendezvous configurados son loopback.
+    /// remotedisplay: serverless/LAN mode = all configured rendezvous servers are loopback.
     pub fn is_serverless_lan() -> bool {
         let servers = Self::get_rendezvous_servers();
         if servers.is_empty() {

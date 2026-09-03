@@ -5,9 +5,9 @@ struct RemoteDisplayServerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        // Menú de barra = acceso rápido para el uso en segundo plano (estado,
-        // abrir la ventana de configuración, servicio, login item, salir).
-        // Toda la configuración vive en la ventana principal (MainWindowView).
+        // Menu bar = quick access for background use (status,
+        // opening the configuration window, service, login item, quit).
+        // All the configuration lives in the main window (MainWindowView).
         MenuBarExtra {
             StatusMenu()
                 .environment(appDelegate.controller)

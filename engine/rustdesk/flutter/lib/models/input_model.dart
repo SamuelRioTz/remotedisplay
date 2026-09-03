@@ -448,17 +448,17 @@ class InputModel {
   // mouse
   final isPhysicalMouse = false.obs;
 
-  // remotedisplay: con la captura del trackpad del iPad activa (pointer lock +
-  // deltas GCMouse por canal nativo), iPadOS SIGUE entregando los clicks del
-  // trackpad como touches indirectPointer → llegan aquí como kind==mouse y
-  // DUPLICAN el click que ya entró por el canal (1 click físico = 2 para el
-  // host). Con este flag se ignora todo evento de mouse físico y los
-  // pan-zoom de trackpad; los touches de DEDO siguen funcionando normal.
+  // remotedisplay: with iPad trackpad capture active (pointer lock +
+  // GCMouse deltas over the native channel), iPadOS STILL delivers trackpad
+  // clicks as indirectPointer touches → they arrive here as kind==mouse and
+  // DUPLICATE the click that already came in through the channel (1 physical click
+  // = 2 for the host). With this flag, every physical mouse event and trackpad
+  // pan-zoom is ignored; FINGER touches keep working normally.
   bool ignorePhysicalMouse = false;
   int _lastButtons = 0;
   Offset lastMousePos = Offset.zero;
-  // remotedisplay: momento del último input de mouse enviado al host, para que
-  // CursorModel.updateCursorPosition distinga eco de movimiento genuino.
+  // remotedisplay: timestamp of the last mouse input sent to the host, so that
+  // CursorModel.updateCursorPosition can tell an echo apart from genuine movement.
   DateTime lastMouseInputTime = DateTime.fromMillisecondsSinceEpoch(0);
   int _lastWheelTsUs = 0;
 

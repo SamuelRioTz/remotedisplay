@@ -1,7 +1,7 @@
-// remotedisplay: control remoto de SimpleDisplay (displays virtuales) en el Mac.
-// El cliente Windows corre comandos por SSH contra el host (mismo IP del peer),
-// usando el URL scheme `simpledisplay://` que expone la app SimpleDisplay.
-// No requiere cambios en el host de RustDesk (los permisos de pantalla se preservan).
+// remotedisplay: remote control of SimpleDisplay (virtual displays) on the Mac.
+// The Windows client runs commands over SSH against the host (same IP as the peer),
+// using the `simpledisplay://` URL scheme exposed by the SimpleDisplay app.
+// Requires no changes to the RustDesk host (screen permissions are preserved).
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -31,7 +31,7 @@ const _kStatusPath = '/tmp/simpledisplay-status.json';
 const _kDownloadUrl =
     'https://github.com/SamuelRioTz/SimpleDisplay/releases/latest';
 
-// Un display reportado por `simpledisplay://status` (JSON en _kStatusPath).
+// A display reported by `simpledisplay://status` (JSON in _kStatusPath).
 class _RemoteDisplay {
   final int id;
   final String name;
@@ -89,7 +89,7 @@ class _SimpleDisplayDialog extends StatefulWidget {
 
 class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
   late TextEditingController _userCtrl;
-  String _status = 'Detectando…';
+  String _status = 'Detecting…';
   bool _installed = false;
   bool _running = false;
   bool _busy = false;
@@ -115,7 +115,7 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
 
   Future<void> _detect() async {
     setState(() {
-      _status = 'Detectando…';
+      _status = 'Detecting…';
       _installed = false;
       _running = false;
     });
@@ -126,7 +126,7 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
         'pgrep -x SimpleDisplay >/dev/null && echo RUNNING || echo STOPPED');
     if (!mounted) return;
     if (r == null) {
-      setState(() => _status = 'No se pudo ejecutar SSH');
+      setState(() => _status = 'Could not run SSH');
       return;
     }
     final out = r.stdout as String;
@@ -136,16 +136,16 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
         _installed = true;
         _running = running;
         _status = running
-            ? 'SimpleDisplay corriendo ✓'
-            : 'SimpleDisplay instalado (cerrado)';
+            ? 'SimpleDisplay running ✓'
+            : 'SimpleDisplay installed (closed)';
       });
       if (running) await _refreshDisplays();
     } else if (out.contains('MISSING')) {
       setState(
-          () => _status = 'SimpleDisplay no está instalado en ${widget.host}');
+          () => _status = 'SimpleDisplay is not installed on ${widget.host}');
     } else {
       final err = (r.stderr as String).trim();
-      setState(() => _status = err.isNotEmpty ? 'SSH: $err' : 'Sin respuesta');
+      setState(() => _status = err.isNotEmpty ? 'SSH: $err' : 'No response');
     }
   }
 
@@ -157,8 +157,8 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
     await _detect();
   }
 
-  // Pide un snapshot (simpledisplay://status escribe JSON a _kStatusPath),
-  // espera a que aparezca el archivo y lo lee.
+  // Requests a snapshot (simpledisplay://status writes JSON to _kStatusPath),
+  // waits for the file to appear, and reads it.
   Future<void> _refreshDisplays() async {
     setState(() => _busy = true);
     final r = await _ssh(
@@ -172,7 +172,7 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
     var parsed = <_RemoteDisplay>[];
     var err = '';
     if (r == null) {
-      err = 'No se pudo ejecutar SSH';
+      err = 'Could not run SSH';
     } else {
       try {
         final list = jsonDecode((r.stdout as String).trim()) as List<dynamic>;
@@ -184,7 +184,7 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
             return a.name.compareTo(b.name);
           });
       } catch (e) {
-        err = 'No se pudo leer el estado (¿SimpleDisplay desactualizado?)';
+        err = 'Could not read status (SimpleDisplay outdated?)';
       }
     }
     setState(() {
@@ -194,8 +194,8 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
     });
   }
 
-  // Corre un comando y refresca la lista tras darle tiempo a macOS de
-  // reconfigurar los displays (crear/prender/apagar tarda unos segundos).
+  // Runs a command and refreshes the list after giving macOS time to
+  // reconfigure the displays (create/turn on/turn off takes a few seconds).
   Future<void> _runAndRefresh(String remoteCmd, String okMsg,
       {int settleSecs = 4}) async {
     bind.mainSetLocalOption(key: _kSshUserOption, value: _user);
@@ -208,7 +208,7 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
     setState(() {
       _busy = false;
       if (r == null) {
-        _log = 'Error: no se pudo ejecutar SSH';
+        _log = 'Error: could not run SSH';
       } else if (r.exitCode == 0) {
         _log = okMsg;
       } else {
@@ -221,12 +221,12 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
   void _toggle(_RemoteDisplay d) {
     final action = d.on ? 'disable' : 'enable';
     _runAndRefresh('open "${_url(action, {'id': '${d.id}'})}"',
-        d.on ? '"${d.name}" apagado' : '"${d.name}" encendido');
+        d.on ? '"${d.name}" turned off' : '"${d.name}" turned on');
   }
 
   void _removeById(_RemoteDisplay d) {
     _runAndRefresh('open "${_url('remove', {'id': '${d.id}'})}"',
-        'Display "${d.name}" quitado');
+        'Display "${d.name}" removed');
   }
 
   Widget _displayRow(_RemoteDisplay d) {
@@ -246,9 +246,9 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
             child: Text(
               '${d.name}${d.main ? ' ★' : ''}\n${d.width}×${d.height}'
               '${d.virtual ? ' · virtual' : ''}'
-              // macOS no puede apagar displays por software: "off" = espejado
-              // al principal (sigue existiendo y RustDesk lo sigue listando).
-              '${d.on ? '' : ' · apagado (espejado)'}',
+              // macOS cannot turn off displays via software: "off" = mirrored
+              // onto the main one (it still exists and RustDesk still lists it).
+              '${d.on ? '' : ' · off (mirrored)'}',
               style: TextStyle(
                 fontSize: 12,
                 color: d.on ? null : Colors.grey,
@@ -261,7 +261,7 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
           ),
           if (d.virtual)
             IconButton(
-              tooltip: 'Quitar display',
+              tooltip: 'Remove display',
               icon: const Icon(Icons.delete_outline, size: 18),
               onPressed: (!_installed || _busy) ? null : () => _removeById(d),
             )
@@ -288,9 +288,9 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
                       'name': p.name,
                       if (p.hidpi) 'hidpi': 'true',
                     })}"',
-                    'Display "${p.name}" creado',
+                    'Display "${p.name}" created',
                     settleSecs: 7),
-            child: const Text('Crear'),
+            child: const Text('Create'),
           ),
         ],
       ),
@@ -321,7 +321,7 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Text('Usuario SSH: '),
+                  const Text('SSH user: '),
                   Expanded(
                     child: TextField(
                       controller: _userCtrl,
@@ -329,36 +329,36 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Re-detectar',
+                    tooltip: 'Re-detect',
                     icon: const Icon(Icons.refresh),
                     onPressed: _busy ? null : _detect,
                   ),
                 ],
               ),
               const Divider(),
-              // Estado 1: no instalado → link de descarga
+              // State 1: not installed → download link
               if (!_installed)
                 Align(
                   alignment: Alignment.centerLeft,
                   child: TextButton.icon(
                     icon: const Icon(Icons.download),
-                    label: const Text('Descargar SimpleDisplay (GitHub)'),
+                    label: const Text('Download SimpleDisplay (GitHub)'),
                     onPressed: _busy
                         ? null
                         : () => launchUrl(Uri.parse(_kDownloadUrl)),
                   ),
                 ),
-              // Estado 2: instalado pero cerrado → abrirlo
+              // State 2: installed but closed → open it
               if (_installed && !_running)
                 Align(
                   alignment: Alignment.centerLeft,
                   child: TextButton.icon(
                     icon: const Icon(Icons.play_arrow),
-                    label: const Text('Abrir SimpleDisplay en el Mac'),
+                    label: const Text('Open SimpleDisplay on the Mac'),
                     onPressed: _busy ? null : _openApp,
                   ),
                 ),
-              // Estado 3: corriendo → config completa
+              // State 3: running → full config
               if (_installed && _running) ...[
                 Row(
                   children: [
@@ -366,7 +366,7 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
                         style: TextStyle(fontWeight: FontWeight.bold)),
                     const Spacer(),
                     IconButton(
-                      tooltip: 'Actualizar lista',
+                      tooltip: 'Refresh list',
                       icon: const Icon(Icons.sync, size: 18),
                       onPressed: _busy ? null : _refreshDisplays,
                     ),
@@ -375,13 +375,13 @@ class _SimpleDisplayDialogState extends State<_SimpleDisplayDialog> {
                 if (_displays.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 4),
-                    child: Text('(sin datos — actualiza la lista)',
+                    child: Text('(no data — refresh the list)',
                         style: TextStyle(fontSize: 12, color: Colors.grey)),
                   )
                 else
                   ..._displays.map(_displayRow),
                 const Divider(),
-                const Text('Crear display virtual:',
+                const Text('Create virtual display:',
                     style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
                 ..._presets.map(_presetRow),

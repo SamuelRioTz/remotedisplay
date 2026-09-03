@@ -1,5 +1,5 @@
-// ¿El CGVirtualDisplay creado con hiDPI=1 expone un modo Retina (px=2x pts)?
-// ¿MacSetMode lo selecciona? ¿Sobrevive a un resize? ¿Deja fantasma al destruir?
+// Does the CGVirtualDisplay created with hiDPI=1 expose a Retina mode (px=2x pts)?
+// Does MacSetMode select it? Does it survive a resize? Does it leave a ghost on destroy?
 #import <Foundation/Foundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <unistd.h>
@@ -15,25 +15,25 @@ static void info(const char *tag, uint32_t id) {
 static void modes(uint32_t id) {
     CFDictionaryRef o = (__bridge CFDictionaryRef)@{ (__bridge NSString *)kCGDisplayShowDuplicateLowResolutionModes: @YES };
     CFArrayRef all = CGDisplayCopyAllDisplayModes(id, o);
-    printf("  modos (%ld):", all ? CFArrayGetCount(all) : 0);
+    printf("  modes (%ld):", all ? CFArrayGetCount(all) : 0);
     for (CFIndex i = 0; all && i < CFArrayGetCount(all); i++) { CGDisplayModeRef m = (CGDisplayModeRef)CFArrayGetValueAtIndex(all, i);
         printf(" %zux%zu/%zux%zupx", CGDisplayModeGetWidth(m), CGDisplayModeGetHeight(m), CGDisplayModeGetPixelWidth(m), CGDisplayModeGetPixelHeight(m)); }
     printf("\n"); if (all) CFRelease(all);
 }
-static void active(const char *tag) { uint32_t n=0; CGDirectDisplayID ids[16]; CGGetActiveDisplayList(16, ids, &n); printf("%-30s activos=%u:", tag, n); for (uint32_t i=0;i<n;i++) printf(" %u", ids[i]); printf("\n"); }
+static void active(const char *tag) { uint32_t n=0; CGDirectDisplayID ids[16]; CGGetActiveDisplayList(16, ids, &n); printf("%-30s active=%u:", tag, n); for (uint32_t i=0;i<n;i++) printf(" %u", ids[i]); printf("\n"); }
 int main() { @autoreleasepool {
-    active("inicio");
+    active("start");
     uint32_t a = MacCreateVirtualDisplay(640, 360, 60, true, "RD hidpi");
-    sleep(3); info("creado hidpi=1 640x360", a); modes(a);
+    sleep(3); info("created hidpi=1 640x360", a); modes(a);
     MacResizeVirtualDisplay(a, 800, 450); sleep(3); info("resize 800x450", a);
     MacResizeVirtualDisplay(a, 1284, 702); sleep(3); info("resize 1284x702", a);
-    MacDestroyVirtualDisplay(a); sleep(4); active("tras destruir A");
+    MacDestroyVirtualDisplay(a); sleep(4); active("after destroying A");
     uint32_t b = MacCreateVirtualDisplay(1284, 701, 60, false, "RD 1x");
-    sleep(3); info("creado hidpi=0 1284x701", b);
-    MacSetVirtualDisplayHiDPI(b, true); sleep(4); info("toggle hidpi=1 (caliente)", b);
+    sleep(3); info("created hidpi=0 1284x701", b);
+    MacSetVirtualDisplayHiDPI(b, true); sleep(4); info("toggle hidpi=1 (hot)", b);
     MacResizeVirtualDisplay(b, 642, 351); sleep(3); info("resize 642x351 hidpi", b);
     MacSetVirtualDisplayHiDPI(b, false); sleep(4); info("toggle hidpi=0", b);
     MacResizeVirtualDisplay(b, 1284, 701); sleep(3); info("resize 1284x701 1x", b);
-    MacDestroyVirtualDisplay(b); sleep(4); active("tras destruir B (fantasma?)");
+    MacDestroyVirtualDisplay(b); sleep(4); active("after destroying B (ghost?)");
     return 0;
 } }

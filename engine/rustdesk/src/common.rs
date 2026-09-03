@@ -581,8 +581,8 @@ impl Drop for CheckTestNatType {
 }
 
 pub fn test_nat_type() {
-    // remotedisplay: serverless (rendezvous → 127.0.0.1): no hay a quién preguntarle el
-    // NAT; sin esto el log se llena de "test nat: Failed to connect to 127.0.0.1:21116".
+    // remotedisplay: serverless (rendezvous → 127.0.0.1): there's no one to ask about
+    // NAT; without this the log fills up with "test nat: Failed to connect to 127.0.0.1:21116".
     if hbb_common::config::Config::is_serverless_lan() {
         Config::set_nat_type(NatType::SYMMETRIC as _);
         return;
@@ -1125,7 +1125,7 @@ pub fn get_local_option(key: &str) -> String {
 }
 
 pub fn get_audit_server(api: String, custom: String, typ: String) -> String {
-    // remotedisplay: sin servidor API en modo serverless → sin auditoría remota.
+    // remotedisplay: no API server in serverless mode → no remote auditing.
     if hbb_common::config::Config::is_serverless_lan() {
         return "".to_owned();
     }

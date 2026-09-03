@@ -70,7 +70,7 @@ Settings → Privacy & Security.
   discovery, macOS virtual display backend, per-display scale, and a fix for the
   ColorSync profile leak that virtual displays cause on macOS.
 - `client/` — the Flutter client (new UI on top of the engine's `flutter_hbb` package).
-- `docs/pruebas/` — measurements and harnesses behind the macOS 26 quirks we hit
+- `docs/tests/` — measurements and harnesses behind the macOS 26 quirks we hit
   (HiDPI behaviour, mirror sets, per-process display lists). Mostly in Spanish.
 - `website/` — the landing page for [remotedisplay.app](https://remotedisplay.app):
   static HTML with EN/ES/DE strings in `website/l10n/`.

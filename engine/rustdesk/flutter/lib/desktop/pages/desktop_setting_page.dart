@@ -70,11 +70,11 @@ class DesktopSettingPage extends StatefulWidget {
         !bind.isDisableSettings() &&
         bind.mainGetBuildinOption(key: kOptionHideSecuritySetting) != 'Y')
       SettingsTabKey.safety,
-    // remotedisplay: pestaña Network (ID/Relay Server) eliminada (solo LAN, sin servidor)
+    // remotedisplay: Network tab (ID/Relay Server) removed (LAN only, no server)
     if (!bind.isIncomingOnly()) SettingsTabKey.display,
     if (!isWeb && !bind.isIncomingOnly() && bind.pluginFeatureIsEnabled())
       SettingsTabKey.plugin,
-    // remotedisplay: pestaña Account (login) eliminada (sin cuenta/servidor)
+    // remotedisplay: Account tab (login) removed (no account/server)
     if (isWindows &&
         bind.mainGetBuildinOption(key: kOptionHideRemotePrinterSetting) != 'Y')
       SettingsTabKey.printer,

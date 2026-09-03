@@ -42,5 +42,5 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Libs nativas del engine (se copian en build-android.sh)
+# Engine native libs (copied in build-android.sh)
 /android/app/src/main/jniLibs/

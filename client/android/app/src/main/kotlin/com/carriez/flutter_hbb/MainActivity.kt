@@ -62,8 +62,8 @@ class MainActivity : FlutterActivity() {
             channelTag
         )
         initFlutterChannel(flutterMethodChannel!!)
-        // remotedisplay: abre la TrackpadActivity en la PANTALLA DEL TELEFONO
-        // (DEFAULT_DISPLAY) mientras esta activity vive en el monitor externo.
+        // remotedisplay: opens the TrackpadActivity on the PHONE SCREEN
+        // (DEFAULT_DISPLAY) while this activity lives on the external monitor.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "remotedisplay/trackpad")
             .setMethodCallHandler { call, result ->
                 if (call.method == "open") {

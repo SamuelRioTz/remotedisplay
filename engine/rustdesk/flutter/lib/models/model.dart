@@ -147,13 +147,13 @@ class FfiModel with ChangeNotifier {
   bool get isOriginalResolution =>
       _pi.tryGetDisplayIfNotAllDisplay()?.isOriginalResolution ?? false;
 
-  // remotedisplay: resolucion dinamica — el display remoto sigue el tamano de la
-  // ventana del viewer (estilo Tart/Virtualization.framework). Solo aplica a
-  // displays con resolucion virtual (CGVirtualDisplay en macOS, IDD en Windows).
+  // remotedisplay: dynamic resolution — the remote display follows the size of the
+  // viewer window (Tart/Virtualization.framework style). Only applies to
+  // displays with a virtual resolution (CGVirtualDisplay on macOS, IDD on Windows).
   final dynamicResolution = false.obs;
   Timer? _dynamicResolutionTimer;
 
-  // Coalescing: en rafaga de resizes (drag del borde) solo aplica el ultimo.
+  // Coalescing: during a burst of resizes (dragging the border) only the last one is applied.
   void scheduleDynamicResolution() {
     if (!dynamicResolution.value) return;
     _dynamicResolutionTimer?.cancel();
@@ -163,11 +163,11 @@ class FfiModel with ChangeNotifier {
     );
   }
 
-  /// Tamano actual del canvas (area visible de la ventana), en px del remoto.
-  /// Lo usa el cliente para crear un virtual del tamano de la ventana.
+  /// Current canvas size (visible area of the window), in remote px.
+  /// Used by the client to create a virtual display matching the window size.
   Size? get viewportSize => parent.target?.canvasModel.getSize();
 
-  /// Aplica una resolucion a un display concreto (por indice del peer).
+  /// Applies a resolution to a specific display (by peer index).
   Future<void> changeResolutionOfDisplay(int display, int w, int h) async {
     if (w < 400 || h < 300) return;
     await bind.sessionChangeResolution(
@@ -178,14 +178,14 @@ class FfiModel with ChangeNotifier {
     );
   }
 
-  /// [scalePercent]: escala del display virtual (100/125/150/200). El
-  /// framebuffer apunta a los pixeles FISICOS de la ventana del viewer
-  /// (canvas logico x [devicePixelRatio]); los PUNTOS que se piden al server son
-  /// pixeles / escala (con escala > 100 el server usa modo HiDPI = 2x puntos).
+  /// [scalePercent]: virtual display scale (100/125/150/200). The
+  /// framebuffer maps to the PHYSICAL pixels of the viewer window
+  /// (logical canvas x [devicePixelRatio]); the POINTS requested from the server are
+  /// pixels / scale (with scale > 100 the server uses HiDPI mode = 2x points).
   Future<void> applyDynamicResolution(
       {int scalePercent = 100, double devicePixelRatio = 1.0}) async {
-    // "All displays": no se redimensiona nada — el tamano de cada monitor se
-    // conserva (no hay un unico display al cual aplicar el fit).
+    // "All displays": nothing is resized — each monitor's size
+    // is kept as-is (there is no single display to fit against).
     if (_pi.currentDisplay == kAllDisplayValue) return;
     if (!isVirtualDisplayResolution) return;
     final display = _pi.tryGetDisplayIfNotAllDisplay();
@@ -194,12 +194,12 @@ class FfiModel with ChangeNotifier {
     final dpr = devicePixelRatio <= 0 ? 1.0 : devicePixelRatio;
     final pxW = (canvasSize.width * dpr).round();
     final pxH = (canvasSize.height * dpr).round();
-    // tamanos minimos sensatos; ignora estados transitorios de la ventana
+    // sane minimum sizes; ignores transient window states
     if (pxW < 400 || pxH < 300) return;
     final s = scalePercent <= 0 ? 100 : scalePercent;
     final w = (pxW * 100 / s).round();
     final h = (pxH * 100 / s).round();
-    // display.width/height llegan en pixeles; scale = pixeles/puntos
+    // display.width/height arrive in pixels; scale = pixels/points
     final sc = display.scale <= 0 ? 1.0 : display.scale;
     if ((display.width / sc).round() == w && (display.height / sc).round() == h) {
       return;
@@ -1391,9 +1391,9 @@ class FfiModel with ChangeNotifier {
   }
 
   /// Handle the peer info event based on [evt].
-  // remotedisplay: cuantas veces llego un PeerInfo (conexion inicial y cada
-  // reconexion). Los cambios de lista de displays NO pasan por aca, asi que
-  // sirve para detectar "(re)conectado" sin confundirlo con crear/borrar.
+  // remotedisplay: how many times a PeerInfo has arrived (initial connection and each
+  // reconnection). Display list changes do NOT go through here, so this
+  // is useful for detecting "(re)connected" without confusing it with create/delete.
   int peerInfoEpoch = 0;
 
   handlePeerInfo(Map<String, dynamic> evt, String peerId, bool isCache) async {
@@ -2366,9 +2366,9 @@ class CanvasModel with ChangeNotifier {
   double get scrollX => _scrollX;
   double get scrollY => _scrollY;
 
-  // remotedisplay: con edgeToEdgeSessionView (ventana de sesión propia, marco
-  // nativo sin tab bar) el view es borde-a-borde y estos edges son 0; si no,
-  // descontar tab bar/borde/padding del layout del engine como siempre.
+  // remotedisplay: with edgeToEdgeSessionView (its own session window, native
+  // frame with no tab bar) the view is edge-to-edge and these edges are 0; otherwise,
+  // subtract the tab bar/border/padding of the engine layout as usual.
   static bool get _edgeToEdge => stateGlobal.edgeToEdgeSessionView;
   static double get leftToEdge => (isDesktop && !_edgeToEdge)
       ? windowBorderWidth + kDragToResizeAreaPadding.left
@@ -3178,20 +3178,20 @@ class CursorModel with ChangeNotifier {
 
   // remote physical display coordinate
   // For update pan (mobile), onOneFingerPanStart, onOneFingerPanUpdate, onHoldDragUpdate
-  // remotedisplay: rect (coords globales remotas) del display remoto mostrado en
-  // el monitor externo del iPad. Si está definido, el cursor puede CRUZAR el
-  // borde del display actual hacia él (como un escritorio multi-monitor) en
-  // los pans de los modos cursor y touch. null = comportamiento original.
+  // remotedisplay: rect (remote global coords) of the remote display shown on
+  // the iPad's external monitor. If set, the cursor can CROSS the
+  // edge of the current display into it (like a multi-monitor desktop) during
+  // pans in cursor and touch modes. null = original behavior.
   Rect? extraCursorRect;
 
-  /// remotedisplay: intenta mover el cursor a (tx,ty) permitiendo entrar/estar en
-  /// [extraCursorRect]. Devuelve true si el movimiento fue consumido.
+  /// remotedisplay: tries to move the cursor to (tx,ty), allowing it to enter/be in
+  /// [extraCursorRect]. Returns true if the movement was consumed.
   ///
-  /// A diferencia de macOS (que solo cruza por la porción de borde que ambas
-  /// pantallas comparten en la disposición), aquí se PROYECTA: si el
-  /// movimiento empuja hacia el lado donde está el otro display, se entra por
-  /// su punto más cercano aunque los monitores estén desalineados, tengan
-  /// resoluciones distintas o haya hueco entre sus rects.
+  /// Unlike macOS (which only crosses through the portion of the edge shared
+  /// by both screens in the arrangement), here it PROJECTS: if the
+  /// movement pushes toward the side where the other display is, it enters through
+  /// its nearest point even if the monitors are misaligned, have
+  /// different resolutions, or there is a gap between their rects.
   bool _tryMoveIntoExtraRect(double tx, double ty, Rect curRect) {
     final extra = extraCursorRect;
     if (extra == null) return false;
@@ -3210,30 +3210,30 @@ class CursorModel with ChangeNotifier {
       return true;
     }
 
-    // Cae dentro del rect destino tal cual: cruzar directo.
+    // Falls within the destination rect as-is: cross directly.
     if (isPointInRect(target, to)) return apply(tx, ty);
 
-    // Sigue dentro del rect de origen: si estamos en el externo lo movemos
-    // nosotros (el flujo original solo conoce el display actual); si no,
-    // que lo maneje el flujo original (clamps de canvas/rect visible).
+    // Still within the origin rect: if we're in the external one, we move it
+    // ourselves (the original flow only knows about the current display); otherwise,
+    // let the original flow handle it (canvas/visible-rect clamps).
     if (isPointInRect(target, from)) {
       return curInExtra ? apply(tx, ty) : false;
     }
 
-    // Fuera de ambos. ¿El empuje va hacia el lado del destino? Proyectar.
+    // Outside both. Is the push heading toward the destination side? Project.
     final side = _sideOfRect(from, to);
     var toward = false;
     switch (side) {
-      case 1: // destino a la derecha
+      case 1: // destination on the right
         toward = tx > from.right - 1;
         break;
-      case -1: // a la izquierda
+      case -1: // on the left
         toward = tx < from.left;
         break;
-      case 2: // abajo
+      case 2: // below
         toward = ty > from.bottom - 1;
         break;
-      case -2: // arriba
+      case -2: // above
         toward = ty < from.top;
         break;
     }
@@ -3242,16 +3242,16 @@ class CursorModel with ChangeNotifier {
           tx.clamp(to.left, to.right - 1), ty.clamp(to.top, to.bottom - 1));
     }
     if (curInExtra) {
-      // Empujó otro borde del externo: clamp dentro del externo (mismo
-      // trato que el clamp original al display actual).
+      // Pushed another edge of the external display: clamp within the external one (same
+      // treatment as the original clamp to the current display).
       return apply(tx.clamp(extra.left, extra.right - 1),
           ty.clamp(extra.top, extra.bottom - 1));
     }
     return false;
   }
 
-  /// Lado en el que está [to] respecto a [from] (disposición libre de macOS):
-  /// 1 derecha, -1 izquierda, 2 abajo, -2 arriba (si solapan, eje dominante).
+  /// Side where [to] is relative to [from] (macOS free arrangement):
+  /// 1 right, -1 left, 2 below, -2 above (if overlapping, dominant axis).
   int _sideOfRect(Rect from, Rect to) {
     if (to.left >= from.right - 1) return 1;
     if (to.right <= from.left + 1) return -1;
@@ -3263,11 +3263,11 @@ class CursorModel with ChangeNotifier {
     return dy >= 0 ? 2 : -2;
   }
 
-  /// remotedisplay: movimiento RELATIVO del cursor (trackpad capturado con
-  /// pointer lock en iPad) por el escritorio remoto: display actual ∪
-  /// extraCursorRect, con clamp al rect donde esté el cursor. El puntero
-  /// absoluto de iPadOS se clava en los bordes de la pantalla; los deltas de
-  /// GCMouse no tienen ese límite.
+  /// remotedisplay: RELATIVE cursor movement (trackpad captured with
+  /// pointer lock on iPad) across the remote desktop: current display ∪
+  /// extraCursorRect, clamped to the rect the cursor is in. iPadOS's
+  /// absolute pointer gets pinned at the screen edges; GCMouse deltas
+  /// have no such limit.
   moveRelativeAcrossDisplays(double dx, double dy) {
     final curRect = parent.target?.ffiModel.rect;
     if (curRect == null) return;
@@ -3420,8 +3420,8 @@ class CursorModel with ChangeNotifier {
     final scale = parent.target?.canvasModel.scale ?? 1.0;
     dx /= scale;
     dy /= scale;
-    // remotedisplay: cruce hacia el display del monitor externo del iPad —
-    // antes de los clamps al rect visible y al display actual.
+    // remotedisplay: crossing into the display on the iPad's external monitor —
+    // before the clamps to the visible rect and the current display.
     final curRect = parent.target?.ffiModel.rect;
     if (curRect != null && _tryMoveIntoExtraRect(_x + dx, _y + dy, curRect)) {
       return;
@@ -3543,9 +3543,9 @@ class CursorModel with ChangeNotifier {
         return;
       }
 
-      // remotedisplay: en touch mode el pan también puede cruzar al display del
-      // monitor externo (solo mover — el tap sigue siendo absoluto en el
-      // canvas del iPad; para clickear allá se usa el modo cursor).
+      // remotedisplay: in touch mode, panning can also cross into the display on the
+      // external monitor (movement only — tapping remains absolute on the
+      // iPad canvas; to click over there, use cursor mode).
       {
         final scale0 = parent.target?.canvasModel.scale ?? 1.0;
         if (_tryMoveIntoExtraRect(
@@ -3685,12 +3685,12 @@ class CursorModel with ChangeNotifier {
 
   /// Update the cursor position.
   updateCursorPosition(Map<String, dynamic> evt, String id) async {
-    // remotedisplay: el host solo excluye al peer que movió el mouse por 300ms
-    // (run_pos en input_service.rs); con lag, nuestro propio movimiento rebota
-    // como CursorPosition y activaba el modo "cursor movido en el host", que
-    // esconde el cursor local, pinta el remoto y bloquea el input → cursor
-    // duplicado/parpadeo intermitente. Si enviamos input de mouse hace <1s,
-    // tratarlo como eco: solo actualizar la posición.
+    // remotedisplay: the host only excludes the peer that moved the mouse for 300ms
+    // (run_pos in input_service.rs); with lag, our own movement bounces back
+    // as CursorPosition and used to trigger "cursor moved on host" mode, which
+    // hides the local cursor, paints the remote one, and blocks input → duplicated
+    // cursor / intermittent flicker. If we sent mouse input <1s ago,
+    // treat it as an echo: just update the position.
     final lastInput = parent.target?.inputModel.lastMouseInputTime;
     final isEcho = lastInput != null &&
         DateTime.now().difference(lastInput).inMilliseconds < 1000;
@@ -3987,10 +3987,10 @@ class FFI {
     int? tabWindowId,
     int? display,
     List<int>? displays,
-    // remotedisplay: fetch alternativo de los datos cacheados de la sesión origen
-    // para "sesión existente" SIN desktop_multi_window (móvil: la vista del
-    // monitor externo del iPad corre en otro engine Flutter del mismo proceso
-    // y recibe el CachedPeerData por una local option, no por canal de ventanas).
+    // remotedisplay: alternative fetch of the source session's cached data
+    // for an "existing session" WITHOUT desktop_multi_window (mobile: the iPad
+    // external monitor view runs in another Flutter engine of the same process
+    // and gets the CachedPeerData via a local option, not via the window channel).
     Future<String?> Function()? getCachedSessionData,
   }) {
     closed = false;
@@ -4105,8 +4105,8 @@ class FFI {
         Future.delayed(Duration.zero, () async {
           final dynamic cachedData;
           if (getCachedSessionData != null) {
-            // remotedisplay: móvil — datos cacheados vía callback (local option),
-            // desktop_multi_window no existe en iOS/Android.
+            // remotedisplay: mobile — cached data via callback (local option),
+            // desktop_multi_window does not exist on iOS/Android.
             cachedData = await getCachedSessionData();
           } else {
             final args = jsonEncode({'id': id, 'close': display == null});
@@ -4389,25 +4389,25 @@ class PeerInfo with ChangeNotifier {
       platformAdditions[kPlatformAdditionsRustDeskVirtualDisplays] ?? []);
   int get amyuniVirtualDisplayCount =>
       platformAdditions[kPlatformAdditionsAmyuniVirtualDisplays] ?? 0;
-  // remotedisplay: displays virtuales en hosts macOS (CGVirtualDisplay).
-  // La clave presente (aunque vacia) = el host soporta la feature.
+  // remotedisplay: virtual displays on macOS hosts (CGVirtualDisplay).
+  // Key present (even if empty) = the host supports the feature.
   bool get isMacVirtualDisplaySupported =>
       platformAdditions.containsKey(kPlatformAdditionsMacVirtualDisplays);
   List<int> get macVirtualDisplays => List<int>.from(
       platformAdditions[kPlatformAdditionsMacVirtualDisplays] ?? []);
   bool get macDynamicMainActive =>
       platformAdditions[kPlatformAdditionsMacDynamicMain] == true;
-  // CGDirectDisplayID del virtual del main dinamico (0 si no existe).
+  // CGDirectDisplayID of the dynamic main's virtual (0 if none exists).
   int get macDynamicMainId =>
       (platformAdditions[kPlatformAdditionsMacDynamicMainId] as num?)?.toInt() ?? 0;
-  // Virtuales en modo HiDPI (escala > 100 %).
+  // Virtuals in HiDPI mode (scale > 100%).
   List<int> get macHiDPIDisplays => List<int>.from(
       platformAdditions[kPlatformAdditionsMacHiDPIDisplays] ?? []);
-  // IDs (CGDirectDisplayID) alineados con `displays`; el cliente mapea
-  // fila <-> id para los toggles por monitor.
+  // IDs (CGDirectDisplayID) aligned with `displays`; the client maps
+  // row <-> id for the per-monitor toggles.
   List<int> get macDisplayIds =>
       List<int>.from(platformAdditions[kPlatformAdditionsMacDisplayIds] ?? []);
-  // Fisicos apagados (espejados), para listarlos con el toggle en off.
+  // Physical displays turned off (mirrored), so they can be listed with the toggle off.
   List<int> get macPhysicalOff =>
       List<int>.from(platformAdditions[kPlatformAdditionsMacPhysicalOff] ?? []);
 

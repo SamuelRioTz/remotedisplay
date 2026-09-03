@@ -14,57 +14,58 @@ import 'package:flutter_hbb/models/platform_model.dart' show bind;
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
-/// Monitor externo del iPad (iPadOS clásico, sin escenas): el Runner crea un
-/// segundo FlutterEngine sobre la UIScreen externa con ruta `/extscreen`; ese
-/// engine (OTRO isolate, MISMO runtime rust) se engancha a la conexión ya
-/// abierta como segunda UI-session y muestra OTRO display remoto. Así la
-/// pantalla del iPad y el monitor externo ven a la vez dos monitores del Mac.
+/// iPad external monitor (classic iPadOS, no scenes): the Runner creates a
+/// second FlutterEngine on the external UIScreen with route `/extscreen`;
+/// that engine (ANOTHER isolate, SAME rust runtime) hooks into the already
+/// open connection as a second UI-session and shows ANOTHER remote display.
+/// This way the iPad screen and the external monitor show two monitors of
+/// the Mac at the same time.
 ///
-/// Como en desktop: por defecto SOLO la vista principal — el monitor externo
-/// se abre desde el menú Pantalla (botón por display), y se cierra igual.
+/// Like on desktop: by default ONLY the main view — the external monitor is
+/// opened from the Screen menu (button per display), and closed the same way.
 ///
-/// Traspaso main-isolate → ext-isolate por local options (mismo patrón que el
-/// trackpad de Android): peer, display y el CachedPeerData serializado.
+/// Handoff from main-isolate to ext-isolate via local options (same pattern
+/// as the Android trackpad): peer, display, and the serialized CachedPeerData.
 const String kOptExtScreenPeer = 'remotedisplay-extscreen-peer';
 const String kOptExtScreenDisplay = 'remotedisplay-extscreen-display';
 const String kOptExtScreenCache = 'remotedisplay-extscreen-cache';
 
-/// Canal del isolate PRINCIPAL con el Runner: attach/detach/setDisplay hacia
-/// nativo; connected/disconnected desde nativo (conectar/quitar el monitor).
+/// Channel from the MAIN isolate to the Runner: attach/detach/setDisplay
+/// toward native; connected/disconnected from native (plugging/unplugging the monitor).
 const kExtDisplayChannel = MethodChannel('remotedisplay/extdisplay');
 
-/// Canal del isolate del monitor externo con el Runner: recibe setDisplay
-/// (reenviado del principal) y dispose (antes de destruir el engine).
+/// Channel from the external monitor's isolate to the Runner: receives
+/// setDisplay (forwarded from the main one) and dispose (before destroying the engine).
 const kExtViewChannel = MethodChannel('remotedisplay/extview');
 
-/// Vive en la sesión móvil (isolate principal). El usuario decide desde la
-/// toolbar qué display remoto mandar al monitor externo (attach/detach); si
-/// luego cambia la vista del iPad al display que está fuera, se intercambian
-/// (swap) para que los dos monitores remotos sigan visibles.
+/// Lives in the mobile session (main isolate). The user decides from the
+/// toolbar which remote display to send to the external monitor
+/// (attach/detach); if the iPad view is then switched to the display that's
+/// out there, they swap so both remote monitors stay visible.
 class ExternalScreenController {
   ExternalScreenController({required this.peerId});
 
   final String peerId;
 
-  /// Display remoto en el monitor externo; -1 = vista externa cerrada.
+  /// Remote display on the external monitor; -1 = external view closed.
   final RxInt extDisplay = (-1).obs;
 
-  /// Hay un monitor conectado al iPad (haya o no vista externa abierta).
+  /// A monitor is connected to the iPad (whether or not the external view is open).
   final RxBool screenConnected = false.obs;
 
-  /// Aviso único por sesión: monitor presente y 2+ displays remotos — la
-  /// sesión lo usa para el toast "abre el menú Pantalla".
+  /// Once-per-session notice: monitor present and 2+ remote displays — the
+  /// session uses this for the "open the Screen menu" toast.
   VoidCallback? onExternalAvailable;
 
   bool _attaching = false;
   bool _hintShown = false;
   int _lastMainDisplay = -1;
 
-  // Reenvío del cursor al monitor externo (throttle ~60Hz). El host suprime
-  // el eco de CursorPosition 300ms para la conexión que inyecta input
-  // (run_pos, input_service.rs), así que la vista externa no puede fiarse de
-  // los eventos del server: la posición autoritativa es la del cursorModel
-  // del isolate principal.
+  // Cursor forwarding to the external monitor (throttled ~60Hz). The host
+  // suppresses the CursorPosition echo for 300ms for the connection that
+  // injects input (run_pos, input_service.rs), so the external view can't
+  // rely on the server's events: the authoritative position is the main
+  // isolate's cursorModel.
   DateTime _lastCursorFwd = DateTime.fromMillisecondsSinceEpoch(0);
   Offset _lastCursorPos = Offset.zero;
 
@@ -86,18 +87,18 @@ class ExternalScreenController {
       screenConnected.value =
           await kExtDisplayChannel.invokeMethod('isConnected') == true;
     } catch (_) {
-      screenConnected.value = false; // canal no implementado (Android): off
+      screenConnected.value = false; // channel not implemented (Android): off
     }
     _lastMainDisplay = gFFI.ffiModel.pi.currentDisplay;
     gFFI.cursorModel.addListener(_onCursorMoved);
-    // El rect de cruce del cursor sigue SIEMPRE al display externo activo.
+    // The cursor crossing rect ALWAYS follows the active external display.
     _extWorker = ever(extDisplay, (_) => _updateCursorRect());
   }
 
   Worker? _extWorker;
 
-  /// El display externo como rect global remoto → CursorModel.extraCursorRect
-  /// (parche 13 del fork): el cursor puede cruzar el borde hacia el monitor.
+  /// The external display as a remote global rect → CursorModel.extraCursorRect
+  /// (fork patch 13): the cursor can cross the edge toward the monitor.
   void _updateCursorRect() {
     final d = extDisplay.value;
     Rect? r;
@@ -122,8 +123,8 @@ class ExternalScreenController {
         'cursorPos', {'x': pos.dx, 'y': pos.dy}).catchError((_) {});
   }
 
-  /// Llamar en cada cambio del ffiModel/imageModel de la sesión principal:
-  /// resuelve el swap al cambiar de display en el iPad y el aviso inicial.
+  /// Call on every ffiModel/imageModel change of the main session: resolves
+  /// the swap when switching displays on the iPad and the initial hint.
   Future<void> onSessionUpdate() async {
     _maybeHint();
     final current = gFFI.ffiModel.pi.currentDisplay;
@@ -132,11 +133,11 @@ class ExternalScreenController {
     _lastMainDisplay = current;
     if (extDisplay.value >= 0) {
       if (current == extDisplay.value && prev >= 0) {
-        // El iPad pasa a mostrar el display del monitor externo → swap.
+        // The iPad switches to showing the external monitor's display → swap.
         await setExternalDisplay(prev);
       }
-      // El display del iPad pudo quedarse sin frames si ya estaba capturado
-      // y el contenido es estático: pedir un keyframe.
+      // The iPad's display may be left without frames if it was already
+      // captured and the content is static: request a keyframe.
       await bind.sessionRefresh(sessionId: gFFI.sessionId, display: current);
     }
   }
@@ -151,8 +152,8 @@ class ExternalScreenController {
     onExternalAvailable?.call();
   }
 
-  /// Abre la vista externa con [display] (botón de la toolbar); si ya está
-  /// abierta, solo cambia el display que muestra.
+  /// Opens the external view with [display] (toolbar button); if it's
+  /// already open, only changes the display it shows.
   Future<void> attachDisplay(int display) async {
     if (!screenConnected.value || _attaching) return;
     if (extDisplay.value >= 0) {
@@ -161,7 +162,7 @@ class ExternalScreenController {
     }
     final pi = gFFI.ffiModel.pi;
     if (display < 0 || display >= pi.displays.length) return;
-    if (gFFI.ffiModel.waitForFirstImage.value) return; // sesión aún no lista
+    if (gFFI.ffiModel.waitForFirstImage.value) return; // session not ready yet
     _attaching = true;
     try {
       _lastMainDisplay = pi.currentDisplay;
@@ -180,7 +181,7 @@ class ExternalScreenController {
     }
   }
 
-  /// Cambia qué display remoto muestra el monitor externo (ya abierto).
+  /// Changes which remote display the external monitor shows (already open).
   Future<void> setExternalDisplay(int display) async {
     if (extDisplay.value < 0 || extDisplay.value == display) return;
     extDisplay.value = display;
@@ -194,8 +195,8 @@ class ExternalScreenController {
     }
   }
 
-  /// Cierra la vista del monitor externo (botón ✕ de la toolbar). El monitor
-  /// vuelve al espejo del sistema.
+  /// Closes the external monitor's view (✕ button in the toolbar). The
+  /// monitor goes back to system mirroring.
   Future<void> detach() async {
     if (extDisplay.value < 0) return;
     extDisplay.value = -1;
@@ -220,8 +221,8 @@ class ExternalScreenController {
   }
 }
 
-/// Raíz del isolate del monitor externo: segunda UI-session (view-only) de la
-/// conexión existente mostrando el display publicado en las local options.
+/// Root of the external monitor's isolate: second UI-session (view-only) of
+/// the existing connection, showing the display published in the local options.
 class ExternalScreenView extends StatefulWidget {
   const ExternalScreenView({super.key});
 
@@ -236,8 +237,8 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
   int _display = -1;
   final _overlayState = BlockableOverlayState();
 
-  // Cursor remoto sobre este display (posición global remota, reenviada por
-  // el isolate principal vía nativo — ver ExternalScreenController).
+  // Remote cursor over this display (remote global position, forwarded by
+  // the main isolate via native — see ExternalScreenController).
   final ValueNotifier<Offset?> _cursorPos = ValueNotifier(null);
 
   @override
@@ -272,10 +273,10 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
       setState(() => _error = 'No active session');
       return;
     }
-    // gFFI de ESTE isolate (sessionId propio, distinto del de la sesión del
-    // iPad). tabWindowId=-1: camino "sesión existente" de FFI.start
-    // (sessionAddExistedSync + sessionStartWithDisplays) sin ventana origen —
-    // los datos cacheados llegan por getCachedSessionData (parche del fork).
+    // gFFI for THIS isolate (its own sessionId, different from the iPad
+    // session's). tabWindowId=-1: FFI.start's "existing session" path
+    // (sessionAddExistedSync + sessionStartWithDisplays) with no origin
+    // window — the cached data arrives via getCachedSessionData (fork patch).
     final ffi = gFFI;
     _overlayState.applyFfi(ffi);
     ffi.start(
@@ -297,22 +298,22 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
     final ffi = _ffi;
     if (ffi == null) return;
     ffi.imageModel.clearImage();
-    // isDesktop=false → rama móvil parcheada del engine: une los displays de
-    // las otras ui-sessions en vez del set exclusivo (no corta al iPad).
+    // isDesktop=false → the engine's patched mobile branch: unions the
+    // displays of the other ui-sessions instead of the exclusive set (doesn't cut off the iPad).
     bind.sessionSwitchDisplay(
       isDesktop: false,
       sessionId: ffi.sessionId,
       value: Int32List.fromList([display]),
     );
     ffi.ffiModel.switchToNewDisplay(display, ffi.sessionId, ffi.id);
-    // Contenido estático: sin esto no llega ni un frame hasta que algo cambie.
+    // Static content: without this, not a single frame arrives until something changes.
     bind.sessionRefresh(sessionId: ffi.sessionId, display: display);
     setState(() => _display = display);
   }
 
-  /// Pill de sesión del monitor externo — mismos códigos visuales que la
-  /// SessionToolbar (grafito, borde tenue, radios suaves). Informativa: en
-  /// esta pantalla no hay input (el control sigue en el iPad).
+  /// External monitor's session pill — same visual codes as the
+  /// SessionToolbar (graphite, faint border, soft radii). Informational: on
+  /// this screen there is no input (control stays on the iPad).
   Widget _pill() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
@@ -390,8 +391,8 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
               },
             ),
           ),
-          // Cursor remoto cuando está sobre ESTE display (cruzó el borde
-          // desde el iPad, o lo movieron en el host).
+          // Remote cursor when it's over THIS display (it crossed the edge
+          // from the iPad, or it was moved on the host).
           Positioned.fill(
             child: AnimatedBuilder(
               animation: Listenable.merge(
@@ -426,8 +427,8 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
     }
     return Scaffold(
       backgroundColor: Colors.black,
-      // BlockableOverlay: overlay real para el dialogManager de esta sesión
-      // (waiting-for-image, msgbox del engine) — mismo patrón que RemotePage.
+      // BlockableOverlay: real overlay for this session's dialogManager
+      // (waiting-for-image, engine msgbox) — same pattern as RemotePage.
       body: BlockableOverlay(
         underlying: Container(color: Colors.black, child: body),
         state: _overlayState,
@@ -436,9 +437,9 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
   }
 }
 
-/// Dibuja el cursor remoto sobre el vídeo del monitor externo, replicando la
-/// transformación del FittedBox (contain + centrado). [pos] viene en coords
-/// globales remotas; solo se pinta si cae dentro de [displayRect].
+/// Draws the remote cursor over the external monitor's video, replicating
+/// the FittedBox transform (contain + centered). [pos] comes in remote
+/// global coords; it's only painted if it falls within [displayRect].
 class _RemoteCursorPainter extends CustomPainter {
   _RemoteCursorPainter({
     required this.pos,
@@ -481,7 +482,7 @@ class _RemoteCursorPainter extends CustomPainter {
         Paint()..filterQuality = FilterQuality.medium,
       );
     } else {
-      // Sin shape aún: flecha simple blanca con borde negro.
+      // No shape yet: a simple white arrow with a black outline.
       final path = Path()
         ..moveTo(local.dx, local.dy)
         ..lineTo(local.dx, local.dy + 17)

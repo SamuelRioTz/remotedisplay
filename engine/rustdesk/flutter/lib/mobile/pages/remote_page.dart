@@ -40,22 +40,22 @@ void _disableAndroidSoftKeyboard({bool? isKeyboardVisible}) {
   }
 }
 
-/// remotedisplay: control externo mínimo de la RemotePage móvil, para clientes
-/// que ocultan su barra (`showToolbar: false`) y ponen la suya.
+/// remotedisplay: minimal external control of the mobile RemotePage, for clients
+/// that hide its bar (`showToolbar: false`) and provide their own.
 class MobileRemotePageController {
   VoidCallback? openKeyboard;
   VoidCallback? hideKeyboard;
 
-  /// Estado real del "modo teclado" (campo de texto activo + teclas
-  /// auxiliares), válido también con teclado físico (inset 0).
+  /// Actual "keyboard mode" state (active text field + auxiliary
+  /// keys), also valid with a physical keyboard (inset 0).
   bool Function()? isKeyboardShown;
 
-  /// Fila de teclas auxiliares (Ctrl/Alt/Esc…): null = automático (con el
-  /// teclado), true/false = forzada visible/oculta, independiente del teclado.
+  /// Row of auxiliary keys (Ctrl/Alt/Esc…): null = automatic (with the
+  /// keyboard), true/false = forced visible/hidden, independent of the keyboard.
   void Function(bool?)? setKeyHelpOverride;
   bool? Function()? keyHelpOverride;
 
-  /// Si la fila está visible ahora (automático u override).
+  /// Whether the row is currently visible (automatic or override).
   bool Function()? isKeyHelpShown;
 }
 
@@ -75,11 +75,11 @@ class RemotePage extends StatefulWidget {
   final String? password;
   final bool? isSharedPassword;
   final bool? forceRelay;
-  // remotedisplay: como `showToolbar` de la RemotePage desktop — oculta la barra
-  // inferior, la ayuda de gestos y el botón flotante.
+  // remotedisplay: like the desktop RemotePage's `showToolbar` — hides the bottom
+  // bar, the gesture help, and the floating button.
   final bool showToolbar;
-  // remotedisplay: teclas auxiliares (Ctrl/Alt/Esc/Tab/flechas…) en UNA fila con
-  // scroll horizontal en vez del Wrap de 3 filas (tablets con teclado físico).
+  // remotedisplay: auxiliary keys (Ctrl/Alt/Esc/Tab/arrows…) in ONE row with
+  // horizontal scroll instead of the 3-row Wrap (tablets with a physical keyboard).
   final bool keyHelpHorizontal;
   final MobileRemotePageController? controller;
 
@@ -90,7 +90,7 @@ class RemotePage extends StatefulWidget {
 class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   Timer? _timer;
   bool _showBar = !isWebDesktop;
-  bool? _keyHelpOverride; // remotedisplay: ver MobileRemotePageController
+  bool? _keyHelpOverride; // remotedisplay: see MobileRemotePageController
   bool _showGestureHelp = false;
   String _value = '';
   Orientation? _currentOrientation;
@@ -160,19 +160,19 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       if (gFFI.recordingModel.start) {
         showToast(translate('Automatically record outgoing sessions'));
       }
-      // remotedisplay: este callback se re-dispara en cada reconexión (la lista
-      // solo se limpia en FFI.close). Con el teclado virtual activo,
-      // _disableAndroidSoftKeyboard bloquearía el IME de la ventana
-      // (FLAG_ALT_FOCUSABLE_IM) con _showEdit aún true y el teclado quedaría
-      // muerto hasta cerrar la sesión.
+      // remotedisplay: this callback fires again on every reconnection (the list
+      // is only cleared in FFI.close). With the virtual keyboard active,
+      // _disableAndroidSoftKeyboard would block the window's IME
+      // (FLAG_ALT_FOCUSABLE_IM) while _showEdit is still true, and the keyboard would
+      // stay dead until the session is closed.
       if (!_showEdit) {
         _disableAndroidSoftKeyboard(
             isKeyboardVisible: keyboardVisibilityController.isVisible);
       }
-      // remotedisplay: los diálogos de reconexión ("Connecting...") roban el foco
-      // primario con un FocusScopeNode propio y nadie lo devuelve al
-      // descartarlos (no son rutas), dejando muertos el teclado físico Y el
-      // virtual. Restaurar el estado de teclado que había antes de la caída.
+      // remotedisplay: reconnection dialogs ("Connecting...") steal the primary
+      // focus with their own FocusScopeNode and nothing gives it back when
+      // they're dismissed (they aren't routes), leaving both the physical and
+      // virtual keyboard dead. Restore the keyboard state that existed before the drop.
       _restoreKeyboardFocus();
     });
     WidgetsBinding.instance.addObserver(this);
@@ -195,8 +195,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   @override
   Future<void> dispose() async {
     WidgetsBinding.instance.removeObserver(this);
-    // remotedisplay: cancelar antes de los awaits — dispara requestFocus y los
-    // FocusNode se destruyen más abajo, antes de los cancel() tardíos.
+    // remotedisplay: cancel before the awaits — it triggers requestFocus, and the
+    // FocusNodes are destroyed further below, before the delayed cancel()s.
     _focusRestoreTimer?.cancel();
     // Close the session up-front. `gFFI.close()` below only calls `sessionClose`
     // after several awaits (canvas save, image update, the `enable_soft_keyboard`
@@ -237,18 +237,18 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       trySyncClipboard();
-      // remotedisplay: al volver de background el SO invalida la conexión IME del
-      // TextFormField oculto y el foco puede haber quedado fuera de la página
-      // (teclado muerto tras cambiar de app). Rehacer el foco según el modo.
+      // remotedisplay: when returning from background, the OS invalidates the hidden
+      // TextFormField's IME connection, and focus may have ended up outside the page
+      // (dead keyboard after switching apps). Redo the focus according to the mode.
       _restoreKeyboardFocus();
     }
   }
 
-  // remotedisplay: restaura foco/IME tras background o reconexión. Un
-  // requestFocus() pelado no alcanza cuando el nodo cree que aún tiene el
-  // foco pero la conexión IME fue invalidada, así que se rehace el ciclo
-  // completo. El delay deja pasar el requestFocus diferido de los diálogos
-  // (CustomAlertDialog) para que el nuestro sea el último y gane.
+  // remotedisplay: restores focus/IME after background or reconnection. A
+  // bare requestFocus() isn't enough when the node still thinks it has
+  // focus but the IME connection was invalidated, so the whole cycle is redone.
+  // The delay lets the dialogs' (CustomAlertDialog) deferred requestFocus pass
+  // first, so ours is the last one and wins.
   void _restoreKeyboardFocus() {
     _focusRestoreTimer?.cancel();
     _focusRestoreTimer = Timer(const Duration(milliseconds: 200), () {
@@ -343,10 +343,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       _iosKeyboardWorkaroundTimer = null;
       _timer?.cancel();
       _timer = Timer(kMobileDelaySoftKeyboardFocus, () {
-        // remotedisplay: ver _openKeyboardUnlocked — en iOS con toolbar propia la
-        // barra de estado la maneja el cliente (botón de pantalla completa).
-        // iOS reporta "teclado visible" también con teclado físico (barra de
-        // atajos), así que sin esto la iPad sale de pantalla completa.
+        // remotedisplay: see _openKeyboardUnlocked — on iOS with its own toolbar,
+        // the status bar is managed by the client (full-screen button).
+        // iOS reports "keyboard visible" even with a physical keyboard (shortcuts
+        // bar), so without this the iPad exits full screen.
         if (widget.showToolbar || !isIOS) {
           SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
               overlays: SystemUiOverlay.values);
@@ -509,10 +509,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       setState(() => _showEdit = true);
       _timer?.cancel();
       _timer = Timer(kMobileDelaySoftKeyboardFocus, () {
-        // remotedisplay: en iOS con toolbar propia no salir de pantalla completa
-        // acá — con teclado físico (iPad) no aparece teclado virtual y nadie
-        // volvería a ocultar la barra. Si el teclado virtual sí aparece,
-        // onSoftKeyboardChanged(true) restaura la barra como siempre.
+        // remotedisplay: on iOS with its own toolbar, don't exit full screen
+        // here — with a physical keyboard (iPad) the virtual keyboard doesn't
+        // appear and nothing would hide the bar again. If the virtual keyboard does
+        // appear, onSoftKeyboardChanged(true) restores the bar as usual.
         if (widget.showToolbar || !isIOS) {
           SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
               overlays: SystemUiOverlay.values);
@@ -522,14 +522,14 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     });
   }
 
-  // remotedisplay: mismo comportamiento que el botón flotante con el teclado abierto.
+  // remotedisplay: same behavior as the floating button with the keyboard open.
   void _hideSoftKeyboard() {
     setState(() => _showEdit = false);
     gFFI.invokeMethod("enable_soft_keyboard", false);
     _mobileFocusNode.unfocus();
     _physicalFocusNode.requestFocus();
-    // Volver a pantalla completa (con teclado físico no llega el
-    // onSoftKeyboardChanged(false) que normalmente lo hace).
+    // Return to full screen (with a physical keyboard, the
+    // onSoftKeyboardChanged(false) that normally does this never fires).
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
   }
 
@@ -642,9 +642,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     return RawPointerMouseRegion(
       cursor: ffiModel.keyboard ? SystemMouseCursors.none : MouseCursor.defer,
       inputModel: inputModel,
-      // remotedisplay: como en la RemotePage desktop — si el foco quedó fuera de
-      // la página (p.ej. robado por un diálogo de reconexión), tocar el canvas
-      // lo repara en vez de dejar el teclado muerto.
+      // remotedisplay: like in the desktop RemotePage — if focus ended up outside
+      // the page (e.g. stolen by a reconnection dialog), tapping the canvas
+      // fixes it instead of leaving the keyboard dead.
       onPointerDown: (_) {
         if (_showEdit) {
           if (!_mobileFocusNode.hasFocus) _mobileFocusNode.requestFocus();
@@ -1033,9 +1033,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 class KeyHelpTools extends StatefulWidget {
   final bool keyboardIsVisible;
   final bool showGestureHelp;
-  // remotedisplay: una sola fila con scroll horizontal (ver RemotePage.keyHelpHorizontal).
+  // remotedisplay: a single row with horizontal scroll (see RemotePage.keyHelpHorizontal).
   final bool horizontal;
-  // remotedisplay: null = automático; true/false = forzar visible/oculta.
+  // remotedisplay: null = automatic; true/false = force visible/hidden.
   final bool? visibleOverride;
 
   /// need to show by external request, etc [keyboardIsVisible] or [changeTouchMode]
@@ -1245,8 +1245,8 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
       _updateRect();
     });
     if (widget.horizontal) {
-      // remotedisplay: los SizedBox(width: 9999) son saltos de fila del Wrap;
-      // en modo horizontal se reemplazan por un separador chico.
+      // remotedisplay: the SizedBox(width: 9999) are row breaks for the Wrap;
+      // in horizontal mode they're replaced by a small separator.
       Widget sep() => SizedBox(width: space * 3);
       final items = (modifiers + keys + (_fn ? fn : []) + (_more ? more : []))
           .map((w) => w is SizedBox ? sep() : w)

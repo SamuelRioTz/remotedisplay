@@ -18,10 +18,10 @@ import 'monitor_profile.dart';
 import 'session_toolbar.dart';
 import 'win_events.dart';
 
-/// Ventana de sesión propia: UNA conexión por ventana, sin tabs de RustDesk y
-/// con la toolbar minimalista del client. Reemplaza a DesktopRemoteScreen +
-/// ConnectionTabPage; la plomería (RemotePage: render, input, clipboard) se
-/// reusa intacta de flutter_hbb.
+/// Our own session window: ONE connection per window, without RustDesk tabs
+/// and with the client's minimalist toolbar. Replaces DesktopRemoteScreen +
+/// ConnectionTabPage; the plumbing (RemotePage: render, input, clipboard) is
+/// reused intact from flutter_hbb.
 class ClientRemoteScreen extends StatelessWidget {
   ClientRemoteScreen({super.key, required this.params}) {
     bind.mainInitInputSource();
@@ -87,10 +87,10 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
           .setTitle(sessionWindowTitle(_peerId, params['display'] as int?));
     }
     rustDeskWinManager.setMethodHandler(_methodHandler);
-    // Perfil de monitores POR CLIENTE: solo la ventana principal del peer (las
-    // ventanas por-monitor traen `display`) aplica el perfil guardado cada vez
-    // que el server anuncia un PeerInfo (conexión inicial y reconexiones, p.ej.
-    // tras un reinicio del server que perdió los virtuales).
+    // PER-CLIENT monitor profile: only the peer's main window (per-monitor
+    // windows carry `display`) applies the saved profile every time the
+    // server announces a PeerInfo (initial connection and reconnections,
+    // e.g. after a server restart that lost the virtual displays).
     if (params['display'] == null) {
       _watch = Timer.periodic(const Duration(milliseconds: 500), (_) => _tick());
     }
@@ -104,16 +104,16 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
     if (!mounted) return;
     final ffi = _remotePage.ffi;
     final pi = ffi.ffiModel.pi;
-    // Título de la ventana siempre acorde al display que se muestra (el
-    // engine puede cambiarlo solo: p.ej. desaparece el virtual que se veía).
+    // Window title always matches the display being shown (the engine can
+    // change it on its own: e.g. the virtual display being viewed disappears).
     if (isDesktop &&
         pi.displays.isNotEmpty &&
         _titledDisplay != pi.currentDisplay) {
       _titledDisplay = pi.currentDisplay;
       WindowController.fromWindowId(stateGlobal.windowId)
           .setTitle(sessionWindowTitle(_peerId, pi.currentDisplay));
-      // El radio del menú lee CurrentDisplayState; tras una reconexión el
-      // engine vuelve al display 0 sin actualizarlo: sincronizarlo acá.
+      // The menu's radio reads CurrentDisplayState; after a reconnection the
+      // engine goes back to display 0 without updating it: sync it here.
       final cur = CurrentDisplayState.find(_peerId);
       if (cur.value != pi.currentDisplay) cur.value = pi.currentDisplay;
     }
@@ -121,7 +121,7 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
     if (epoch == _seenEpoch) return;
     if (!pi.isMacVirtualDisplaySupported || pi.displays.isEmpty) return;
     _seenEpoch = epoch;
-    // dejar que llegue el primer frame antes de mover displays
+    // let the first frame arrive before moving displays
     await Future.delayed(const Duration(milliseconds: 1500));
     if (!mounted || ffi.ffiModel.peerInfoEpoch != epoch) return;
     await MonitorProfile.applySaved(_peerId, ffi);
@@ -146,8 +146,8 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
     );
   }
 
-  /// Subconjunto mínimo del handler multiventana del tab page del engine:
-  /// esta ventana es single-sesión, así que solo responde por SU peer.
+  /// Minimal subset of the engine's tab page multi-window handler: this
+  /// window is single-session, so it only responds for ITS peer.
   Future<dynamic> _methodHandler(dynamic call, int fromWindowId) async {
     debugPrint('[client session] ${call.method} from window $fromWindowId');
     if (call.method == kWindowEventActiveSession) {
@@ -157,8 +157,8 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
       }
       return false;
     } else if (call.method == kWindowEventActiveDisplaySession) {
-      // Dedup de openMonitorSession: si ESTA ventana ya muestra ese
-      // (peer, display), al frente y true — el main no crea otra ventana.
+      // Dedup for openMonitorSession: if THIS window already shows that
+      // (peer, display), bring it to front and return true — main won't create another window.
       final args = jsonDecode(call.arguments);
       if (args['id'] == _peerId &&
           args['display'] == _remotePage.ffi.ffiModel.pi.currentDisplay) {
@@ -167,7 +167,7 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
       }
       return false;
     } else if (call.method == kClientEventGetSessionDisplays) {
-      // La toolbar de otra ventana (vía main) pregunta qué display mostramos.
+      // Another window's toolbar (via main) asks which display we're showing.
       if (call.arguments != _peerId) return null;
       return jsonEncode({
         'window_id': stateGlobal.windowId,
@@ -176,9 +176,9 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
     } else if (call.method == kWindowEventGetSessionIdList) {
       return '$_peerId,${_remotePage.ffi.sessionId}';
     } else if (call.method == kWindowEventGetCachedSessionData) {
-      // Ventana nueva del MISMO peer (ventana-por-monitor): FFI.start le pide
-      // a esta ventana los datos cacheados (peer info, permisos) para armar
-      // su sesión multi-UI. Sin esto la ventana nueva queda negra y sin pi.
+      // New window for the SAME peer (window-per-monitor): FFI.start asks
+      // this window for the cached data (peer info, permissions) to build
+      // its multi-UI session. Without this the new window stays black and without pi.
       final args = jsonDecode(call.arguments);
       if (args['id'] != _peerId) return null;
       try {
@@ -187,12 +187,12 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
         debugPrint('Failed to get cached session data: $e');
         return null;
       }
-      // Nota: args['close'] solo aplica al MOVER un tab a otra ventana
-      // (kWindowEventMoveTabToNewWindow), flujo que este cliente no usa.
+      // Note: args['close'] only applies when MOVING a tab to another window
+      // (kWindowEventMoveTabToNewWindow), a flow this client doesn't use.
     } else if (call.method == 'onDestroy') {
-      // Cierre nativo de la ventana (botón X o kClientEventCloseWindow):
-      // cerrar la conexión con gracia — sin esto la sesión rust queda viva
-      // hasta que el peer note el TCP muerto.
+      // Native window close (X button or kClientEventCloseWindow): close
+      // the connection gracefully — without this the rust session stays
+      // alive until the peer notices the dead TCP.
       await _remotePage.ffi.close();
     }
     return null;

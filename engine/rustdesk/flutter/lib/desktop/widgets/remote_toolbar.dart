@@ -837,9 +837,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       }
     }));
 
-    // remotedisplay: SimpleDisplay siempre accesible — el menú de monitores solo
-    // aparece con >1 display, y sin este botón sería imposible crear el
-    // segundo display (huevo y gallina).
+    // remotedisplay: SimpleDisplay always accessible — the monitors menu only
+    // appears with >1 display, and without this button it would be impossible to
+    // create the second display (chicken and egg).
     if (!isWeb && pi.platform == kPeerPlatformMacOS) {
       toolbarItems.add(_SimpleDisplayMenu(id: widget.id, ffi: widget.ffi));
     }
@@ -856,7 +856,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     if (widget.ffi.connType == ConnType.defaultConn) {
       toolbarItems.add(_KeyboardMenu(id: widget.id, ffi: widget.ffi));
     }
-    // remotedisplay: chat deshabilitado (se conserva la llamada de voz)
+    // remotedisplay: chat disabled (voice call is kept)
     if (!isWeb) {
       toolbarItems.add(_VoiceCallMenu(id: widget.id, ffi: widget.ffi));
     }
@@ -963,7 +963,7 @@ class _PinMenu extends StatelessWidget {
   }
 }
 
-// remotedisplay: botón de barra para el control de SimpleDisplay del host Mac.
+// remotedisplay: toolbar button for controlling SimpleDisplay on the Mac host.
 class _SimpleDisplayMenu extends StatelessWidget {
   final String id;
   final FFI ffi;
@@ -2101,9 +2101,9 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     );
   }
 
-  // remotedisplay: resolucion dinamica — el display remoto sigue el tamano de la
-  // ventana del viewer. Solo para displays de resolucion virtual (resize
-  // arbitrario en caliente): CGVirtualDisplay en macOS, IDD en Windows.
+  // remotedisplay: dynamic resolution — the remote display follows the size of the
+  // viewer window. Only for displays with a virtual resolution (arbitrary
+  // hot resize): CGVirtualDisplay on macOS, IDD on Windows.
   Widget _dynamicResolutionMenuButton(
       BuildContext context, bool isVirtualDisplay) {
     return Offstage(
@@ -2114,7 +2114,7 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
               if (value == null) return;
               ffiModel.dynamicResolution.value = value;
               if (value) {
-                // aplicar ya con el tamano actual de la ventana
+                // apply immediately with the window's current size
                 await ffiModel.applyDynamicResolution();
               }
             },

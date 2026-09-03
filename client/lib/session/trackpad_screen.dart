@@ -5,22 +5,22 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart' show SessionID;
 import 'package:flutter_hbb/models/platform_model.dart' show bind;
 
-/// Opción local donde la sesión móvil publica su sessionId para que la
-/// TrackpadActivity (segundo engine Flutter del MISMO proceso, en la pantalla
-/// del teléfono) pueda mandarle input por FFI mientras la sesión se ve en el
-/// monitor externo (modo escritorio de Android).
+/// Local option where the mobile session publishes its sessionId so the
+/// TrackpadActivity (second Flutter engine of the SAME process, on the
+/// phone screen) can send it input via FFI while the session is shown on
+/// the external monitor (Android desktop mode).
 const String kOptTrackpadSession = 'remotedisplay-trackpad-session';
 
-/// Canal nativo que lanza la TrackpadActivity en la pantalla del teléfono.
+/// Native channel that launches the TrackpadActivity on the phone screen.
 const kTrackpadChannel = MethodChannel('remotedisplay/trackpad');
 
-/// Pantalla trackpad + teclado: convierte la pantalla del teléfono en panel
-/// táctil para la sesión que corre en el monitor externo.
+/// Trackpad + keyboard screen: turns the phone screen into a touch panel
+/// for the session running on the external monitor.
 ///
-///   - 1 dedo: mueve el puntero (mouse relativo del engine, `move_relative`)
-///   - tap: click izquierdo · doble tap: doble click · long-press: click der.
-///   - 2 dedos vertical: rueda del mouse
-///   - barra inferior: teclado (texto vía sessionInputString + VK_BACK/RETURN)
+///   - 1 finger: moves the pointer (engine's relative mouse, `move_relative`)
+///   - tap: left click · double tap: double click · long-press: right click
+///   - 2 fingers vertical: mouse wheel
+///   - bottom bar: keyboard (text via sessionInputString + VK_BACK/RETURN)
 class TrackpadScreen extends StatefulWidget {
   const TrackpadScreen({super.key});
 
@@ -31,20 +31,20 @@ class TrackpadScreen extends StatefulWidget {
 class _TrackpadScreenState extends State<TrackpadScreen> {
   SessionID? _sessionId;
 
-  // Acumuladores de fracciones (como sendMobileRelativeMouseMove del engine:
-  // sin esto los movimientos lentos/finos se pierden al truncar).
+  // Fraction accumulators (like the engine's sendMobileRelativeMouseMove:
+  // without this, slow/fine movements get lost when truncating).
   double _remX = 0, _remY = 0;
   double _wheelRem = 0;
-  static const _speed = 1.6; // sensibilidad del trackpad
+  static const _speed = 1.6; // trackpad sensitivity
   int _pointers = 0;
 
-  // Teclado: TextField oculto; se manda el diff (texto nuevo por
-  // sessionInputString, borrados como VK_BACK) igual que el engine móvil.
+  // Keyboard: hidden TextField; sends the diff (new text via
+  // sessionInputString, deletions as VK_BACK) same as the mobile engine.
   final _kbController = TextEditingController();
   final _kbFocus = FocusNode();
   String _kbLast = '';
 
-  static const _bg = Colors.black; // OLED: superficie del trackpad apagada
+  static const _bg = Colors.black; // OLED: trackpad surface off
   static const _fg = Color(0xFFB8BDC7);
   static const _fgDim = Color(0xFF6A7280);
 
@@ -89,7 +89,7 @@ class _TrackpadScreenState extends State<TrackpadScreen> {
   }
 
   void _wheel(double dy) {
-    _wheelRem += dy / 40; // ~40 px de gesto = 1 paso de rueda
+    _wheelRem += dy / 40; // ~40px of gesture = 1 wheel step
     final steps = _wheelRem.truncate();
     _wheelRem -= steps;
     if (steps == 0) return;
@@ -110,7 +110,7 @@ class _TrackpadScreenState extends State<TrackpadScreen> {
         command: false);
   }
 
-  /// Diff del TextField oculto → sesión (mismo esquema que el engine móvil).
+  /// Diff of the hidden TextField → session (same scheme as the mobile engine).
   void _onKbChanged(String value) {
     final sid = _sessionId;
     if (sid == null) return;
@@ -159,8 +159,8 @@ class _TrackpadScreenState extends State<TrackpadScreen> {
                 onPointerUp: (_) => _pointers = (_pointers - 1).clamp(0, 8),
                 onPointerCancel: (_) =>
                     _pointers = (_pointers - 1).clamp(0, 8),
-                // onScaleUpdate subsume pan y da focalPointDelta también con
-                // 2 dedos (scroll); el conteo real de dedos lo lleva Listener.
+                // onScaleUpdate subsumes pan and also gives focalPointDelta
+                // with 2 fingers (scroll); the real finger count is tracked by Listener.
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => _click('left'),
@@ -196,7 +196,7 @@ class _TrackpadScreenState extends State<TrackpadScreen> {
                 ),
               ),
             ),
-            // TextField oculto: recibe el IME y manda el diff a la sesión.
+            // Hidden TextField: receives the IME and sends the diff to the session.
             SizedBox(
               height: 1,
               width: 1,
@@ -223,7 +223,7 @@ class _TrackpadScreenState extends State<TrackpadScreen> {
               child: Row(
                 children: [
                   _btn(Icons.keyboard_alt_outlined, 'Keyboard', () {
-                    // Re-armar el diff y levantar el IME en el teléfono.
+                    // Reset the diff and bring up the IME on the phone.
                     _kbController.clear();
                     _kbLast = '';
                     _kbFocus.requestFocus();

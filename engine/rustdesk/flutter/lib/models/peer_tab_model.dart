@@ -41,7 +41,7 @@ class PeerTabModel with ChangeNotifier {
     true,
     true,
     !isWeb && bind.mainGetLocalOption(key: "disable-discovery-panel") != "Y",
-    // remotedisplay: Address Book y Group requieren cuenta/servidor de RustDesk → deshabilitadas
+    // remotedisplay: Address Book and Group need a RustDesk account/server → disabled
     false,
     false,
   ]);

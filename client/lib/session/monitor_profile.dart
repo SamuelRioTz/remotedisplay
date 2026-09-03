@@ -6,12 +6,13 @@ import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/model.dart';
 import 'package:flutter_hbb/models/platform_model.dart' show bind;
 
-/// Escalas disponibles para un monitor virtual (como Windows: 100/125/150/200).
-/// 200 % = modo HiDPI real de macOS (Retina). 125/150 se emulan como hace
-/// Apple ("looks like"): HiDPI con puntos = pixeles/escala, framebuffer 2x puntos.
+/// Available scales for a virtual monitor (like Windows: 100/125/150/200).
+/// 200% = macOS's real HiDPI mode (Retina). 125/150 are emulated the way
+/// Apple does ("looks like"): HiDPI with points = pixels/scale, framebuffer
+/// at 2x points.
 const kMonitorScales = [100, 125, 150, 200];
 
-/// Redondea un devicePixelRatio a la escala "de Windows" más cercana.
+/// Rounds a devicePixelRatio to the nearest "Windows-style" scale.
 int snapScale(double dpr) {
   final pct = (dpr * 100).round();
   var best = kMonitorScales.first;
@@ -21,15 +22,15 @@ int snapScale(double dpr) {
   return best;
 }
 
-/// Un monitor virtual en el perfil: tamaño en PIXELES equivalentes a 100 %
-/// (= pixeles de la ventana del viewer) y su escala.
+/// A virtual monitor in the profile: size in PIXELS equivalent to 100%
+/// (= the viewer window's pixels) and its scale.
 class VirtualSpec {
   final int w;
   final int h;
   final int scale;
   const VirtualSpec(this.w, this.h, this.scale);
 
-  /// Puntos que se piden al server para este spec.
+  /// Points requested from the server for this spec.
   int get pointsW => (w * 100 / scale).round();
   int get pointsH => (h * 100 / scale).round();
   bool get hidpi => scale > 100;
@@ -39,28 +40,28 @@ class VirtualSpec {
       (m['h'] as num).round(), (m['scale'] as num?)?.round() ?? 100);
 }
 
-/// Perfil de monitores de un peer macOS, guardado EN ESTE CLIENTE (por peer).
+/// Monitor profile for a macOS peer, saved ON THIS CLIENT (per peer).
 ///
-/// La idea: cada cliente (la PC, el iPad…) tiene su propia disposición de
-/// monitores virtuales para la misma Mac. Al conectar, el cliente **aplica** su
-/// perfil sobre el server (crea, borra, redimensiona y escala virtuales hasta
-/// que coincidan); si otro cliente entra después, aplica el suyo y pisa al
-/// anterior. El server mantiene los virtuales vivos entre conexiones, así que
-/// reconectar desde el mismo cliente no toca nada.
+/// The idea: each client (the PC, the iPad…) has its own layout of virtual
+/// monitors for the same Mac. On connect, the client **applies** its profile
+/// to the server (creates, deletes, resizes and scales virtuals until they
+/// match); if another client connects afterward, it applies its own and
+/// overrides the previous one. The server keeps the virtuals alive between
+/// connections, so reconnecting from the same client doesn't touch anything.
 ///
-/// Se guarda como opción de peer (`mac_monitor_profile`, JSON) y se toma una
-/// foto del estado real del server (PeerInfo) un momento después de cada acción
-/// de la toolbar.
+/// It's saved as a peer option (`mac_monitor_profile`, JSON), and a snapshot
+/// of the server's real state (PeerInfo) is taken a moment after each
+/// toolbar action.
 class MonitorProfile {
   static const optionKey = 'mac_monitor_profile';
 
-  /// Virtuales "normales" (no el del main dinámico), en orden.
+  /// "Normal" virtuals (not the dynamic main one), in order.
   final List<VirtualSpec> virtuals;
 
-  /// Main dinámico activo (físico espejado sobre un virtual principal).
+  /// Dynamic main active (physical display mirrored onto a main virtual).
   final bool dynamicMain;
 
-  /// Spec del virtual principal dinámico (si `dynamicMain`).
+  /// Spec of the dynamic main virtual (if `dynamicMain`).
   final VirtualSpec? dynamicMainSpec;
 
   const MonitorProfile({
@@ -77,7 +78,7 @@ class MonitorProfile {
       };
 
   static MonitorProfile fromJson(Map<String, dynamic> j) {
-    // v1 guardaba tamaños de display sin escala: equivalen a 100 %.
+    // v1 saved display sizes without a scale: they're equivalent to 100%.
     final dynLegacy = j['dynamicMainSize'];
     return MonitorProfile(
       virtuals: [
@@ -90,11 +91,11 @@ class MonitorProfile {
     );
   }
 
-  // ------------------------------------------------ escala por display (runtime)
+  // ------------------------------------------------ per-display scale (runtime)
 
-  // La escala elegida no es derivable solo del server (125 y 150 son ambos
-  // HiDPI): se recuerda acá por (peer, CGDirectDisplayID) y se persiste en el
-  // perfil. Sin dato: HiDPI => 200, si no 100.
+  // The chosen scale can't be derived from the server alone (125 and 150 are
+  // both HiDPI): it's remembered here by (peer, CGDirectDisplayID) and
+  // persisted in the profile. No data: HiDPI => 200, otherwise 100.
   static final Map<String, Map<int, int>> _scales = {};
 
   static int scaleOf(String peerId, PeerInfo pi, int mid) =>
@@ -103,17 +104,17 @@ class MonitorProfile {
   static void rememberScale(String peerId, int mid, int scale) =>
       (_scales[peerId] ??= {})[mid] = scale;
 
-  /// Tamaño en pixeles equivalentes a 100 % del display `i` (puntos × escala).
+  /// Size in pixels equivalent to 100% of display `i` (points × scale).
   static Size pixelSizeOf(PeerInfo pi, int i, int scale) {
     final d = pi.displays[i];
-    final sc = d.scale <= 0 ? 1.0 : d.scale; // pixeles / puntos
+    final sc = d.scale <= 0 ? 1.0 : d.scale; // pixels / points
     final ptsW = d.width / sc;
     final ptsH = d.height / sc;
     return Size((ptsW * scale / 100).roundToDouble(),
         (ptsH * scale / 100).roundToDouble());
   }
 
-  /// Foto del estado REAL del server según el PeerInfo (fuente de verdad).
+  /// Snapshot of the server's REAL state according to the PeerInfo (source of truth).
   static MonitorProfile fromPeer(String peerId, PeerInfo pi) {
     final ids = pi.macDisplayIds;
     final virt = pi.macVirtualDisplays.toSet();
@@ -144,20 +145,20 @@ class MonitorProfile {
     try {
       return fromJson(jsonDecode(raw) as Map<String, dynamic>);
     } catch (e) {
-      debugPrint('[monitor profile] perfil ilegible para $peerId: $e');
+      debugPrint('[monitor profile] unreadable profile for $peerId: $e');
       return null;
     }
   }
 
   void save(String peerId) {
     bind.mainSetPeerOption(id: peerId, key: optionKey, value: jsonEncode(toJson()));
-    debugPrint('[monitor profile] guardado $peerId: ${jsonEncode(toJson())}');
+    debugPrint('[monitor profile] saved $peerId: ${jsonEncode(toJson())}');
   }
 
   static final Map<String, Timer> _pendingSaves = {};
 
-  /// Guardar una foto del server un momento después de una acción (el server
-  /// tarda ~1 s en asentar y anunciar la nueva lista de displays).
+  /// Save a snapshot of the server a moment after an action (the server
+  /// takes ~1s to settle and announce the new display list).
   static void scheduleSave(String peerId, FFI ffi,
       {Duration delay = const Duration(milliseconds: 2500)}) {
     _pendingSaves[peerId]?.cancel();
@@ -169,7 +170,7 @@ class MonitorProfile {
     });
   }
 
-  // ------------------------------------------------------------ primitivas
+  // ------------------------------------------------------------ primitives
 
   static Future<bool> waitFor(bool Function() cond, int ms) async {
     for (var t = 0; t < ms; t += 100) {
@@ -179,8 +180,8 @@ class MonitorProfile {
     return cond();
   }
 
-  /// Pone el display virtual `mid` (fila `idx`) en la escala `scale` con el
-  /// tamaño de pixeles `px`: HiDPI on/off según la escala y luego los puntos.
+  /// Sets virtual display `mid` (row `idx`) to scale `scale` with pixel size
+  /// `px`: HiDPI on/off according to the scale and then the points.
   static Future<void> applySpec(
       String peerId, FFI ffi, int mid, VirtualSpec spec) async {
     PeerInfo pi() => ffi.ffiModel.pi;
@@ -188,9 +189,9 @@ class MonitorProfile {
     if (pi().macHiDPIDisplays.contains(mid) != wantHiDPI) {
       bind.sessionToggleVirtualDisplay(
           sessionId: ffi.sessionId, index: kMacHiDPIIndexBase + mid, on: wantHiDPI);
-      // El flag cambia enseguida; el modo tarda en asentar (y en ventanas de
-      // menos de ~1920 px el server se queda en 1x aunque el flag este on):
-      // esperar el flag y dar un margen fijo antes del resize.
+      // The flag changes right away; the mode takes time to settle (and on
+      // windows narrower than ~1920px the server stays at 1x even with the
+      // flag on): wait for the flag and give a fixed margin before the resize.
       await waitFor(() => pi().macHiDPIDisplays.contains(mid) == wantHiDPI, 6000);
       await Future.delayed(const Duration(milliseconds: 900));
     }
@@ -210,9 +211,9 @@ class MonitorProfile {
 
   static final Set<String> _applying = {};
 
-  /// Reconciliar el server con el perfil guardado de este cliente. Idempotente:
-  /// si ya coincide no manda nada. Sin perfil guardado (primera vez desde este
-  /// cliente) no toca nada.
+  /// Reconciles the server with this client's saved profile. Idempotent: if
+  /// it already matches, sends nothing. With no saved profile (first time
+  /// from this client), touches nothing.
   static Future<void> applySaved(String peerId, FFI ffi) async {
     final profile = load(peerId);
     if (profile == null) return;
@@ -221,7 +222,7 @@ class MonitorProfile {
     try {
       await profile._apply(peerId, ffi);
     } catch (e) {
-      debugPrint('[monitor profile] aplicar falló: $e');
+      debugPrint('[monitor profile] apply failed: $e');
     } finally {
       _applying.remove(peerId);
     }
@@ -229,9 +230,9 @@ class MonitorProfile {
 
   Future<void> _apply(String peerId, FFI ffi) async {
     PeerInfo pi() => ffi.ffiModel.pi;
-    debugPrint('[monitor profile] aplicando a $peerId: ${jsonEncode(toJson())}');
+    debugPrint('[monitor profile] applying to $peerId: ${jsonEncode(toJson())}');
 
-    // 1) main dinámico
+    // 1) dynamic main
     if (dynamicMain && !pi().macDynamicMainActive) {
       bind.sessionToggleVirtualDisplay(
           sessionId: ffi.sessionId, index: kMacDynamicMainIndex, on: true);
@@ -247,7 +248,7 @@ class MonitorProfile {
       await applySpec(peerId, ffi, pi().macDynamicMainId, dynamicMainSpec!);
     }
 
-    // 2) virtuales normales (sin el del main dinámico), en orden
+    // 2) normal virtuals (excluding the dynamic main one), in order
     List<int> current() {
       final p = pi();
       final virt = p.macVirtualDisplays.toSet();
@@ -257,7 +258,7 @@ class MonitorProfile {
           .toList();
     }
 
-    // sobran → borrar (los últimos primero)
+    // extra ones → delete (last ones first)
     var cur = current();
     while (cur.length > virtuals.length) {
       final mid = cur.last;
@@ -266,10 +267,10 @@ class MonitorProfile {
       await waitFor(() => !pi().macVirtualDisplays.contains(mid), 8000);
       await Future.delayed(const Duration(milliseconds: 400));
       final next = current();
-      if (next.length >= cur.length) break; // no bajó: no insistir
+      if (next.length >= cur.length) break; // didn't go down: don't retry
       cur = next;
     }
-    // faltan → crear
+    // missing ones → create
     while (cur.length < virtuals.length) {
       final before = pi().macVirtualDisplays.toSet();
       bind.sessionToggleVirtualDisplay(sessionId: ffi.sessionId, index: 0, on: true);
@@ -279,10 +280,10 @@ class MonitorProfile {
       await Future.delayed(const Duration(milliseconds: 400));
       cur = current();
     }
-    // escala + tamaño de cada uno
+    // scale + size for each one
     for (var i = 0; i < cur.length && i < virtuals.length; i++) {
       await applySpec(peerId, ffi, cur[i], virtuals[i]);
     }
-    debugPrint('[monitor profile] aplicado a $peerId');
+    debugPrint('[monitor profile] applied to $peerId');
   }
 }

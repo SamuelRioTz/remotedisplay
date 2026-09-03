@@ -3461,8 +3461,8 @@ impl Connection {
                         }
                     }
                     Some(misc::Union::ChatMessage(_c)) => {
-                        // remotedisplay: chat deshabilitado en este fork
-                        log::info!("chat ignorado (deshabilitado en remotedisplay)");
+                        // remotedisplay: chat disabled in this fork
+                        log::info!("chat message ignored (disabled in remotedisplay)");
                     }
                     Some(misc::Union::Option(o)) => {
                         if self.authed_conn_type() == Some(AuthConnType::Remote) {
@@ -4144,11 +4144,11 @@ impl Connection {
             if let Some(server) = self.server.upgrade() {
                 self.switch_display_to(display_idx, server.clone());
 
-                // remotedisplay/macOS: los displays virtuales los dimensiona el cliente
-                // explicitamente (perfil, fit, escala). El tamano que viene en el
-                // SwitchDisplay es el que el cliente TENIA cacheado (puede estar
-                // viejo o en puntos): aplicarlo aca pisaba la escala/tamano recien
-                // puestos. Se omite para nuestros virtuales.
+                // remotedisplay/macOS: virtual displays are sized explicitly by the
+                // client (profile, fit, scale). The size that comes in the
+                // SwitchDisplay message is what the client HAD cached (it can be
+                // stale or in points): applying it here would overwrite the scale/size just
+                // set. Skipped for our virtuals.
                 #[cfg(target_os = "macos")]
                 let skip_switch_resize = display_service::try_get_displays()
                     .ok()
@@ -4291,19 +4291,19 @@ impl Connection {
             } else {
                 #[cfg(windows)]
                 let res = virtual_display_manager::plug_in_monitor(t.display as _, Vec::new());
-                // remotedisplay: en macOS display = -2 es el "main dinamico" (caso 1);
-                // indices >= 0 crean un display virtual normal (caso 2).
+                // remotedisplay: on macOS display = -2 is the "dynamic main" (case 1);
+                // indices >= 0 create a normal virtual display (case 2).
                 #[cfg(target_os = "macos")]
                 let res = if t.display == virtual_display_manager::MAC_DYNAMIC_MAIN_INDEX {
                     virtual_display_manager::mac_vdisplay::dynamic_main(true, 0, 0)
                 } else if t.display >= virtual_display_manager::MAC_HIDPI_INDEX_BASE {
-                    // escala: HiDPI on para el virtual con ese ID
+                    // scale: turn HiDPI on for the virtual with that ID
                     virtual_display_manager::mac_vdisplay::set_hidpi(
                         (t.display - virtual_display_manager::MAC_HIDPI_INDEX_BASE) as u32,
                         true,
                     )
                 } else if t.display >= virtual_display_manager::MAC_RAW_DISPLAY_ID_BASE {
-                    // prender un display concreto (fisico apagado) por su ID
+                    // turn on a specific display (a turned-off physical) by its ID
                     virtual_display_manager::mac_vdisplay::set_display_enabled(
                         (t.display - virtual_display_manager::MAC_RAW_DISPLAY_ID_BASE) as u32,
                         true,
@@ -4367,8 +4367,8 @@ impl Connection {
                     if virtual_display_manager::amyuni_idd::is_my_display(&name) {
                         record_changed = false;
                     }
-                    // remotedisplay: displays virtuales macOS — resize exacto en caliente
-                    // (applySettings in-place), sin pasar por la lista de modos.
+                    // remotedisplay: macOS virtual displays — exact hot resize
+                    // (applySettings in-place), without going through the mode list.
                     #[cfg(target_os = "macos")]
                     if let Some(_ok) =
                         virtual_display_manager::mac_vdisplay::change_resolution_if_is_virtual_display(
@@ -5901,7 +5901,7 @@ async fn start_ipc(
         let mut args = vec!["--cm"];
         #[cfg(all(target_os = "macos", not(feature = "flutter")))]
         {
-            // remotedisplay: sin UI sciter, usar CM headless
+            // remotedisplay: no sciter UI, use the headless CM
             args = vec!["--cm-no-ui"];
         }
         #[allow(unused_mut)]
@@ -6687,10 +6687,10 @@ mod raii {
                 }
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 display_service::restore_resolutions();
-                // Windows (IDD): los virtuales se destruyen al irse el ultimo cliente.
-                // remotedisplay/macOS: NO — los monitores virtuales y el main dinamico
-                // persisten mientras corra el server, para que la proxima conexion
-                // los encuentre tal cual (pedido del user, 2026-09-02).
+                // Windows (IDD): virtuals are destroyed when the last client leaves.
+                // remotedisplay/macOS: NOT so — the virtual monitors and the dynamic main
+                // persist while the server keeps running, so the next connection
+                // finds them just as they were (requested by the user, 2026-09-02).
                 #[cfg(windows)]
                 let _ = virtual_display_manager::reset_all();
                 #[cfg(target_os = "linux")]

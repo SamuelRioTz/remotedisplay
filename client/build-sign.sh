@@ -1,7 +1,7 @@
 #!/bin/bash
-# Compila y FIRMA el cliente. La firma --deep + disable-library-validation es
-# OBLIGATORIA: sin ella el .app crashea al abrir con "Library not loaded:
-# FlutterMacOS.framework" (validacion de libreria de macOS).
+# Builds and SIGNS the client. The --deep + disable-library-validation
+# signing is MANDATORY: without it the .app crashes on launch with "Library
+# not loaded: FlutterMacOS.framework" (macOS library validation).
 set -e
 export PATH="$HOME/flutter/bin:$PATH"   # Flutter 3.24.5
 cd "$(dirname "$0")"
@@ -10,4 +10,4 @@ APP=build/macos/Build/Products/Release/RemoteDisplay.app
 codesign --force --deep --options runtime \
   --entitlements macos/Runner/Release.entitlements --sign - "$APP"
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
-echo "OK -> $APP  (cp -R a /Applications para instalar)"
+echo "OK -> $APP  (cp -R to /Applications to install)"

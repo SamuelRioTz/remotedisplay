@@ -1,6 +1,6 @@
-# Trae por scp los artefactos que produjo tools/release-mac.sh en el Mac y los sube
-# al GitHub Release del repo (el Mac no tiene gh; acá sí, autenticado).
-# Uso:  powershell -ExecutionPolicy Bypass -File tools/release-fetch-mac.ps1 [-Tag v0.1.0]
+# Fetches via scp the artifacts that tools/release-mac.sh produced on the Mac and uploads
+# them to the repo's GitHub Release (the Mac doesn't have gh; this machine does, authenticated).
+# Usage:  powershell -ExecutionPolicy Bypass -File tools/release-fetch-mac.ps1 [-Tag v0.1.0]
 param([string]$Tag = '')
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path (Split-Path -Parent $PSCommandPath) '..')
@@ -10,8 +10,8 @@ $version = ((Get-Content (Join-Path $root 'client\pubspec.yaml') | Select-String
 if (-not $Tag) { $Tag = "v$version" }
 $remote = "$($cfg.sshUser)@$($cfg.macHost)"
 $files = ssh -o BatchMode=yes $remote "ls ~/workspace/remotedisplay/release/out/RemoteDisplay-*$version* 2>/dev/null"
-if (-not $files) { throw "No hay artefactos $version en el Mac (correr tools/release-mac.sh alla)" }
-foreach ($f in $files) { scp -o BatchMode=yes "${remote}:$f" $out; Write-Host "traido: $(Split-Path $f -Leaf)" }
+if (-not $files) { throw "No $version artifacts on the Mac (run tools/release-mac.sh there)" }
+foreach ($f in $files) { scp -o BatchMode=yes "${remote}:$f" $out; Write-Host "fetched: $(Split-Path $f -Leaf)" }
 Push-Location $root
 $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
 gh release view $Tag *> $null; $exists = ($LASTEXITCODE -eq 0); $ErrorActionPreference = $prev
@@ -19,4 +19,4 @@ if (-not $exists) { gh release create $Tag --title "Remote Display $version" --n
 $local = $files | ForEach-Object { Join-Path $out (Split-Path $_ -Leaf) }
 gh release upload $Tag @local --clobber
 Pop-Location
-Write-Host "subido a GitHub Releases ($Tag)"
+Write-Host "uploaded to GitHub Releases ($Tag)"

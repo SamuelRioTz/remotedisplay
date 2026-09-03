@@ -790,9 +790,9 @@ class OverlayDialogManager {
   var _overlayKeyState = OverlayKeyState();
   int _tagCount = 0;
 
-  /// remotedisplay: nº de diálogos visibles, observable — la sesión móvil lo usa
-  /// para MOSTRAR el puntero local sobre los popups aunque esté oculto sobre
-  /// el canvas remoto (parche 09).
+  /// remotedisplay: number of visible dialogs, observable — the mobile session uses it
+  /// to SHOW the local pointer over popups even while it's hidden over
+  /// the remote canvas (patch 09).
   final RxInt visibleDialogCount = 0.obs;
 
   OverlayEntry? _mobileActionsOverlayEntry;

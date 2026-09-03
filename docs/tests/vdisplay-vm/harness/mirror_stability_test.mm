@@ -1,5 +1,5 @@
-// ¿Crear un virtual (y redimensionarlo) mientras el main dinamico esta activo rompe
-// el espejo del fisico? Se mide con un proceso NUEVO (/tmp/dispinfo2) = verdad.
+// Does creating a virtual (and resizing it) while the dynamic main is active break
+// the physical's mirror? Measured with a NEW process (/tmp/dispinfo2) = ground truth.
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #include <CoreGraphics/CoreGraphics.h>
@@ -14,9 +14,9 @@ static void truth(const char *tag) { printf("--- %s\n", tag); fflush(stdout); sy
 int main() { @autoreleasepool {
     [NSApplication sharedApplication]; [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited]; [NSApp finishLaunching];
     MacDynamicMainOn(1284, 702, false); pump(3); truth("dyn-main ON");
-    uint32_t b = MacCreateVirtualDisplay(1920, 1080, 60, false, "RD B"); pump(2); truth("tras crear B (+2s)");
-    MacResizeVirtualDisplay(b, 1284, 702); pump(2); truth("tras resize B (+2s)");
-    pump(5); truth("+5s mas");
-    MacDestroyVirtualDisplay(b); MacDynamicMainOff(); pump(3); truth("fin");
+    uint32_t b = MacCreateVirtualDisplay(1920, 1080, 60, false, "RD B"); pump(2); truth("after creating B (+2s)");
+    MacResizeVirtualDisplay(b, 1284, 702); pump(2); truth("after resizing B (+2s)");
+    pump(5); truth("+5s more");
+    MacDestroyVirtualDisplay(b); MacDynamicMainOff(); pump(3); truth("end");
     return 0;
 } }

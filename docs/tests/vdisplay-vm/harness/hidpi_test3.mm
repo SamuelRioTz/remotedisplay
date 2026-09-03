@@ -1,6 +1,6 @@
-// Seleccion EXPLICITA del modo Retina (pts WxH, px 2Wx2H) tras applySettings,
-// con CGConfigureDisplayWithDisplayMode + kCGConfigureForAppOnly. ¿Persiste tras
-// un resize? ¿Deja fantasma al destruir?
+// EXPLICIT selection of the Retina mode (pts WxH, px 2Wx2H) after applySettings,
+// using CGConfigureDisplayWithDisplayMode + kCGConfigureForAppOnly. Does it persist through
+// a resize? Does it leave a ghost on destroy?
 #import <Foundation/Foundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <unistd.h>
@@ -24,17 +24,17 @@ static bool selectRetina(uint32_t id, uint32_t w, uint32_t h, CGConfigureOption 
     if (want) { CGDisplayConfigRef c; if (CGBeginDisplayConfiguration(&c) == kCGErrorSuccess) {
         CGConfigureDisplayWithDisplayMode(c, id, want, NULL);
         ok = CGCompleteDisplayConfiguration(c, opt) == kCGErrorSuccess; if (!ok) CGCancelDisplayConfiguration(c); } }
-    else printf("  (no hay variante retina %ux%u)\n", w, h);
+    else printf("  (no retina variant %ux%u)\n", w, h);
     CFRelease(all); return ok;
 }
-static void active(const char *tag) { uint32_t n=0; CGDirectDisplayID ids[16]; CGGetActiveDisplayList(16, ids, &n); printf("%-34s activos=%u:", tag, n); for (uint32_t i=0;i<n;i++) printf(" %u", ids[i]); printf("\n"); }
+static void active(const char *tag) { uint32_t n=0; CGDirectDisplayID ids[16]; CGGetActiveDisplayList(16, ids, &n); printf("%-34s active=%u:", tag, n); for (uint32_t i=0;i<n;i++) printf(" %u", ids[i]); printf("\n"); }
 int main() { @autoreleasepool {
-    active("inicio");
+    active("start");
     uint32_t a = MacCreateVirtualDisplay(642, 351, 60, true, "RD retina");
-    sleep(3); info("creado hidpi=1 642x351", a);
-    printf("selectRetina(642x351, AppOnly) -> %d\n", selectRetina(a, 642, 351, kCGConfigureForAppOnly)); sleep(3); info("tras seleccionar retina", a);
+    sleep(3); info("created hidpi=1 642x351", a);
+    printf("selectRetina(642x351, AppOnly) -> %d\n", selectRetina(a, 642, 351, kCGConfigureForAppOnly)); sleep(3); info("after selecting retina", a);
     MacResizeVirtualDisplay(a, 800, 450); sleep(3); info("resize 800x450 (applySettings)", a);
-    printf("selectRetina(800x450, AppOnly) -> %d\n", selectRetina(a, 800, 450, kCGConfigureForAppOnly)); sleep(3); info("tras seleccionar retina 2", a);
-    MacDestroyVirtualDisplay(a); sleep(10); active("tras destruir A +10s (fantasma?)");
+    printf("selectRetina(800x450, AppOnly) -> %d\n", selectRetina(a, 800, 450, kCGConfigureForAppOnly)); sleep(3); info("after selecting retina 2", a);
+    MacDestroyVirtualDisplay(a); sleep(10); active("after destroying A +10s (ghost?)");
     return 0;
 } }

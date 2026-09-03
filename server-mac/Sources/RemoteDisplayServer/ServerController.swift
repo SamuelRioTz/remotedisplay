@@ -3,15 +3,15 @@ import Foundation
 import Observation
 import ServiceManagement
 
-/// Controla el motor de Remote Display (`remotedisplayd`) corriéndolo como PROCESO
-/// INDEPENDIENTE vía LaunchAgent — NO como hijo de esta app.
+/// Controls the Remote Display engine (`remotedisplayd`), running it as an INDEPENDENT
+/// PROCESS via LaunchAgent — NOT as a child of this app.
 ///
-/// Por qué LaunchAgent y no proceso hijo: cuando el motor corre como hijo de la
-/// app, macOS NO le permite inyectar eventos (CGEventPost) aunque AXIsProcessTrusted
-/// diga true (el "responsible process" del hijo rompe la atribución TCC para
-/// inyección). Como proceso independiente, el motor es su propio sujeto TCC con la
-/// identidad `app.remotedisplay.server` (la misma que la app, firmada con cert estable)
-/// → un solo permiso que además SÍ funciona para controlar.
+/// Why LaunchAgent and not a child process: when the engine runs as a child of the
+/// app, macOS does NOT let it inject events (CGEventPost) even if AXIsProcessTrusted
+/// says true (the child's "responsible process" breaks TCC attribution for
+/// injection). As an independent process, the engine is its own TCC subject with the
+/// `app.remotedisplay.server` identity (the same as the app, signed with a stable cert)
+/// → a single permission that ALSO actually works for control.
 @Observable
 final class ServerController {
     static let agentLabel = "app.remotedisplay.server"
@@ -24,16 +24,16 @@ final class ServerController {
     var lanIP: String?
     var tailscaleIP: String?
     var lastError: String?
-    /// Peers conectados ahora ("ip:puerto" remoto), vía lsof del motor.
+    /// Peers currently connected ("ip:port" remote), via the engine's lsof.
     var sessions: [String] = []
-    /// Hay contraseña permanente definida (RemoteDisplay.toml → password no vacío).
+    /// Whether a permanent password is set (RemoteDisplay.toml → password not empty).
     var passwordSet = false
     var engineVersion = "—"
-    /// Motivo por el que el motor NO puede ejecutarse en este Mac (arquitectura,
-    /// permisos de archivo, binario ausente). Mientras no sea nil, nada funciona.
+    /// Reason the engine CANNOT run on this Mac (architecture,
+    /// file permissions, missing binary). While not nil, nothing works.
     var engineProblem: String?
-    /// La app corre desde App Translocation (copiada sin el Finder / abierta desde
-    /// el DMG): la ruta del bundle es temporal y el LaunchAgent dejará de arrancar.
+    /// The app is running from App Translocation (copied without the Finder / opened
+    /// straight from the DMG): the bundle path is temporary and the LaunchAgent will stop starting.
     var translocated: Bool { Bundle.main.bundlePath.contains("/AppTranslocation/") }
 
     var isReady: Bool { serviceRunning && screenOK && accessibilityOK }
@@ -51,9 +51,9 @@ final class ServerController {
     }
 
     private var timer: Timer?
-    /// Estado deseado por el usuario (persistido): si el motor muere o no
-    /// arrancó (sin KeepAlive en el LaunchAgent, a propósito), la app lo
-    /// vuelve a levantar; si el usuario lo apagó, no.
+    /// User-desired state (persisted): if the engine dies or fails to
+    /// start (no KeepAlive on the LaunchAgent, on purpose), the app brings
+    /// it back up; if the user turned it off, it doesn't.
     private var serviceDesired: Bool {
         get { UserDefaults.standard.object(forKey: "serviceDesired") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "serviceDesired") }
@@ -91,7 +91,7 @@ final class ServerController {
     verification-method = 'use-permanent-password'
     """
 
-    // MARK: - Ciclo de vida
+    // MARK: - Lifecycle
 
     func start() {
         engineProblem = Self.checkEngine(at: enginePath)
@@ -109,8 +109,8 @@ final class ServerController {
         }
     }
 
-    /// Si el usuario quiere el servicio activo y el motor no está, relanzarlo
-    /// (con un mínimo de 10 s entre intentos).
+    /// If the user wants the service active and the engine isn't up, relaunch it
+    /// (with a minimum of 10 s between attempts).
     private func ensureDesiredState() {
         guard serviceDesired, !serviceRunning, !firstRefresh else { return }
         guard Date().timeIntervalSince(lastAutoStart) > 10 else { return }
@@ -132,10 +132,10 @@ final class ServerController {
             screenOK = Permissions.screenRecording()
             accessibilityOK = Permissions.accessibility()
         }
-        // TCC cachea Screen Recording por proceso: ni el motor que ya corre ni esta
-        // app ven un permiso recién concedido. Mientras falte algo, preguntar a un
-        // proceso FRESCO (`remotedisplayd --check-perms`); si ya está concedido,
-        // reiniciar el motor para que lo tome y mostrar la verdad ya mismo.
+        // TCC caches Screen Recording per process: neither the already-running engine
+        // nor this app sees a permission just granted. While something's missing, ask a
+        // FRESH process (`remotedisplayd --check-perms`); if it's already granted,
+        // restart the engine so it picks it up and show the truth right away.
         if serviceRunning && (!screenOK || !accessibilityOK), let fresh = probePerms() {
             let newlyGranted = (fresh.screen && !screenOK) || (fresh.accessibility && !accessibilityOK)
             if newlyGranted {
@@ -151,8 +151,8 @@ final class ServerController {
         passwordSet = readPasswordSet()
         sessions = serviceRunning ? readSessions() : []
 
-        // Si un permiso pasó de NO a SÍ, reiniciar el motor para que arranque con
-        // el permiso ya efectivo.
+        // If a permission flipped from NO to YES, restart the engine so it starts with
+        // the permission already in effect.
         let justGranted = (accessibilityOK && !prevAccessibility) || (screenOK && !prevScreen)
         prevScreen = screenOK
         prevAccessibility = accessibilityOK
@@ -177,13 +177,13 @@ final class ServerController {
         return out.split(separator: "\n").compactMap { Int32($0.trimmingCharacters(in: .whitespaces)) }.first
     }
 
-    /// Conexiones TCP establecidas del motor en el puerto del servicio → peers.
+    /// Established TCP connections of the engine on the service port → peers.
     private func readSessions() -> [String] {
         guard let pid = enginePid() else { return [] }
         let out = run("/usr/sbin/lsof", ["-nP", "-a", "-p", "\(pid)", "-iTCP", "-sTCP:ESTABLISHED", "-F", "n"])
         var peers: [String] = []
         for line in out.split(separator: "\n") where line.hasPrefix("n") {
-            // n[::ffff:192.168.1.117]:21118->[::ffff:192.168.1.245]:37911  ó  n192.168.1.117:21118->192.168.1.245:37911
+            // n[::ffff:192.168.1.117]:21118->[::ffff:192.168.1.245]:37911  or  n192.168.1.117:21118->192.168.1.245:37911
             let s = String(line.dropFirst())
             guard let arrow = s.range(of: "->") else { continue }
             let local = s[..<arrow.lowerBound]
@@ -195,7 +195,7 @@ final class ServerController {
         return peers
     }
 
-    /// `password = '...'` no vacío en RemoteDisplay.toml (el motor lo guarda cifrado).
+    /// `password = '...'` non-empty in RemoteDisplay.toml (the engine stores it encrypted).
     private func readPasswordSet() -> Bool {
         guard let s = try? String(contentsOfFile: mainConfigPath, encoding: .utf8) else { return false }
         for line in s.split(separator: "\n") {
@@ -208,7 +208,7 @@ final class ServerController {
         return false
     }
 
-    /// Permisos vistos por un proceso nuevo del motor (`--check-perms`).
+    /// Permissions as seen by a fresh engine process (`--check-perms`).
     private func probePerms() -> (screen: Bool, accessibility: Bool)? {
         let out = run(enginePath, ["--check-perms"])
         guard let data = out.data(using: .utf8),
@@ -222,27 +222,27 @@ final class ServerController {
         return out.isEmpty ? "—" : out
     }
 
-    /// Ejecuta y devuelve stdout (síncrono, procesos cortos). Nunca bloquea más de
-    /// unos segundos: si el proceso no arranca o no termina, devuelve "".
+    /// Runs and returns stdout (synchronous, short-lived processes). Never blocks more
+    /// than a few seconds: if the process doesn't start or doesn't finish, returns "".
     private func run(_ path: String, _ args: [String]) -> String {
         Self.runProcess(path, args, timeout: 5).output
     }
 
-    /// Resultado de un proceso corto.
+    /// Result of a short-lived process.
     struct ProcessResult {
         var output = ""
-        /// Código de salida; nil si no llegó a ejecutarse o no terminó a tiempo.
+        /// Exit code; nil if it never ran or didn't finish in time.
         var status: Int32?
-        /// Motivo legible cuando no se pudo ejecutar o completar.
+        /// Human-readable reason when it couldn't run or complete.
         var failure: String?
     }
 
-    /// Ejecuta un proceso con timeout. Lee stdout (y stderr si `mergeStderr`) en un
-    /// hilo aparte ANTES de esperar la salida: esperar primero deja el pipe sin
-    /// lector (deadlock si el hijo escribe mucho) y, si `run()` falla, leer hasta EOF
-    /// no termina nunca porque nadie cierra el extremo de escritura — exactamente el
-    /// cuelgue de "Saving…" que se veía al fijar la contraseña con un motor que no
-    /// puede ejecutarse (p. ej. binario arm64 en un Mac Intel).
+    /// Runs a process with a timeout. Reads stdout (and stderr if `mergeStderr`) on a
+    /// separate thread BEFORE waiting for exit: waiting first leaves the pipe with no
+    /// reader (deadlock if the child writes a lot), and if `run()` fails, reading until EOF
+    /// never finishes because nobody closes the write end — exactly the
+    /// "Saving…" hang seen when setting the password with an engine that
+    /// can't run (e.g. an arm64 binary on an Intel Mac).
     static func runProcess(_ path: String, _ args: [String], timeout: TimeInterval, mergeStderr: Bool = false) -> ProcessResult {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
@@ -283,8 +283,8 @@ final class ServerController {
         return "Could not start \(name): \(error.localizedDescription)"
     }
 
-    /// nil si el binario del motor existe, es ejecutable y contiene la arquitectura
-    /// de este Mac; si no, el motivo. Lee la cabecera Mach-O (thin o fat).
+    /// nil if the engine binary exists, is executable, and contains this Mac's
+    /// architecture; otherwise, the reason. Reads the Mach-O header (thin or fat).
     static func checkEngine(at path: String) -> String? {
         let name = URL(fileURLWithPath: path).lastPathComponent
         guard FileManager.default.fileExists(atPath: path) else {
@@ -321,7 +321,7 @@ final class ServerController {
         return "The engine (\(name)) is built for another CPU architecture."
     }
 
-    /// Corta todas las sesiones reiniciando el motor (los clientes reconectan a mano).
+    /// Cuts all sessions by restarting the engine (clients reconnect manually).
     func disconnectAll() {
         restartEngine()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.refresh() }
@@ -336,7 +336,7 @@ final class ServerController {
         NSWorkspace.shared.selectFile(configPath, inFileViewerRootedAtPath: configDir)
     }
 
-    // MARK: - Servicio (LaunchAgent)
+    // MARK: - Service (LaunchAgent)
 
     func setServiceEnabled(_ on: Bool) {
         serviceDesired = on
@@ -347,8 +347,8 @@ final class ServerController {
             }
             ensureConfig()
             writeAgentPlist()
-            // Evitar doble-bind del puerto 21118 / socket IPC con la ruta headless
-            // legacy (install-host.sh, label app.remotedisplay.engine).
+            // Avoid a double bind of port 21118 / the IPC socket with the legacy
+            // headless path (install-host.sh, label app.remotedisplay.engine).
             runLaunchctl(["bootout", "\(guiDomain)/app.remotedisplay.engine"])
             runLaunchctl(["bootout", "\(guiDomain)/\(Self.agentLabel)"])
             let rc = runLaunchctl(["bootstrap", guiDomain, agentPlistPath])
@@ -415,7 +415,7 @@ final class ServerController {
         return p.terminationStatus
     }
 
-    // MARK: - Permisos (abrir paneles / disparar prompts desde la app)
+    // MARK: - Permissions (open panels / trigger prompts from the app)
 
     func grantScreenRecording() {
         NSLog("[remotedisplay] grantScreenRecording tapped")
@@ -429,7 +429,7 @@ final class ServerController {
         Permissions.openAccessibilitySettings()
     }
 
-    // MARK: - Abrir al iniciar sesión
+    // MARK: - Open at login
 
     func setLaunchAtLogin(_ on: Bool) {
         do {
@@ -441,11 +441,11 @@ final class ServerController {
         refresh()
     }
 
-    // MARK: - Contraseña
+    // MARK: - Password
 
-    /// Fija la contraseña permanente. `--set-lan-password` habla por IPC con el motor
-    /// en ejecución, así que exige el servicio encendido. Nunca deja la UI esperando:
-    /// falla con un mensaje claro si el motor no arranca o no responde.
+    /// Sets the permanent password. `--set-lan-password` talks IPC to the running
+    /// engine, so it requires the service to be on. Never leaves the UI hanging:
+    /// fails with a clear message if the engine doesn't start or doesn't respond.
     func changePassword(_ password: String, completion: @escaping (Bool, String) -> Void) {
         if let problem = engineProblem {
             completion(false, problem)

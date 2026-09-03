@@ -18,20 +18,20 @@ const IDD_IMPL_AMYUNI: &str = "amyuni_idd";
 #[cfg(windows)]
 const IDD_PLUG_OUT_ALL_INDEX: i32 = -1;
 
-// remotedisplay: indice centinela de ToggleVirtualDisplay para el "main dinamico"
-// de macOS (caso 1): el fisico principal se espeja sobre un display virtual
-// redimensionable en caliente. No colisiona con indices reales (>= 0) ni con
-// el plug-out-all de Windows (-1).
+// remotedisplay: sentinel index of ToggleVirtualDisplay for macOS's "dynamic main"
+// (case 1): the main physical mirrors a virtual display that can be
+// resized on the fly. Doesn't collide with real indices (>= 0) or with
+// Windows's plug-out-all (-1).
 pub const MAC_DYNAMIC_MAIN_INDEX: i32 = -2;
 
-// remotedisplay: indices >= 1000 de ToggleVirtualDisplay refieren a un display
-// concreto por su CGDirectDisplayID (id = indice - 1000): prender/apagar un
-// monitor fisico, o destruir un virtual puntual. Los IDs reales de macOS son
-// numeros chicos (1, 2, 3...), no colisionan con la base.
+// remotedisplay: ToggleVirtualDisplay indices >= 1000 refer to a specific
+// display by its CGDirectDisplayID (id = index - 1000): turn a physical
+// monitor on/off, or destroy a specific virtual. macOS's real IDs are
+// small numbers (1, 2, 3...), so they don't collide with the base.
 pub const MAC_RAW_DISPLAY_ID_BASE: i32 = 1000;
-/// remotedisplay/macOS: indices >= este valor en ToggleVirtualDisplay = prender (on)
-/// o apagar (off) el modo HiDPI del display virtual con CGDirectDisplayID =
-/// indice - base. Bien por encima de los IDs reales (MAC_RAW_DISPLAY_ID_BASE).
+/// remotedisplay/macOS: indices >= this value in ToggleVirtualDisplay = turn on
+/// or off the HiDPI mode of the virtual display with CGDirectDisplayID =
+/// index - base. Well above the real IDs (MAC_RAW_DISPLAY_ID_BASE).
 pub const MAC_HIDPI_INDEX_BASE: i32 = 1_000_000;
 
 pub fn is_amyuni_idd() -> bool {
@@ -86,8 +86,8 @@ pub fn get_platform_additions() -> serde_json::Map<String, serde_json::Value> {
     if !mac_vdisplay::is_supported() {
         return map;
     }
-    // La presencia de la clave (aunque la lista este vacia) le dice al cliente
-    // que este host macOS soporta displays virtuales.
+    // The key's presence (even with an empty list) tells the client
+    // that this macOS host supports virtual displays.
     map.insert(
         "mac_virtual_displays".into(),
         serde_json::json!(mac_vdisplay::get_virtual_displays()),
@@ -96,25 +96,25 @@ pub fn get_platform_additions() -> serde_json::Map<String, serde_json::Value> {
         "mac_dynamic_main".into(),
         serde_json::json!(mac_vdisplay::is_dynamic_main_active()),
     );
-    // CGDirectDisplayID del virtual del main dinamico (0 si no hay): el cliente
-    // lo distingue de los virtuales "normales" para guardar/aplicar su perfil.
+    // CGDirectDisplayID of the dynamic main's virtual (0 if none): the client
+    // distinguishes it from "normal" virtuals to save/apply its profile.
     map.insert(
         "mac_dynamic_main_id".into(),
         serde_json::json!(mac_vdisplay::dynamic_main_virtual_id()),
     );
-    // IDs de los displays activos, en el MISMO orden que la lista de displays
-    // del peer info (ambos salen de CGGetActiveDisplayList): el cliente mapea
-    // fila <-> CGDirectDisplayID con esto.
+    // IDs of the active displays, in the SAME order as the peer info's
+    // display list (both come from CGGetActiveDisplayList): the client maps
+    // row <-> CGDirectDisplayID using this.
     map.insert(
         "mac_display_ids".into(),
         serde_json::json!(mac_vdisplay::get_active_display_ids()),
     );
-    // Virtuales en HiDPI (escala > 100 %), para mostrar/decidir la escala.
+    // Virtuals in HiDPI (scale > 100 %), to show/decide the scale.
     map.insert(
         "mac_hidpi_displays".into(),
         serde_json::json!(mac_vdisplay::get_hidpi_virtual_displays()),
     );
-    // Fisicos apagados (espejados): el cliente los lista con su toggle en off.
+    // Physicals turned off (mirrored): the client lists them with their toggle off.
     map.insert(
         "mac_physical_off".into(),
         serde_json::json!(mac_vdisplay::get_inactive_physical_displays()),
@@ -228,11 +228,11 @@ pub fn reset_all() -> ResultType<()> {
     mac_vdisplay::reset_all()
 }
 
-// ==================== remotedisplay: backend macOS (CGVirtualDisplay) ====================
+// ==================== remotedisplay: macOS backend (CGVirtualDisplay) ====================
 //
-// Espejo del patron rustdesk_idd/amyuni_idd para macOS. El trabajo real vive en
-// src/platform/macos.mm (seccion "displays virtuales"); esto es el pegamento FFI.
-// Dimensiones en PUNTOS, la misma convencion que MacGetModes/MacSetMode.
+// Mirrors the rustdesk_idd/amyuni_idd pattern for macOS. The real work lives in
+// src/platform/macos.mm (the "virtual displays" section); this is the FFI glue.
+// Dimensions in POINTS, the same convention as MacGetModes/MacSetMode.
 #[cfg(target_os = "macos")]
 pub mod mac_vdisplay {
     use hbb_common::{bail, log, ResultType};
@@ -277,7 +277,7 @@ pub mod mac_vdisplay {
         ids[..n as usize].to_vec()
     }
 
-    /// Virtuales nuestros que estan en modo HiDPI (escala > 100 %).
+    /// Our virtuals that are in HiDPI mode (scale > 100 %).
     pub fn get_hidpi_virtual_displays() -> Vec<u32> {
         get_virtual_displays()
             .into_iter()
@@ -285,7 +285,7 @@ pub mod mac_vdisplay {
             .collect()
     }
 
-    /// Prende/apaga HiDPI de un virtual (re-aplica el modo actual en puntos).
+    /// Turns HiDPI on/off for a virtual (re-applies the current mode in points).
     pub fn set_hidpi(id: u32, on: bool) -> ResultType<()> {
         if unsafe { !MacIsOurVirtualDisplay(id) } {
             bail!("Display {id} is not a Remote Display virtual display");
@@ -298,7 +298,7 @@ pub mod mac_vdisplay {
 
     #[inline]
     pub fn is_virtual_display(name: &str) -> bool {
-        // En macOS display.name() es el CGDirectDisplayID como string.
+        // On macOS display.name() is the CGDirectDisplayID as a string.
         name.parse::<u32>()
             .map(|id| unsafe { MacIsOurVirtualDisplay(id) })
             .unwrap_or(false)
@@ -330,13 +330,13 @@ pub mod mac_vdisplay {
             return set_display_enabled((index - super::MAC_RAW_DISPLAY_ID_BASE) as u32, false);
         }
         if index < 0 {
-            // -1 = todos (convencion de Windows) — tambien apaga el main dinamico.
+            // -1 = all (Windows convention) — also turns off the dynamic main.
             let _ = dynamic_main(false, 0, 0);
             unsafe { MacDestroyAllVirtualDisplays() };
             return Ok(());
         }
-        // El "indice" que manda el cliente es la posicion en la lista de nuestros
-        // displays virtuales; si no matchea, probar como CGDirectDisplayID crudo.
+        // The "index" the client sends is the position in our list of virtual
+        // displays; if it doesn't match, try it as a raw CGDirectDisplayID.
         let displays = get_virtual_displays();
         let id = displays
             .get(index as usize)
@@ -348,8 +348,8 @@ pub mod mac_vdisplay {
         Ok(())
     }
 
-    /// Resize en caliente si `name` es uno de nuestros displays virtuales.
-    /// Devuelve Some(true/false) si lo era (exito/fallo), None si no lo era.
+    /// Hot resize if `name` is one of our virtual displays.
+    /// Returns Some(true/false) if it was one (success/failure), None if it wasn't.
     pub fn change_resolution_if_is_virtual_display(name: &str, w: u32, h: u32) -> Option<bool> {
         let id = name.parse::<u32>().ok()?;
         if unsafe { !MacIsOurVirtualDisplay(id) } {
@@ -372,8 +372,8 @@ pub mod mac_vdisplay {
         unsafe { MacDynamicMainVirtualID() }
     }
 
-    /// Caso 1: prende/apaga el "main dinamico" (fisico espejado sobre un virtual).
-    /// Con on=true y width/height en 0 usa el tamano por defecto.
+    /// Case 1: turns the "dynamic main" (physical mirrored onto a virtual) on/off.
+    /// With on=true and width/height at 0, uses the default size.
     pub fn dynamic_main(on: bool, width: u32, height: u32) -> ResultType<()> {
         if on {
             let w = if width == 0 { DEFAULT_WIDTH } else { width };
@@ -391,7 +391,7 @@ pub mod mac_vdisplay {
 
     pub fn reset_all() -> ResultType<()> {
         let _ = dynamic_main(false, 0, 0);
-        // Prender de vuelta cualquier fisico que haya quedado apagado.
+        // Turn back on any physical that was left off.
         for id in get_inactive_physical_displays() {
             unsafe { MacSetPhysicalDisplayEnabled(id, true) };
         }
@@ -411,10 +411,10 @@ pub mod mac_vdisplay {
         ids[..n as usize].to_vec()
     }
 
-    /// Prende/apaga un display concreto por CGDirectDisplayID (indices >= 1000
-    /// de ToggleVirtualDisplay). Un virtual nuestro con on=false se destruye;
-    /// un fisico se apaga espejandolo sobre el principal (o se prende
-    /// quitandole el espejo).
+    /// Turns a specific display on/off by CGDirectDisplayID (ToggleVirtualDisplay
+    /// indices >= 1000). One of our virtuals with on=false gets destroyed;
+    /// a physical is turned off by mirroring it onto the main (or turned on
+    /// by removing its mirror).
     pub fn set_display_enabled(id: u32, on: bool) -> ResultType<()> {
         if unsafe { MacIsOurVirtualDisplay(id) } {
             if !on {

@@ -215,10 +215,10 @@ fn check_get_displays_changed_msg() -> Option<Message> {
     get_displays_msg()
 }
 
-/// remotedisplay: tras crear/borrar/redimensionar un display virtual (macOS) el
-/// anuncio automatico de la lista de displays a veces no llega (el video service
-/// se reinicia en el medio). Forzar un re-anuncio (con platform_additions) un
-/// poco despues, dos veces, es barato e idempotente para el cliente.
+/// remotedisplay: after creating/deleting/resizing a virtual display (macOS) the
+/// automatic display-list announcement sometimes doesn't arrive (the video service
+/// restarts in the middle). Forcing a re-announcement (with platform_additions) a
+/// bit later, twice, is cheap and idempotent for the client.
 pub fn force_displays_resync() {
     std::thread::spawn(|| {
         for delay_ms in [600u64, 2000u64] {
@@ -280,8 +280,8 @@ pub(super) fn get_original_resolution(
     #[cfg(windows)]
     let is_rustdesk_virtual_display =
         crate::virtual_display_manager::rustdesk_idd::is_virtual_display(&display_name);
-    // remotedisplay: nuestros CGVirtualDisplay tambien reportan resolucion "virtual"
-    // (original 0x0) para que el cliente habilite resoluciones arbitrarias.
+    // remotedisplay: our CGVirtualDisplay also reports a "virtual" resolution
+    // (original 0x0) so the client enables arbitrary resolutions.
     #[cfg(target_os = "macos")]
     let is_rustdesk_virtual_display =
         crate::virtual_display_manager::mac_vdisplay::is_virtual_display(&display_name);

@@ -3,10 +3,10 @@ package com.carriez.flutter_hbb
 import io.flutter.embedding.android.FlutterActivity
 
 /**
- * remotedisplay: pantalla del telefono como trackpad + teclado mientras la
- * sesion corre en el monitor externo (modo escritorio de Android). Segundo
- * engine Flutter del mismo proceso; el dart bifurca por la ruta "/trackpad"
- * (ver client/lib/main.dart) y manda el input a la sesion por FFI.
+ * remotedisplay: phone screen as trackpad + keyboard while the session runs
+ * on the external monitor (Android desktop mode). Second Flutter engine of
+ * the same process; Dart branches on the "/trackpad" route (see
+ * client/lib/main.dart) and sends input to the session via FFI.
  */
 class TrackpadActivity : FlutterActivity() {
     override fun getInitialRoute(): String = "/trackpad"

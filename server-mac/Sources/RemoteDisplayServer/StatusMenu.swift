@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Menú del ícono de la barra: SOLO lo necesario en segundo plano. La
-/// configuración completa está en la ventana principal.
+/// Menu bar icon menu: ONLY what's needed in the background. The
+/// full configuration lives in the main window.
 struct StatusMenu: View {
     @Environment(ServerController.self) private var c
 

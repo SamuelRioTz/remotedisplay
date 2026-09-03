@@ -182,9 +182,9 @@ impl Default for Enigo {
             }
         }
         Self {
-            // remotedisplay: CGEventSource::new(CombinedSessionState) puede devolver Err
-            // en macOS recientes → event_source None → la inyección quedaba en no-op
-            // silencioso (mouse no se movía). Probar varios estados como fallback.
+            // remotedisplay: CGEventSource::new(CombinedSessionState) can return Err
+            // on recent macOS → event_source None → injection silently became a
+            // no-op (the mouse wouldn't move). Try several states as a fallback.
             event_source: {
                 let mut src = CGEventSource::new(CGEventSourceStateID::CombinedSessionState).ok();
                 if src.is_none() {
@@ -194,9 +194,9 @@ impl Default for Enigo {
                     src = CGEventSource::new(CGEventSourceStateID::Private).ok();
                 }
                 if src.is_none() {
-                    log::error!("remotedisplay: CGEventSource::new fallo en TODOS los estados — no habra inyeccion de input");
+                    log::error!("remotedisplay: CGEventSource::new failed on ALL states — there will be no input injection");
                 } else {
-                    log::info!("remotedisplay: CGEventSource creado OK");
+                    log::info!("remotedisplay: CGEventSource created OK");
                 }
                 src
             },

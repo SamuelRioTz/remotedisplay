@@ -140,9 +140,9 @@ impl RendezvousMediator {
         });
         #[cfg(target_os = "android")]
         let start_lan_listening = true;
-        // remotedisplay: en modo serverless el descubrimiento LAN es la ÚNICA forma
-        // de encontrar el host, así que escuchar siempre (el server headless
-        // bundleado en Remote Display Server.app no cuenta como "instalado").
+        // remotedisplay: in serverless mode, LAN discovery is the ONLY way
+        // to find the host, so always listen (the headless server
+        // bundled inside Remote Display Server.app doesn't count as "installed").
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let start_lan_listening = crate::platform::is_installed() || is_serverless_lan();
         if start_lan_listening {

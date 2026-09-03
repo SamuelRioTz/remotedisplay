@@ -25,17 +25,17 @@ const String kPlatformAdditionsRustDeskVirtualDisplays =
     "rustdesk_virtual_displays";
 const String kPlatformAdditionsAmyuniVirtualDisplays =
     "amyuni_virtual_displays";
-// remotedisplay: displays virtuales en hosts macOS (CGVirtualDisplay)
+// remotedisplay: virtual displays on macOS hosts (CGVirtualDisplay)
 const String kPlatformAdditionsMacVirtualDisplays = "mac_virtual_displays";
 const String kPlatformAdditionsMacDynamicMain = "mac_dynamic_main";
 const String kPlatformAdditionsMacDynamicMainId = "mac_dynamic_main_id";
 const String kPlatformAdditionsMacHiDPIDisplays = "mac_hidpi_displays";
-// indice centinela de ToggleVirtualDisplay: "main dinamico" (espejo) en macOS
+// ToggleVirtualDisplay sentinel index: "dynamic main" (mirror) on macOS
 const int kMacDynamicMainIndex = -2;
-// indices >= base: actuar sobre un display concreto por CGDirectDisplayID
-// (prender/apagar fisicos, quitar un virtual puntual)
+// indices >= base: act on a specific display by CGDirectDisplayID
+// (turn physicals on/off, remove a specific virtual)
 const int kMacRawDisplayIdBase = 1000;
-// remotedisplay/macOS: indice >= base => HiDPI on/off del virtual (id = indice - base).
+// remotedisplay/macOS: index >= base => HiDPI on/off for the virtual (id = index - base).
 const int kMacHiDPIIndexBase = 1000000;
 const String kPlatformAdditionsMacDisplayIds = "mac_display_ids";
 const String kPlatformAdditionsMacPhysicalOff = "mac_physical_off";

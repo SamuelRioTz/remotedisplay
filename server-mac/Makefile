@@ -9,14 +9,14 @@ MACOS_DIR   = $(CONTENTS)/MacOS
 RES_DIR     = $(CONTENTS)/Resources
 INFO_PLIST  = Info.plist
 
-# El binario del motor (server, sin flutter). Se compila aparte con:
-#   cargo build --release --bin rustdesk   (en el fork)
-# Se copia dentro del bundle como remotedisplayd.
+# The engine binary (server, no flutter). Built separately with:
+#   cargo build --release --bin rustdesk   (in the fork)
+# Copied into the bundle as remotedisplayd.
 ENGINE_BIN ?= $(HOME)/dev/rustdesk/target/release/rustdesk
 
-# Identidad de firma ESTABLE (permisos TCC sobreviven rebuilds). Prioridad:
-# cert propio remotedisplay-cs > Apple Development (de Xcode/cuenta Apple) > ad-hoc.
-# Firma estable + MISMA identidad en app y motor = un solo permiso que persiste.
+# STABLE signing identity (TCC permissions survive rebuilds). Priority:
+# own remotedisplay-cs cert > Apple Development (from Xcode/Apple account) > ad-hoc.
+# Stable signing + SAME identity for app and engine = a single permission that persists.
 SIGN_ID ?= $(shell security find-identity -v -p codesigning 2>/dev/null | grep -oE "remotedisplay-cs|RemoteDisplaySign" | head -1)
 ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null | grep -o '"Apple Development[^"]*"' | head -1 | tr -d '"')
@@ -34,7 +34,7 @@ bundle: build
 	@rm -rf "$(APP_BUNDLE)"
 	@mkdir -p "$(MACOS_DIR)" "$(RES_DIR)"
 	@cp "$(BINARY)" "$(MACOS_DIR)/$(APP_NAME)"
-	@test -x "$(ENGINE_BIN)" || { echo "ERROR: no existe ENGINE_BIN=$(ENGINE_BIN) (compila el motor primero)"; exit 1; }
+	@test -x "$(ENGINE_BIN)" || { echo "ERROR: ENGINE_BIN=$(ENGINE_BIN) does not exist (build the engine first)"; exit 1; }
 	@cp "$(ENGINE_BIN)" "$(MACOS_DIR)/remotedisplayd"
 	@chmod +x "$(MACOS_DIR)/remotedisplayd"
 	@cp "$(INFO_PLIST)" "$(CONTENTS)/Info.plist"
@@ -43,10 +43,10 @@ bundle: build
 
 sign: bundle
 ifeq ($(strip $(SIGN_ID)),)
-	@echo "AVISO: sin identidad estable — firma ad-hoc (permisos TCC se invalidan en cada rebuild)"
+	@echo "WARNING: no stable identity — ad-hoc signing (TCC permissions are invalidated on every rebuild)"
 	@codesign --sign - --options runtime --entitlements Entitlements.plist --force --deep "$(APP_BUNDLE)"
 else
-	@echo "Firmando con identidad estable: $(SIGN_ID)  (id=$(CODE_ID))"
+	@echo "Signing with stable identity: $(SIGN_ID)  (id=$(CODE_ID))"
 	@codesign --sign "$(SIGN_ID)" --identifier "$(CODE_ID)" --options runtime --entitlements Entitlements.plist --force "$(MACOS_DIR)/remotedisplayd"
 	@codesign --sign "$(SIGN_ID)" --identifier "$(CODE_ID)" --options runtime --entitlements Entitlements.plist --force "$(MACOS_DIR)/$(APP_NAME)"
 	@codesign --sign "$(SIGN_ID)" --identifier "$(CODE_ID)" --options runtime --entitlements Entitlements.plist --force "$(APP_BUNDLE)"
