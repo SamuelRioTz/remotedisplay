@@ -1,6 +1,6 @@
 # release/ — Remote Display binaries
 
-> **Current version: 1.0.0** (source of truth: `version:` in `client/pubspec.yaml`; it's
+> **Current version: 1.0.1** (source of truth: `version:` in `client/pubspec.yaml`; it's
 > reflected here, in the main README, and in the `v<version>` tag).
 >
 > **Version bump**: only when explicitly requested. When requested, the number changes

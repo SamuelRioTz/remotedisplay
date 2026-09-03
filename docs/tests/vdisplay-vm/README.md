@@ -170,3 +170,65 @@ Windows ARM, booting the installer via the UEFI shell, Tart's network isolation)
   threshold): the display stays at 1× with the same points (UI doubled). It did
   kick in at 1284 pt / 2568 px (evidence table above). The engine log
   (`rustdesk.log`, line `resize … (hidpi=N)`) shows the actual backing.
+
+## 2026-09-03 — displays restored when the last client leaves
+
+Two fresh Tart VMs from `macos-tahoe-base` (macOS 26.6.2, SIP off):
+`remotedisplay-test-server` (Remote Display Server.app + engine) and
+`remotedisplay-test-client` (macOS client), client → server through an SSH
+reverse tunnel via the host. Driven with Tart's `--vnc-experimental` VNC server
+and `vncdotool` (on 26.6.2, `osascript`/`screencapture` launched over ssh no
+longer reach the GUI session, even with TCC rows in place). Display state read
+with a small `CGGetOnlineDisplayList` tool inside the server VM.
+
+Result: every scenario restored the Mac within ~3 s of the client process being
+killed (`kill`, i.e. a dropped connection, not a clean close):
+
+| Scenario before the kill | After the kill |
+|---|---|
+| Dynamic main ON (virtual 1600x900 main, physical mirroring it) + virtual 1280x720 | physical active + main + 1920x1080, virtual destroyed, dynamic-main virtual hidden |
+| Same, second connection (recycled dynamic-main virtual) | same |
+| Flat profile (virtual 1280x720) + physical turned off from the toolbar switch | physical active + main + 1920x1080, virtual destroyed |
+
+Engine log lines to look for: `mac_vdisplay: last client left, restoring the
+displays` → `dynamic main OFF (physical N main, virtual M hidden)` /
+`physical N turned on` / `destroyed ID M` → `mac_vdisplay: displays reset`.
+The client re-applies its saved monitor profile on the next connection, so
+nothing is lost.
+
+Fixed along the way (found by the second cycle): the mode remembered for the
+mirrored physical was taken while macOS had already re-mirrored it onto the
+recycled virtual, so the "restore" put the physical at the virtual's 1600x900.
+`rdRememberPhysicalMode` now records only a standalone display's mode (and is
+called before the virtual is touched), the memory is kept across cycles, and
+`rdRestorePhysicalMode` watches for two seconds and re-applies the mode if macOS
+flips it again after the unmirror.
+
+Also fixed: the macOS client (1.0.0) died on launch with exit code 141 (SIGPIPE
+from a write to a closed socket during LAN discovery; a Rust cdylib inside a
+Flutter app does not ignore SIGPIPE the way a Rust binary does). The Runner now
+ignores SIGPIPE before the first Rust call. Note for testing: on desktop a
+`remotedisplay://` link or `--connect` only takes effect as launch arguments
+(`open RemoteDisplay.app --args --connect <ip> --password <pw>`); sending it to
+an already running client does nothing.
+
+Server-app permission flow verified in the same VM: the first *Grant…* tap shows
+only the macOS dialog (System Settings not launched), a second tap while the
+permission is still missing opens the Settings panel; same for Accessibility.
+
+### Follow-ups verified the same day
+
+- **Service turned off while a client is connected** (`launchctl bootout` of the
+  agent, which is what the app's toggle runs; SIGTERM to the engine): the engine
+  now restores the displays before exiting (`signal 15: restoring the displays
+  before exiting` → `dynamic main OFF` → `displays restored, exiting`, 2.2 s),
+  the physical came back active, main and at 1920x1080. Implemented as a GCD
+  signal source in `MacRunHeadlessAppLoop` calling `remotedisplay_reset_displays`
+  (Rust, `virtual_display_manager.rs`); SIGINT is handled the same way.
+- **Links while the desktop client is already running**: both
+  `open "remotedisplay://connection/new/<ip>?password=<pw>"` and
+  `RemoteDisplay --connect <ip> --password <pw>` from a second process opened a
+  session in the running app (the second one travels over the engine's `_url`
+  IPC as the `on_url_scheme_received` global event). The client's main now
+  subscribes to global events and to the uni_links stream, as upstream's server
+  page does.
