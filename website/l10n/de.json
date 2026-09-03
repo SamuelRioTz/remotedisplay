@@ -104,5 +104,6 @@
   "community_source": "Quellcode",
   "community_issues": "Problem melden",
   "community_contribute": "Mitmachen",
-  "footer": "© 2026 Remote Display · Lizenziert unter <a href=\"https://github.com/SamuelRioTz/remotedisplay/blob/main/LICENSE\">AGPL-3.0</a> · Aufgebaut auf einer modifizierten Kopie von <a href=\"https://github.com/rustdesk/rustdesk\">RustDesk</a>"
+  "footer": "© 2026 Remote Display · Lizenziert unter <a href=\"https://github.com/SamuelRioTz/remotedisplay/blob/main/LICENSE\">AGPL-3.0</a> · Aufgebaut auf einer modifizierten Kopie von <a href=\"https://github.com/rustdesk/rustdesk\">RustDesk</a> · <a href=\"mailto:info@remotedisplay.app\">info@remotedisplay.app</a>",
+  "community_contact": "Fragen oder Feedback? Schreib an <a href=\"mailto:info@remotedisplay.app\">info@remotedisplay.app</a>."
 }

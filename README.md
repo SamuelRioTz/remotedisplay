@@ -86,6 +86,13 @@ Build recipes: [`tools/README.md`](tools/README.md) (Windows and Mac),
   may change between macOS versions.
 - Connections are direct (no relay yet). Use a LAN or a VPN.
 
+## Contact
+
+Questions, feedback or anything else: **info@remotedisplay.app**. Bugs and feature
+requests are best reported as [GitHub issues](https://github.com/SamuelRioTz/remotedisplay/issues).
+For security problems please email instead of opening a public issue (see
+[`SECURITY.md`](SECURITY.md)).
+
 ## License
 
 Remote Display is free software under the **GNU Affero General Public License v3.0**
