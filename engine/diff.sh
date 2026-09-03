@@ -1,21 +1,24 @@
 #!/bin/bash
-# Muestra TODO lo nuestro en engine/rustdesk/ como diff contra el snapshot de upstream.
-# Uso:
-#   bash engine/diff.sh            → diff completo
-#   bash engine/diff.sh --stat     → solo resumen de archivos
-#   bash engine/diff.sh > mio.patch  → exportar como patch re-aplicable
+# Show everything that is OURS in engine/rustdesk/ as a diff against the upstream snapshot
+# (engine against the BASELINE tag + libs/hbb_common against that tag's submodule commit).
+# Usage:
+#   bash engine/diff.sh              → full diff (a single patch)
+#   bash engine/diff.sh --stat       → per-file summary (the last block is libs/hbb_common)
+#   bash engine/diff.sh > ours.patch → export; re-apply with git apply --directory=engine/rustdesk
 set -e
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
-BASE=$(cat engine/BASELINE | tr -d '[:space:]')
+source engine/lib.sh
+BASE=$(tr -d '[:space:]' < engine/BASELINE)
+ensure_upstream_tag "$BASE"
+HBB=$(hbb_commit_of "$BASE")
+ensure_hbb_commit "$HBB"
 
-git remote get-url upstream >/dev/null 2>&1 || git remote add upstream https://github.com/rustdesk/rustdesk.git
-git rev-parse -q --verify "refs/tags/$BASE" >/dev/null || git fetch --depth 1 upstream tag "$BASE"
-
-# HEAD:engine/rustdesk es el árbol de engine/rustdesk/; el tag es el árbol de upstream.
-# Sin args: patch completo con binarios (exportable). Con args (--stat, etc.): esos.
-if [ $# -gt 0 ]; then
-    git diff "$@" "$BASE" HEAD:engine/rustdesk
+# HEAD:engine/rustdesk is the tree of engine/rustdesk/; the tag is the upstream tree.
+if [ $# -gt 0 ] && [[ " $* " == *" --stat"* ]]; then
+    git diff "$@" "$BASE" HEAD:engine/rustdesk -- . ':(exclude)libs/hbb_common'
+    echo "libs/hbb_common (against rustdesk/hbb_common@${HBB:0:7}):"
+    git diff "$@" "$HBB" HEAD:engine/rustdesk/libs/hbb_common
 else
-    git diff --binary "$BASE" HEAD:engine/rustdesk
+    our_diff HEAD "$BASE" "$HBB" "$@"
 fi
