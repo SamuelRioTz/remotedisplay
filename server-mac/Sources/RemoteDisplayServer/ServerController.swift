@@ -112,7 +112,7 @@ final class ServerController {
     /// If the user wants the service active and the engine isn't up, relaunch it
     /// (with a minimum of 10 s between attempts).
     private func ensureDesiredState() {
-        guard serviceDesired, !serviceRunning, !firstRefresh else { return }
+        guard !quitting, serviceDesired, !serviceRunning, !firstRefresh else { return }
         guard Date().timeIntervalSince(lastAutoStart) > 10 else { return }
         lastAutoStart = Date()
         NSLog("[remotedisplay] engine not running but desired → starting")
@@ -173,8 +173,12 @@ final class ServerController {
 
     private func processRunning() -> Bool { enginePid() != nil }
 
+    /// The engine as launchd runs it: the bundled binary with exactly `--server`.
+    /// Anchored so that shells or scripts merely mentioning the name do not match.
+    private static let enginePattern = "/Contents/MacOS/remotedisplayd --server$"
+
     private func enginePid() -> Int32? {
-        let out = run("/usr/bin/pgrep", ["-f", "remotedisplayd --server"])
+        let out = run("/usr/bin/pgrep", ["-f", Self.enginePattern])
         return out.split(separator: "\n").compactMap { Int32($0.trimmingCharacters(in: .whitespaces)) }.first
     }
 
@@ -341,6 +345,7 @@ final class ServerController {
 
     func setServiceEnabled(_ on: Bool) {
         serviceDesired = on
+        trace("service \(on ? "on" : "off") requested")
         if on {
             if let problem = engineProblem {
                 NSLog("[remotedisplay] not starting the service: %@", problem)
@@ -362,8 +367,57 @@ final class ServerController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.refresh() }
     }
 
+    /// Quit (⌘Q or the menu bar item): stop the engine too, so nothing of the bundle
+    /// stays in use (replacing the app in /Applications failed with "in use" while the
+    /// engine kept running) and the Mac's displays are put back by the engine's SIGTERM
+    /// handler. The service is NOT turned off: the agent plist stays registered, so the
+    /// engine comes back at the next login, and the app starts it again when reopened.
+    func stopEngineForQuit() {
+        // No more refresh() while we quit: ensureDesiredState() would bring the
+        // engine right back after the bootout (seen in the test VM).
+        quitting = true
+        timer?.invalidate(); timer = nil
+        guard processRunning() else { trace("quit: engine not running"); return }
+        trace("quit: stopping the engine (bootout)")
+        let rc = runLaunchctl(["bootout", "\(guiDomain)/\(Self.agentLabel)"])
+        trace("quit: bootout rc=\(rc)")
+        // bootout returns as soon as launchd has signalled the job; the engine's
+        // display restore takes a few seconds. Fall back to a plain SIGTERM if the
+        // job was not under launchd.
+        var waited = 0
+        while processRunning() && waited < 60 { usleep(250_000); waited += 1 }
+        if processRunning() {
+            trace("quit: engine still running after \(waited / 4) s, pkill")
+            pkillEngine()
+            waited = 0
+            while processRunning() && waited < 40 { usleep(250_000); waited += 1 }
+        }
+        trace("quit: engine \(processRunning() ? "STILL RUNNING" : "stopped") after \(waited / 4) s")
+    }
+
+    private var quitting = false
+
+    /// Plain-text trace for the quit/service paths: NSLog output is not reachable
+    /// with `log show` over ssh, and the user can send this file with a bug report.
+    private func trace(_ line: String) {
+        NSLog("[remotedisplay] %@", line)
+        try? FileManager.default.createDirectory(atPath: logDir, withIntermediateDirectories: true)
+        let path = logDir + "/app.log"
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        if let h = FileHandle(forWritingAtPath: path) ?? { FileManager.default.createFile(atPath: path, contents: nil); return FileHandle(forWritingAtPath: path) }() {
+            h.seekToEndOfFile(); h.write("\(stamp) \(line)\n".data(using: .utf8)!); h.closeFile()
+        }
+    }
+
     private func restartEngine() {
-        runLaunchctl(["kickstart", "-k", "\(guiDomain)/\(Self.agentLabel)"])
+        // Not `kickstart -k`: that kills the running instance outright and the engine
+        // never gets to put the displays back. bootout (SIGTERM, reset, exit) + bootstrap.
+        trace("restarting the engine")
+        runLaunchctl(["bootout", "\(guiDomain)/\(Self.agentLabel)"])
+        var waited = 0
+        while processRunning() && waited < 60 { usleep(250_000); waited += 1 }
+        if processRunning() { pkillEngine() }
+        runLaunchctl(["bootstrap", guiDomain, agentPlistPath])
     }
 
     private func writeAgentPlist() {
@@ -401,7 +455,7 @@ final class ServerController {
     private func pkillEngine() {
         let k = Process()
         k.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        k.arguments = ["-f", "remotedisplayd --server"]
+        k.arguments = ["-f", Self.enginePattern]
         k.standardError = Pipe()
         try? k.run(); k.waitUntilExit()
     }

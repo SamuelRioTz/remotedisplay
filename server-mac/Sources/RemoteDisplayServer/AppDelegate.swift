@@ -32,8 +32,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // Closing the window does NOT close the app: it stays in the menu bar.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    // The engine runs as an independent LaunchAgent: closing the app leaves it
+    // The engine runs as an independent LaunchAgent: closing the WINDOW leaves it
     // running in the background (that's what "Service Active" / login item is for).
+    // QUITTING the app (⌘Q, menu bar item) stops the engine as well: otherwise the
+    // bundle stays "in use" and cannot be replaced, and a connected client would be
+    // left with the Mac on a virtual monitor. The engine restores the displays on
+    // SIGTERM; the service itself stays enabled (next login / next app launch).
+    // Synchronous on purpose: quitting may take the few seconds the engine needs to
+    // put the displays back, and there is nothing left to show meanwhile.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        controller.stopEngineForQuit()
+        return .terminateNow
+    }
 
     // MARK: - Main window (single instance)
 

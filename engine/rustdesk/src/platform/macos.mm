@@ -1724,11 +1724,31 @@ static void rdInstallShutdownHandlers() {
     }
 }
 
+// The headless NSApplication shares the bundle (and bundle id) with the menu bar
+// app, so a "quit" Apple event addressed to "Remote Display Server" (osascript,
+// logout, the system's background-items UI) can land HERE. AppKit would answer it
+// with a plain exit(): put the displays back first, like on SIGTERM.
+@interface RDHeadlessAppDelegate : NSObject <NSApplicationDelegate>
+@end
+@implementation RDHeadlessAppDelegate
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
+    static std::atomic<bool> done{false};
+    if (!done.exchange(true)) {
+        NSLog(@"remotedisplay vdisplay: quit Apple event: restoring the displays before exiting");
+        if (remotedisplay_reset_displays) remotedisplay_reset_displays();
+        NSLog(@"remotedisplay vdisplay: displays restored, exiting");
+    }
+    return NSTerminateNow;
+}
+@end
+
 extern "C" void MacRunHeadlessAppLoop() {
     rdInstallShutdownHandlers();
+    static RDHeadlessAppDelegate *delegate = [RDHeadlessAppDelegate new];
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
         [app setActivationPolicy:NSApplicationActivationPolicyProhibited];
+        [app setDelegate:delegate];
         [app finishLaunching];
     }
     [NSApp run];

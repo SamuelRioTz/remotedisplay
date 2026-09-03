@@ -28,7 +28,11 @@ all the configuration and status:
 Opens by itself on startup if setup or password is missing; also on double-click on the app
 or a Dock click. While the window is open the app shows up in the Dock
 (`.regular`); closing it goes back to being just a menu-bar icon (`.accessory`). Closing the
-window doesn't close the app or the engine.
+window doesn't close the app or the engine. **Quitting** the app (⌘Q or the menu bar item)
+also stops the engine (the bundle would otherwise stay "in use" and could not be replaced
+in /Applications, and a connected client would leave the Mac on a virtual monitor); the
+engine restores the displays on SIGTERM. The service stays enabled: the LaunchAgent starts it
+again at the next login, and the app starts it when reopened.
 
 ## Permissions flow (verified on a clean VM, macOS 26.4, 2026-08-25)
 

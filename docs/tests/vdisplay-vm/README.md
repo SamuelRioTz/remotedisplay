@@ -232,3 +232,19 @@ permission is still missing opens the Settings panel; same for Accessibility.
   IPC as the `on_url_scheme_received` global event). The client's main now
   subscribes to global events and to the uni_links stream, as upstream's server
   page does.
+
+### Quitting the menu bar app (2026-09-03, later)
+
+Sam hit "the item is in use" when replacing the app in /Applications after *Quit*:
+the engine kept running inside the bundle. Verified in the same VMs with a client
+connected and the dynamic main active: a quit Apple event addressed to the app's
+PID (`osascript -l JavaScript -e 'Application(<pid>).quit()'`, the same path as
+the menu bar item) now boots the agent out, the engine logs `signal 15: restoring
+the displays before exiting` → `dynamic main OFF` → `displays restored, exiting`,
+the app exits 2 s later (trace in `~/Library/Logs/RemoteDisplayServer/app.log`)
+and the bundle can be renamed. Gotchas: a quit Apple event by *name*
+(`tell application "Remote Display Server" to quit`) reaches the ENGINE, which
+shares the bundle id — it now handles it by restoring the displays first
+(`RDHeadlessAppDelegate`); and the app's engine lookup is anchored on
+`/Contents/MacOS/remotedisplayd --server$`, since a plain `pgrep -f
+"remotedisplayd --server"` also matched shells mentioning the name.
