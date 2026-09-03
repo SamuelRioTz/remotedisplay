@@ -1,63 +1,63 @@
-# release/ — binarios de Remote Display
+# release/ — Remote Display binaries
 
-> **Versión actual: 0.3.0**  (fuente de verdad: `version:` en `client/pubspec.yaml`; se
-> refleja acá, en el README principal y en el tag `v<version>`).
+> **Current version: 1.0.0** (source of truth: `version:` in `client/pubspec.yaml`; it's
+> reflected here, in the main README, and in the `v<version>` tag).
 >
-> **Bump de versión**: solo cuando se pide explícitamente. Al pedirlo se cambia el número
-> en `client/pubspec.yaml` (`version: X.Y.Z+N`), en el README principal y en esta línea, y
-> el próximo release usa el tag nuevo. Si no se pide, se reusa la versión actual (se
-> re-suben/actualizan los artefactos al Release existente con `--clobber`).
+> **Version bump**: only when explicitly requested. When requested, the number changes
+> in `client/pubspec.yaml` (`version: X.Y.Z+N`), in the main README and in this line, and
+> the next release uses the new tag. If not requested, the current version is reused (the
+> artifacts are re-uploaded/updated to the existing Release with `--clobber`).
 
-Los binarios van a **GitHub Releases** del repo (privado), tag `v<version>`. Nada de
-binarios en git (`release/out/` está en .gitignore).
+Binaries go to **GitHub Releases** of the (private) repo, tag `v<version>`. No
+binaries in git (`release/out/` is in .gitignore).
 
-## Artefactos y cómo se producen
+## Artifacts and how they're produced
 
-| Artefacto | Se construye en | Comando |
+| Artifact | Built on | Command |
 |---|---|---|
-| `RemoteDisplay-Setup-<ver>.exe` (Inno) + `RemoteDisplay-<ver>-windows-x64-portable.zip` | PC Windows | `release/release-windows.ps1 -Upload` |
+| `RemoteDisplay-Setup-<ver>.exe` (Inno) + `RemoteDisplay-<ver>-windows-x64-portable.zip` | Windows PC | `release/release-windows.ps1 -Upload` |
 | `RemoteDisplay-<ver>-android-arm64.apk` | Mac | `release/release-mac.sh` |
 | `RemoteDisplay-<ver>-macos-client.dmg` | Mac | `release/release-mac.sh` |
 | `RemoteDisplay-Server-<ver>-macos.dmg` | Mac | `release/release-mac.sh` |
 | `RemoteDisplay-<ver>-ios.ipa` | Mac | `release/release-mac.sh` |
 
-## Flujo completo de un release
+## Full release flow
 
-1. Subir `version:` en `client/pubspec.yaml` y en el README principal, commit+push.
-2. **PC Windows**: `powershell -ExecutionPolicy Bypass -File release/release-windows.ps1 -Upload`
-   (compila, valida, crea el Release `v<ver>` y sube zip+instalador).
-   Requiere la DLL del motor al día (`engine/rustdesk/target/release/librustdesk.dll`,
-   receta en `tools/README.md`).
-3. **Mac** (lo corre el Claude del Mac o Sam; codesign necesita la sesión gráfica):
-   `git pull && bash release/release-mac.sh [--upload]` → compila los 4 artefactos en
-   `release/out/`; con `--upload` además los sube al Release `v<ver>` (lo crea si no existe).
-   El Mac YA tiene `gh` autenticado (`SamuelRioTz`), así que sube directo — el paso 4 (fetch
-   desde Windows) es solo alternativa si el Mac no tuviera `gh`.
-   Si el llavero pide acceso a la llave "Apple Development", elegir **Permitir siempre**.
-   - `ENGINE_BIN` del server: default `engine/rustdesk/target/release/rustdesk` (el binario
-     del motor del monorepo, ya con los parches serverless). Pasar otra ruta si se quiere.
-4. **PC Windows** (alternativa, si el Mac no tiene `gh`): `release/release-fetch-mac.ps1` —
-   trae los artefactos del Mac por scp y los sube al mismo Release.
+1. Bump `version:` in `client/pubspec.yaml` and in the main README, commit+push.
+2. **Windows PC**: `powershell -ExecutionPolicy Bypass -File release/release-windows.ps1 -Upload`
+   (builds, validates, creates the `v<ver>` Release and uploads zip+installer).
+   Requires an up-to-date engine DLL (`engine/rustdesk/target/release/librustdesk.dll`,
+   recipe in `tools/README.md`).
+3. **Mac** (run by the Mac's Claude or Sam; codesign needs the graphical session):
+   `git pull && bash release/release-mac.sh [--upload]` → builds the 4 artifacts into
+   `release/out/`; with `--upload` it also uploads them to the `v<ver>` Release (creates it if it doesn't exist).
+   The Mac ALREADY has `gh` authenticated (`SamuelRioTz`), so it uploads directly — step 4 (fetch
+   from Windows) is only an alternative if the Mac didn't have `gh`.
+   If the keychain asks for access to the "Apple Development" key, choose **Always Allow**.
+   - Server's `ENGINE_BIN`: defaults to `engine/rustdesk/target/release/rustdesk` (the monorepo's
+     engine binary, already with the serverless patches). Pass another path if you want.
+4. **Windows PC** (alternative, if the Mac doesn't have `gh`): `release/release-fetch-mac.ps1` —
+   fetches the artifacts from the Mac via scp and uploads them to the same Release.
 
-## Instalar el IPA en el iPad/iPhone
+## Installing the IPA on the iPad/iPhone
 
-El `.ipa` va firmado con el certificado de desarrollo (equipo K45698KZ4W) — los
-dispositivos de Sam ya están en el perfil. Desde el Mac, con el dispositivo conectado
-y desbloqueado:
+The `.ipa` is signed with the development certificate (team K45698KZ4W) — Sam's
+devices are already in the profile. From the Mac, with the device connected
+and unlocked:
 
 ```sh
 xcrun devicectl list devices            # UDID
 xcrun devicectl device install app --device <UDID> RemoteDisplay-<ver>-ios.ipa
 ```
 
-(También: arrastrarlo al dispositivo en Finder, o Apple Configurator.)
-La firma de desarrollo expira: reinstalar cuando el perfil venza.
+(Also: drag it onto the device in Finder, or Apple Configurator.)
+The development signature expires: reinstall when the profile lapses.
 
-## Notas
+## Notes
 
-- El ZIP portable de Windows corre desde cualquier carpeta sin instalar; la config
-  vive en `%APPDATA%\RustDesk` (rezago de marca pendiente de renombrar).
-- Instalador validado con install/uninstall silencioso (`/VERYSILENT`).
-- `gh` debe apuntar a ESTE repo: el repo es fork de rustdesk/rustdesk y `gh` sin
-  configurar resuelve al padre. Ya está fijado con `gh repo set-default
-  SamuelRioTz/remotedisplay` (si se reclona, volver a correrlo).
+- The Windows portable ZIP runs from any folder without installing; the config
+  lives in `%APPDATA%\RustDesk` (branding leftover still pending a rename).
+- Installer validated with silent install/uninstall (`/VERYSILENT`).
+- `gh` must point at THIS repo: the repo is a fork of rustdesk/rustdesk and unconfigured
+  `gh` resolves to the parent. It's already fixed with `gh repo set-default
+  SamuelRioTz/remotedisplay` (if it gets recloned, run it again).

@@ -1,15 +1,15 @@
-# Release Windows de Remote Display: compila el cliente (Dart), asegura la DLL del motor,
-# arma el ZIP portable y el instalador Inno Setup en release/out/, y opcionalmente
-# sube todo a un GitHub Release del repo (privado) con `gh`.
+# Windows release for Remote Display: builds the client (Dart), ensures the engine DLL,
+# assembles the portable ZIP and the Inno Setup installer in release/out/, and optionally
+# uploads everything to a GitHub Release of the repo (private) with `gh`.
 #
-# Uso:  powershell -ExecutionPolicy Bypass -File release/release-windows.ps1 [-Tag v0.1.0] [-Upload] [-SkipBuild]
-#   -Tag        etiqueta del release (default: v<version de client/pubspec.yaml>)
-#   -Upload     crea (si no existe) el GitHub Release y sube los artefactos
-#   -SkipBuild  no recompila el cliente Flutter (usa el Release existente)
-# Requisitos: Flutter 3.24.5 (via fvm: C:\Users\sam\fvm\versions\3.24.5), Inno Setup 6, gh autenticado
-# y apuntando a ESTE repo (el repo es fork: `gh repo set-default SamuelRioTz/remotedisplay`).
-# La DLL del motor (engine/rustdesk/target/release/librustdesk.dll) se compila aparte
-# (receta y trampas en tools/README.md, "Compilar el CLIENTE Windows").
+# Usage:  powershell -ExecutionPolicy Bypass -File release/release-windows.ps1 [-Tag v0.1.0] [-Upload] [-SkipBuild]
+#   -Tag        release tag (default: v<version from client/pubspec.yaml>)
+#   -Upload     creates (if it doesn't exist) the GitHub Release and uploads the artifacts
+#   -SkipBuild  doesn't rebuild the Flutter client (uses the existing Release)
+# Requirements: Flutter 3.24.5 (via fvm: C:\Users\sam\fvm\versions\3.24.5), Inno Setup 6, gh authenticated
+# and pointed at THIS repo (the repo is a fork: `gh repo set-default SamuelRioTz/remotedisplay`).
+# The engine DLL (engine/rustdesk/target/release/librustdesk.dll) is built separately
+# (recipe and gotchas in tools/README.md, "Building the Windows CLIENT").
 param([string]$Tag = '', [switch]$Upload, [switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path (Split-Path -Parent $PSCommandPath) '..')
@@ -26,48 +26,53 @@ if (-not $SkipBuild) {
   $env:PATH = "C:\Users\sam\fvm\versions\3.24.5\bin;$env:PATH"
   Push-Location $client
   flutter build windows --release
-  if ($LASTEXITCODE -ne 0) { throw 'flutter build fallo' }
+  if ($LASTEXITCODE -ne 0) { throw 'flutter build failed' }
   Pop-Location
 }
 
-# DLL del motor: la mas nueva entre la del target de cargo y la ya ensamblada.
+# Engine DLL: whichever is newer between cargo's target build and the one already bundled.
 $dllSrc = Join-Path $root 'engine\rustdesk\target\release\librustdesk.dll'
 $dllDst = Join-Path $release 'librustdesk.dll'
 if (Test-Path $dllSrc) {
   if (-not (Test-Path $dllDst) -or (Get-Item $dllSrc).LastWriteTime -gt (Get-Item $dllDst).LastWriteTime) {
-    Copy-Item $dllSrc $dllDst -Force; Write-Host 'librustdesk.dll actualizada desde target/release'
+    Copy-Item $dllSrc $dllDst -Force; Write-Host 'librustdesk.dll updated from target/release'
   }
 }
-if (-not (Test-Path $dllDst)) { throw "falta $dllDst (compilar el motor primero)" }
+if (-not (Test-Path $dllDst)) { throw "missing $dllDst (build the engine first)" }
 
-# 1) ZIP portable (la carpeta Release corre desde cualquier lado, sin instalar)
+# AGPL: ship the license text and the third-party notices with the binaries
+# (they end up in the portable ZIP and, via {#SourceDir}\*, in the installer).
+Copy-Item (Join-Path $root 'LICENSE') (Join-Path $release 'LICENSE.txt') -Force
+Copy-Item (Join-Path $root 'NOTICE.md') (Join-Path $release 'NOTICE.md') -Force
+
+# 1) Portable ZIP (the Release folder runs from anywhere, no install needed)
 $zip = Join-Path $out "RemoteDisplay-$version-windows-x64-portable.zip"
 if (Test-Path $zip) { Remove-Item $zip }
 Compress-Archive -Path (Join-Path $release '*') -DestinationPath $zip -CompressionLevel Optimal
 Write-Host "portable: $zip"
 
-# 2) Instalador Inno Setup
+# 2) Inno Setup installer
 $iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe', 'C:\Program Files\Inno Setup 6\ISCC.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $iscc) { throw 'No se encontro ISCC.exe (winget install JRSoftware.InnoSetup)' }
+if (-not $iscc) { throw 'ISCC.exe not found (winget install JRSoftware.InnoSetup)' }
 & $iscc /Q "/DAppVersion=$version" "/DSourceDir=$release" "/DOutDir=$out" (Join-Path $root 'release\windows\remotedisplay.iss')
-if ($LASTEXITCODE -ne 0) { throw 'ISCC fallo' }
+if ($LASTEXITCODE -ne 0) { throw 'ISCC failed' }
 $setup = Join-Path $out "RemoteDisplay-Setup-$version.exe"
-Write-Host "instalador: $setup"
+Write-Host "installer: $setup"
 
-# 3) GitHub Release (repo privado: solo colaboradores lo ven)
+# 3) GitHub Release (private repo: only collaborators can see it)
 if ($Upload) {
   Push-Location $root
   $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
   gh release view $Tag *> $null; $exists = ($LASTEXITCODE -eq 0)
   $ErrorActionPreference = $prev
   if (-not $exists) {
-    gh release create $Tag --title "Remote Display $version" --notes "Build $version. Windows: instalador + portable. Mac/Android/iOS: ver assets." | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'gh release create fallo' }
-    Write-Host "release $Tag creado"
+    gh release create $Tag --title "Remote Display $version" --notes "Build $version. Windows: installer + portable. Mac/Android/iOS: see assets." | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
+    Write-Host "release $Tag created"
   }
   gh release upload $Tag $zip $setup --clobber
-  if ($LASTEXITCODE -ne 0) { throw 'gh release upload fallo' }
-  Write-Host "subido a GitHub Releases ($Tag)"
+  if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed' }
+  Write-Host "uploaded to GitHub Releases ($Tag)"
   Pop-Location
 }
 Write-Host 'OK'

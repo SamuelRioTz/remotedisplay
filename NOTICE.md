@@ -7,7 +7,8 @@ Licensed under the GNU Affero General Public License, version 3 (see `LICENSE`).
 
 - **RustDesk** — https://github.com/rustdesk/rustdesk — Copyright © RustDesk
   contributors, licensed under the GNU AGPL-3.0. `engine/rustdesk/` is a modified
-  copy of RustDesk 1.4.9; the modifications are documented in `HOOKS.md` and
-  `tools/patches/`. Remote Display is not affiliated with or endorsed by RustDesk.
+  copy of RustDesk 1.4.9; the modifications are documented in `engine/SYNC.md` and
+  `HOOKS.md`, and `bash engine/diff.sh` prints the complete diff against upstream.
+  Remote Display is not affiliated with or endorsed by RustDesk.
 - The Flutter, Rust and other third-party dependencies keep their own licenses; see
   the respective `pubspec.yaml`, `Cargo.toml` and license files in the tree.
