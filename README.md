@@ -71,6 +71,8 @@ or allow the app in System Settings → Privacy & Security.
 - `client/` — the Flutter client (new UI on top of the engine's `flutter_hbb` package).
 - `docs/pruebas/` — measurements and harnesses behind the macOS 26 quirks we hit
   (HiDPI behaviour, mirror sets, per-process display lists). Mostly in Spanish.
+- `website/` — the landing page for [remotedisplay.app](https://remotedisplay.app):
+  static HTML with EN/ES/DE strings in `website/l10n/`.
 
 Build recipes: [`tools/README.md`](tools/README.md) (Windows and Mac),
 [`release/README.md`](release/README.md) (how the release artifacts are produced).

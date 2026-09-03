@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Display — Remote desktop for your Mac with monitors that fit your window</title>
+    <meta name="description" content="Self-hosted remote desktop for macOS from Windows, iPad or another Mac, built on the RustDesk engine. Virtual monitors that resize to your window, per-monitor scale, no accounts, no cloud. Free software (AGPL-3.0).">
+    <meta name="theme-color" content="#0A0A0F">
+    <link rel="canonical" href="https://remotedisplay.app/">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://remotedisplay.app/">
+    <meta property="og:site_name" content="Remote Display">
+    <meta property="og:title" content="Remote Display — Remote desktop for your Mac with monitors that fit your window">
+    <meta property="og:description" content="Self-hosted remote desktop for macOS from Windows, iPad or another Mac, built on the RustDesk engine. Virtual monitors that resize to your window, per-monitor scale, no accounts, no cloud. Free software (AGPL-3.0).">
+    <meta property="og:image" content="https://remotedisplay.app/assets/og.jpg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Two Remote Display windows, each showing one monitor of a Mac">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Remote Display — Remote desktop for your Mac with monitors that fit your window">
+    <meta name="twitter:description" content="Self-hosted remote desktop for macOS, built on RustDesk. Virtual monitors that resize to your window. No accounts, no cloud. AGPL-3.0.">
+    <meta name="twitter:image" content="https://remotedisplay.app/assets/og.jpg">
+    <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+    <style>
+        :root {
+            --blue: #3B82F6;
+            --purple: #8B5CF6;
+            --green: #00B894;
+            --bg: #0A0A0F;
+            --card: #13131A;
+            --border: #1E1E2A;
+            --text: #E8E8ED;
+            --muted: #8888A0;
+            --gradient: linear-gradient(135deg, #3B82F6, #8B5CF6);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Inter, Roboto, sans-serif;
+            background: var(--bg); color: var(--text); line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+        .container { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+        .grad { background: var(--gradient); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+        code {
+            font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 12px; color: var(--blue); background: rgba(59,130,246,0.1);
+            padding: 2px 6px; border-radius: 4px;
+        }
+
+        /* Nav */
+        nav {
+            padding: 20px 0; border-bottom: 1px solid var(--border);
+            position: sticky; top: 0; z-index: 100;
+            background: rgba(10,10,15,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+        }
+        nav .container { display: flex; align-items: center; justify-content: space-between; }
+        .nav-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); }
+        .nav-brand img { width: 32px; height: 32px; border-radius: 8px; }
+        .nav-brand span { font-size: 18px; font-weight: 700; white-space: nowrap; }
+        .nav-links { display: flex; gap: 24px; align-items: center; }
+        .nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; transition: color 0.2s; }
+        .nav-links a:hover { color: var(--text); }
+        .btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 10px 20px; border-radius: 10px;
+            font-weight: 600; font-size: 14px; text-decoration: none; transition: all 0.2s;
+        }
+        .btn-primary { background: var(--gradient); color: white !important; }
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-outline { background: var(--card); color: var(--text) !important; border: 1px solid var(--border); }
+        .btn-outline:hover { border-color: var(--muted); }
+        .btn-ghost { background: none; color: var(--muted); border: 1px solid var(--border); }
+        .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+
+        /* Language switcher */
+        .lang-switcher { display: flex; gap: 4px; margin-left: 8px; }
+        .lang-btn {
+            padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+            background: none; color: var(--muted); font-size: 12px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s; font-family: inherit;
+        }
+        .lang-btn:hover { color: var(--text); border-color: var(--muted); }
+        .lang-btn.active { background: var(--gradient); color: white; border-color: transparent; }
+
+        /* Hero */
+        .hero { padding: 100px 0 64px; text-align: center; }
+        .hero-badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 6px 16px; border-radius: 20px;
+            font-size: 13px; font-weight: 500;
+            background: rgba(0,184,148,0.1); color: var(--green);
+            border: 1px solid rgba(0,184,148,0.2); margin-bottom: 24px;
+        }
+        .hero h1 { font-size: 56px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.1; margin-bottom: 20px; }
+        .hero p { font-size: 20px; color: var(--muted); max-width: 620px; margin: 0 auto 40px; }
+        .hero p strong { color: var(--text); }
+        .hero-cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+        .hero-shot {
+            margin: 64px auto 0; max-width: 960px;
+            background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+            overflow: hidden; box-shadow: 0 30px 80px rgba(59,130,246,0.15);
+        }
+        .hero-shot img { display: block; width: 100%; height: auto; }
+        .hero-shot figcaption { padding: 12px 16px; font-size: 13px; color: var(--muted); text-align: center; }
+
+        /* Stats */
+        .stats { padding: 64px 0 80px; }
+        .stats-grid { display: flex; justify-content: center; gap: 56px; flex-wrap: wrap; }
+        .stat { text-align: center; }
+        .stat-value { font-size: 28px; font-weight: 800; background: var(--gradient); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+        .stat-label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+        /* Features */
+        .features { padding: 80px 0; }
+        .section-label {
+            text-align: center; font-size: 13px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 1.5px;
+            color: var(--blue); margin-bottom: 12px;
+        }
+        .section-title { text-align: center; font-size: 36px; font-weight: 700; margin-bottom: 16px; letter-spacing: -0.5px; }
+        .section-desc { text-align: center; color: var(--muted); font-size: 16px; max-width: 560px; margin: 0 auto 48px; }
+        .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        .feature-card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 16px; padding: 28px; transition: border-color 0.2s;
+        }
+        .feature-card:hover { border-color: rgba(59,130,246,0.4); }
+        .feature-icon {
+            width: 40px; height: 40px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 16px;
+            background: rgba(59,130,246,0.1); color: var(--blue);
+        }
+        .feature-icon.purple { background: rgba(139,92,246,0.1); color: var(--purple); }
+        .feature-icon.green { background: rgba(0,184,148,0.1); color: var(--green); }
+        .feature-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+        .feature-card p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+        /* Why: two-column with before/after illustration */
+        .why { padding: 80px 0; }
+        .why-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
+        .why-content h2 { font-size: 32px; font-weight: 700; margin-bottom: 16px; line-height: 1.2; letter-spacing: -0.5px; }
+        .why-content p { color: var(--muted); font-size: 15px; line-height: 1.7; }
+        .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .cmp-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 10px; }
+        .cmp-label.grad { color: transparent; }
+        .cmp p { font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 12px; }
+        .win { background: #0D0D14; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+        .win-bar { display: flex; gap: 6px; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+        .win-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
+        .win-body { position: relative; aspect-ratio: 4 / 3; background: #000; }
+        .screen {
+            position: absolute; overflow: hidden;
+            background: linear-gradient(160deg, #1E3A8A 0%, #3B82F6 45%, #8B5CF6 100%);
+        }
+        .screen::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 7%; background: rgba(255,255,255,0.22); }
+        .screen::after { content: ""; position: absolute; left: 22%; right: 22%; bottom: 4%; height: 9%; border-radius: 999px; background: rgba(255,255,255,0.3); }
+        .screen.fixed { left: 0; right: 0; top: 50%; transform: translateY(-50%); aspect-ratio: 16 / 9; }
+        .screen.fit { inset: 0; }
+        .screen.fit::before { height: 6%; }
+
+        /* How it works */
+        .how { padding: 80px 0; }
+        .how-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
+        .how-content h2 { font-size: 32px; font-weight: 700; margin-bottom: 16px; line-height: 1.2; letter-spacing: -0.5px; }
+        .how-content > p { color: var(--muted); font-size: 15px; margin-bottom: 16px; line-height: 1.7; }
+        .how-detail {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 16px; margin-bottom: 12px;
+        }
+        .how-detail h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .how-detail p { font-size: 13px; color: var(--muted); margin: 0; }
+        .terminal {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 16px; padding: 32px; overflow: hidden;
+        }
+        .terminal-bar { display: flex; gap: 6px; margin-bottom: 20px; }
+        .terminal-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+        .terminal-body {
+            background: #0D0D14; border-radius: 10px; padding: 20px;
+            font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+            color: var(--muted); line-height: 2; white-space: pre; overflow-x: auto;
+        }
+        .t-ok { color: var(--green); }
+        .t-txt { color: var(--text); }
+        .t-blue { color: var(--blue); }
+        .t-purple { color: var(--purple); }
+        .t-cmt { color: #555570; }
+
+        /* Get started */
+        .get-started { padding: 80px 0; }
+        .get-started-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .start-card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 20px; padding: 36px;
+            display: flex; flex-direction: column;
+        }
+        .start-card.primary { border-color: var(--blue); }
+        .start-card h3 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+        .start-card > p { font-size: 14px; color: var(--muted); margin-bottom: 20px; line-height: 1.6; flex: 1; }
+        .start-card .tag {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 12px; color: var(--green); font-weight: 500; margin-bottom: 16px;
+        }
+        .start-card .tag .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+        .start-card .tag.purple { color: var(--purple); }
+        .start-card .tag.purple .dot { background: var(--purple); }
+        .note-box { background: #0D0D14; border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+        .note-box h4 { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+        .note-box p { font-size: 12px; color: var(--muted); line-height: 1.6; }
+        .note-box p strong { color: var(--text); }
+        .start-card .secondary { margin-top: 12px; text-align: center; font-size: 13px; }
+        .start-card .secondary a { color: var(--muted); text-decoration: none; }
+        .start-card .secondary a:hover { color: var(--text); }
+
+        /* Download */
+        .download { padding: 80px 0; }
+        .dl-host {
+            display: flex; align-items: center; justify-content: space-between; gap: 24px;
+            background: var(--card); border: 1px solid var(--blue); border-radius: 20px;
+            padding: 28px 32px; margin-bottom: 16px;
+        }
+        .dl-host .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--green); font-weight: 500; margin-bottom: 8px; }
+        .dl-host .tag .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+        .dl-host h3 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+        .dl-host p { font-size: 14px; color: var(--muted); line-height: 1.6; max-width: 560px; }
+        .dl-host .btn { flex-shrink: 0; }
+        .dl-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+        .dl-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; }
+        .dl-card .feature-icon { margin-bottom: 14px; }
+        .dl-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+        .dl-card p { font-size: 13px; color: var(--muted); line-height: 1.6; flex: 1; margin-bottom: 16px; }
+        .dl-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .dl-actions .btn { padding: 8px 14px; font-size: 13px; }
+        .dl-size { color: var(--muted); font-weight: 500; font-size: 12px; }
+        .btn-primary .dl-size { color: rgba(255,255,255,0.8); }
+        .dl-foot { text-align: center; color: var(--muted); font-size: 13px; margin-top: 24px; }
+        .dl-foot a { color: var(--blue); text-decoration: none; }
+        .dl-foot strong { color: var(--text); }
+
+        /* Limitations */
+        .limitations { padding: 60px 0; }
+        .limitations-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+            max-width: 800px; margin: 0 auto;
+        }
+        .limitation-item {
+            display: flex; gap: 12px; padding: 16px;
+            background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+        }
+        .limitation-item .lim-icon { color: var(--muted); flex-shrink: 0; margin-top: 2px; }
+        .limitation-item p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+        /* Community */
+        .community { padding: 80px 0; text-align: center; }
+        .community-card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 20px; padding: 48px; max-width: 680px; margin: 0 auto;
+        }
+        .community-card h2 { font-size: 28px; font-weight: 700; margin-bottom: 12px; }
+        .community-card p { color: var(--muted); font-size: 15px; margin-bottom: 28px; line-height: 1.7; }
+        .community-card p a { color: var(--blue); text-decoration: none; }
+        .community-links { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+        .license-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 600;
+            background: rgba(139,92,246,0.1); color: var(--purple);
+            border: 1px solid rgba(139,92,246,0.2); margin-bottom: 20px;
+        }
+
+        /* Footer */
+        footer { border-top: 1px solid var(--border); padding: 32px 0; text-align: center; }
+        footer p { color: var(--muted); font-size: 12px; }
+        footer a { color: var(--blue); text-decoration: none; }
+
+        .icon { width: 18px; height: 18px; flex-shrink: 0; }
+        /* grid children must be allowed to shrink below their content (the <pre>-like terminal) */
+        .feature-grid > *, .why-grid > *, .how-grid > *, .get-started-grid > *, .limitations-grid > *, .compare > * { min-width: 0; }
+
+        @media (max-width: 860px) {
+            .feature-grid { grid-template-columns: 1fr 1fr; }
+            .dl-grid { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 768px) {
+            .container { padding: 0 16px; }
+            nav { padding: 14px 0; }
+            .nav-links { gap: 10px; }
+            .nav-links > a[href^="#"] { display: none; }
+            .nav-brand span { font-size: 16px; }
+            .btn { padding: 8px 14px; font-size: 13px; }
+            .lang-switcher { gap: 2px; margin-left: 4px; }
+            .lang-btn { padding: 4px 8px; font-size: 11px; }
+            .nav-github-label { display: none; }
+            .nav-github { padding: 8px 10px; }
+
+            .hero { padding: 56px 0 40px; }
+            .hero h1 { font-size: 36px; letter-spacing: -1px; }
+            .hero p { font-size: 17px; margin-bottom: 28px; }
+            .hero-cta { gap: 10px; }
+            .hero-cta .btn { width: 100%; justify-content: center; }
+            .hero-shot { margin-top: 40px; border-radius: 12px; }
+
+            .stats { padding: 40px 0 48px; }
+            .features, .why, .how, .get-started, .download { padding: 56px 0; }
+            .dl-host { flex-direction: column; align-items: stretch; padding: 24px; border-radius: 16px; }
+            .dl-host .btn { justify-content: center; }
+            .limitations { padding: 48px 0; }
+            .community { padding: 56px 0; }
+            .section-title { font-size: 26px; }
+            .section-desc { font-size: 15px; margin-bottom: 32px; }
+
+            .feature-grid { grid-template-columns: 1fr; }
+            .why-grid { grid-template-columns: 1fr; gap: 40px; }
+            .how-grid { grid-template-columns: 1fr; gap: 40px; }
+            .get-started-grid { grid-template-columns: 1fr; }
+            .limitations-grid { grid-template-columns: 1fr; }
+
+            .stats-grid { gap: 24px 32px; }
+            .stat-value { font-size: 22px; }
+            .why-content h2, .how-content h2 { font-size: 24px; }
+
+            .feature-card { padding: 22px; }
+            .start-card { padding: 24px; border-radius: 16px; }
+            .community-card { padding: 28px 20px; border-radius: 16px; }
+            .community-card h2 { font-size: 22px; }
+
+            .terminal { padding: 20px; border-radius: 12px; }
+            .terminal-body { font-size: 11px; line-height: 1.8; padding: 16px; }
+        }
+        @media (max-width: 600px) {
+            .dl-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 380px) {
+            .hero h1 { font-size: 30px; }
+            .hero p { font-size: 15px; }
+            .section-title { font-size: 22px; }
+            .nav-links { gap: 6px; }
+            .btn { padding: 7px 10px; font-size: 12px; }
+            .lang-btn { padding: 3px 6px; }
+            .nav-github-label { display: none; }
+            .nav-github { padding: 7px 9px; }
+            .compare { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="container">
+        <a href="#" class="nav-brand">
+            <img src="assets/logo.svg" alt="Remote Display">
+            <span>Remote Display</span>
+        </a>
+        <div class="nav-links">
+            <a href="#features" data-i18n="nav_features">Features</a>
+            <a href="#how-it-works" data-i18n="nav_how">How it works</a>
+            <a href="#get-started" data-i18n="nav_start">Get started</a>
+            <a href="#download" data-i18n="nav_download">Download</a>
+            <a href="https://github.com/SamuelRioTz/remotedisplay" class="btn btn-ghost nav-github">
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                <span class="nav-github-label">GitHub</span>
+            </a>
+            <div class="lang-switcher">
+                <button class="lang-btn active" data-lang="en" onclick="switchLanguage('en')">EN</button>
+                <button class="lang-btn" data-lang="es" onclick="switchLanguage('es')">ES</button>
+                <button class="lang-btn" data-lang="de" onclick="switchLanguage('de')">DE</button>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<section class="hero">
+    <div class="container">
+        <div class="hero-badge" data-i18n="hero_badge">Open source &middot; Built on RustDesk &middot; AGPL-3.0</div>
+        <h1><span data-i18n="hero_title_1">A remote Mac that</span><br><span class="grad" data-i18n="hero_title_2">fits your window.</span></h1>
+        <p data-i18n-html="hero_subtitle">Remote desktop for your Mac from Windows, iPad or another Mac, built on the open-source RustDesk engine, with <strong>virtual monitors that resize to the window you are looking at</strong>. Self-hosted: no accounts, no cloud.</p>
+        <div class="hero-cta">
+            <a href="#download" class="btn btn-primary">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                <span data-i18n="hero_download">Download</span>
+            </a>
+            <a href="https://github.com/SamuelRioTz/remotedisplay" class="btn btn-outline">
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                <span data-i18n="hero_source">View source</span>
+            </a>
+        </div>
+        <figure class="hero-shot">
+            <img src="assets/two-windows.webp" width="1630" height="785" alt="Two Remote Display windows on Windows 11, each showing one monitor of the same Mac">
+            <figcaption data-i18n="hero_caption">Two monitors of one Mac, each in its own window. The Mac's desktop is exactly the size of each window.</figcaption>
+        </figure>
+    </div>
+</section>
+
+<section class="stats">
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat">
+                <div class="stat-value" data-i18n="stat_clients">4 clients</div>
+                <div class="stat-label" data-i18n="stat_clients_label">Windows &middot; macOS &middot; Android &middot; iOS</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" data-i18n="stat_scale">200 %</div>
+                <div class="stat-label" data-i18n="stat_scale_label">Retina scale per monitor</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" data-i18n="stat_accounts">0</div>
+                <div class="stat-label" data-i18n="stat_accounts_label">Accounts, IDs or relays</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" data-i18n="stat_engine">RustDesk</div>
+                <div class="stat-label" data-i18n="stat_engine_label">Engine, protocol and codecs</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="features" id="features">
+    <div class="container">
+        <div class="section-label" data-i18n="features_label">Features</div>
+        <h2 class="section-title" data-i18n="features_title">The screen adapts to you, not the other way around</h2>
+        <p class="section-desc" data-i18n="features_desc">Everything a remote desktop should do, plus the one thing none of them did: monitors the size of your window.</p>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><path d="M7 8h3M7 8v3M17 12h-3M17 12V9"/></svg>
+                </div>
+                <h3 data-i18n="feat_fit_title">Monitors that fit</h3>
+                <p data-i18n="feat_fit_desc">Create a virtual monitor from the client: it is born at your window's size. Fit to screen resizes it in place at any time; the display ID never changes, so the session never blinks.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon purple">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="13" height="10" rx="2"/><rect x="9" y="9" width="13" height="10" rx="2"/></svg>
+                </div>
+                <h3 data-i18n="feat_dyn_title">Dynamic physical monitor</h3>
+                <p data-i18n="feat_dyn_desc">Fit to screen on the Mac's real display mirrors it onto a virtual main that follows your window. Flip the switch on the physical monitor to get it back.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5M11 8v6M8 11h6"/></svg>
+                </div>
+                <h3 data-i18n="feat_scale_title">Scale per monitor</h3>
+                <p data-i18n="feat_scale_desc">100, 125, 150 or 200 %, like Windows display scaling. Retina (2× backing) when macOS allows it, otherwise the same scale with fewer points.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon green">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+                </div>
+                <h3 data-i18n="feat_profile_title">Profiles per client</h3>
+                <p data-i18n="feat_profile_desc">Your PC and your iPad each remember their own monitor layout and apply it when they connect, even after the server restarts.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon purple">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>
+                </div>
+                <h3 data-i18n="feat_multi_title">Multi-window</h3>
+                <p data-i18n="feat_multi_desc">Open any monitor in its own window, or show them all at once. Monitors are numbered in order; the trash icon removes a virtual one.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon green">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                </div>
+                <h3 data-i18n="feat_private_title">Private by construction</h3>
+                <p data-i18n="feat_private_desc">Direct connection on your LAN or VPN with a password you set. No accounts, no IDs, no third-party servers. Everything is open source.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="why" id="why">
+    <div class="container">
+        <div class="why-grid">
+            <div class="why-content">
+                <div class="section-label" style="text-align:left;" data-i18n="why_label">Why</div>
+                <h2><span data-i18n="why_title_1">Every remote desktop shows a screen </span><span class="grad" data-i18n="why_title_2">that is never the right shape.</span></h2>
+                <p data-i18n="why_desc">Black bars, scrolling, or a tiny picture of a 4K display. Virtual machines solved this years ago: in Tart the guest display simply becomes the size of your window. Remote Display started as a fork of RustDesk to control a Mac Studio from a Windows PC over Tailscale, and does that for a real Mac: it creates virtual monitors on the host and keeps them the size of the window you are looking at. It can make the Mac's physical monitor dynamic too.</p>
+            </div>
+            <div class="compare" aria-hidden="true">
+                <div class="cmp">
+                    <div class="cmp-label" data-i18n="why_before">Other tools</div>
+                    <div class="win">
+                        <div class="win-bar"><i></i><i></i><i></i></div>
+                        <div class="win-body"><div class="screen fixed"></div></div>
+                    </div>
+                    <p data-i18n="why_before_desc">A fixed desktop squeezed into your window: black bars, scrolling, or tiny text.</p>
+                </div>
+                <div class="cmp">
+                    <div class="cmp-label grad" data-i18n="why_after">Remote Display</div>
+                    <div class="win">
+                        <div class="win-bar"><i></i><i></i><i></i></div>
+                        <div class="win-body"><div class="screen fit"></div></div>
+                    </div>
+                    <p data-i18n="why_after_desc">The Mac gets a virtual monitor with your window's exact size. Resize the window and the monitor follows.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="how" id="how-it-works">
+    <div class="container">
+        <div class="how-grid">
+            <div class="how-content">
+                <div class="section-label" style="text-align:left;" data-i18n="how_label">How it works</div>
+                <h2><span data-i18n="how_title_1">RustDesk underneath, </span><span class="grad" data-i18n="how_title_2">virtual monitors on top</span></h2>
+                <p data-i18n="how_desc">Remote Display is a fork of RustDesk 1.4.9. The engine, the protocol and the client plumbing are RustDesk's; the native virtual display backend for macOS, the per-monitor scale and the per-client profiles are what this project adds.</p>
+                <div class="how-detail">
+                    <h4 data-i18n="how_rustdesk_title">From RustDesk</h4>
+                    <p data-i18n="how_rustdesk_desc">Screen capture, video encoding, input injection and the encrypted direct connection all come from the RustDesk engine, vendored with its changes documented in the repository. Remote Display would not exist without it.</p>
+                </div>
+                <div class="how-detail">
+                    <h4 data-i18n="how_server_title">Server (macOS 14+)</h4>
+                    <p data-i18n-html="how_server_desc">A menu-bar app bundling the engine. Virtual monitors are <code>CGVirtualDisplay</code>s created in-process and resized in place, so their IDs stay stable and the session never blinks. Each one keeps a stable identity, which is what stops macOS from generating a new ICC profile per display (the ColorSync leak).</p>
+                </div>
+                <div class="how-detail">
+                    <h4 data-i18n="how_client_title">Client</h4>
+                    <p data-i18n="how_client_desc">A Flutter app on top of the same engine. It owns the monitor profile for each Mac it connects to and reconciles the server with it on connect.</p>
+                </div>
+                <div class="how-detail">
+                    <h4 data-i18n="how_transport_title">Transport</h4>
+                    <p data-i18n="how_transport_desc">RustDesk's protocol over a direct IP connection, no rendezvous or relay. LAN peers are discovered automatically; over the internet use a VPN such as Tailscale.</p>
+                </div>
+                <div class="how-detail">
+                    <h4 data-i18n="how_measured_title">Measured, not assumed</h4>
+                    <p data-i18n="how_measured_desc">macOS 26 has quirks around virtual displays (HiDPI mode selection, mirror sets dissolving on mode changes, per-process display lists). The repository keeps the harnesses that measured them.</p>
+                </div>
+                <a href="https://github.com/SamuelRioTz/remotedisplay#how-it-works" class="btn btn-outline" style="margin-top:8px;">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                    <span data-i18n="how_readme_btn">Read the technical notes</span>
+                </a>
+            </div>
+            <div>
+                <div class="terminal">
+                    <div class="terminal-bar">
+                        <div class="terminal-dot"></div>
+                        <div class="terminal-dot"></div>
+                        <div class="terminal-dot"></div>
+                    </div>
+                    <div class="terminal-body"><span class="t-cmt"># what the client asks the Mac to do</span>
+<span class="t-ok">&#10003;</span> <span class="t-txt">Connected</span>            mac-studio.local:21118
+<span class="t-ok">&#10003;</span> <span class="t-txt">Create virtual monitor</span> <span class="t-blue">1304&times;721</span> &middot; 100 %
+<span class="t-ok">&#10003;</span> <span class="t-txt">Fit to screen</span>          <span class="t-blue">1920&times;1010</span> &middot; <span class="t-purple">200 % Retina</span>
+<span class="t-ok">&#10003;</span> <span class="t-txt">Profile saved</span>          this client, this Mac
+
+<span class="t-txt">MONITORS</span>
+  <span class="t-ok">&#9679;</span> Monitor 1  <span class="t-cmt">physical</span>  1920&times;1080          on
+  <span class="t-ok">&#9679;</span> Monitor 2  <span class="t-purple">virtual</span>   1920&times;1010 &middot; 200 %  <span class="t-blue">&larr; here</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="get-started" id="get-started">
+    <div class="container">
+        <div class="section-label" data-i18n="start_label">Get started</div>
+        <h2 class="section-title" data-i18n="start_title">Two installs, one password</h2>
+        <p class="section-desc" data-i18n="start_desc">A server on the Mac, a client wherever you are.</p>
+        <div class="get-started-grid">
+            <div class="start-card primary">
+                <div class="tag"><span class="dot"></span> <span data-i18n="start_step1">Step 1 &middot; on the Mac</span></div>
+                <h3 data-i18n="start_server_title">Install the server</h3>
+                <p data-i18n="start_server_desc">Install Remote Display Server from the DMG, turn the service on, grant Screen Recording and Accessibility, and set a password. It lives in the menu bar.</p>
+                <div class="note-box">
+                    <h4 data-i18n="start_first_launch">First launch</h4>
+                    <p data-i18n-html="start_first_launch_desc">macOS builds are signed ad hoc for now, so Gatekeeper will object once. Right-click &rarr; Open, or go to <strong>System Settings &rarr; Privacy &amp; Security</strong> and click <strong>Open Anyway</strong>.</p>
+                </div>
+                <a href="#download" class="btn btn-primary" style="justify-content:center;">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                    <span data-i18n="start_server_btn">Download the server (macOS 14+)</span>
+                </a>
+            </div>
+            <div class="start-card">
+                <div class="tag purple"><span class="dot"></span> <span data-i18n="start_step2">Step 2 &middot; on your PC, tablet or phone</span></div>
+                <h3 data-i18n="start_client_title">Install a client</h3>
+                <p data-i18n="start_client_desc">Connect to the Mac's IP on port 21118 with that password. Machines on the same LAN show up by themselves. Then open the display menu in the toolbar: create a virtual monitor, hit Fit to screen, pick a scale.</p>
+                <a href="#download" class="btn btn-outline" style="justify-content:center;">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                    <span data-i18n="start_client_btn">All downloads</span>
+                </a>
+                <div class="secondary"><a href="https://github.com/SamuelRioTz/remotedisplay/blob/main/tools/README.md" data-i18n="start_build">Build from source</a> &rarr;</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="download" id="download">
+    <div class="container">
+        <div class="section-label" data-i18n="dl_label">Download</div>
+        <h2 class="section-title" data-i18n="dl_title">Get the latest release</h2>
+        <p class="section-desc" data-i18n="dl_desc">Every build is published on GitHub Releases. Install the server on the Mac you want to reach, then a client on each device you connect from.</p>
+        <div class="dl-host">
+            <div>
+                <div class="tag"><span class="dot"></span> <span data-i18n="dl_host_tag">Host &middot; Apple silicon Mac &middot; macOS 14 or newer</span></div>
+                <h3 data-i18n="dl_host_title">Remote Display Server</h3>
+                <p data-i18n="dl_host_desc">A menu-bar app for the Mac you connect to. Signed ad hoc for now: right-click &rarr; Open the first time.</p>
+            </div>
+            <a href="https://github.com/SamuelRioTz/remotedisplay/releases/latest" class="btn btn-primary" data-asset="mac-server">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                <span data-i18n="dl_host_btn">Download for Mac (DMG)</span> <span class="dl-size" data-asset-size hidden></span>
+            </a>
+        </div>
+        <div class="dl-grid">
+            <div class="dl-card">
+                <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5.5l8-1.1v7.1H3zM12 4.2L21 3v8.5h-9zM3 12.5h8v7.1L3 18.5zM12 12.5h9V21l-9-1.2z"/></svg></div>
+                <h3 data-i18n="dl_win_title">Windows</h3>
+                <p data-i18n="dl_win_desc">Windows 10 or 11, 64-bit. Installer or portable zip.</p>
+                <div class="dl-actions">
+                    <a href="https://github.com/SamuelRioTz/remotedisplay/releases/latest" class="btn btn-outline" data-asset="win-installer"><span data-i18n="dl_win_installer">Installer</span> <span class="dl-size" data-asset-size hidden></span></a>
+                    <a href="https://github.com/SamuelRioTz/remotedisplay/releases/latest" class="btn btn-outline" data-asset="win-portable"><span data-i18n="dl_win_portable">Portable</span> <span class="dl-size" data-asset-size hidden></span></a>
+                </div>
+            </div>
+            <div class="dl-card">
+                <div class="feature-icon purple"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M2 20h20"/></svg></div>
+                <h3 data-i18n="dl_mac_title">macOS</h3>
+                <p data-i18n="dl_mac_desc">Client for another Mac.</p>
+                <div class="dl-actions">
+                    <a href="https://github.com/SamuelRioTz/remotedisplay/releases/latest" class="btn btn-outline" data-asset="mac-client"><span data-i18n="dl_mac_btn">DMG</span> <span class="dl-size" data-asset-size hidden></span></a>
+                </div>
+            </div>
+            <div class="dl-card">
+                <div class="feature-icon green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+                <h3 data-i18n="dl_android_title">Android</h3>
+                <p data-i18n="dl_android_desc">Phones and tablets, arm64.</p>
+                <div class="dl-actions">
+                    <a href="https://github.com/SamuelRioTz/remotedisplay/releases/latest" class="btn btn-outline" data-asset="android"><span data-i18n="dl_android_btn">APK</span> <span class="dl-size" data-asset-size hidden></span></a>
+                </div>
+            </div>
+            <div class="dl-card">
+                <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M12 18h.01"/></svg></div>
+                <h3 data-i18n="dl_ios_title">iOS / iPadOS</h3>
+                <p data-i18n="dl_ios_desc">Development-signed IPA: install with Xcode or a sideloading tool.</p>
+                <div class="dl-actions">
+                    <a href="https://github.com/SamuelRioTz/remotedisplay/releases/latest" class="btn btn-outline" data-asset="ios"><span data-i18n="dl_ios_btn">IPA</span> <span class="dl-size" data-asset-size hidden></span></a>
+                </div>
+            </div>
+        </div>
+        <p class="dl-foot"><span data-release-wrap hidden><span data-i18n="dl_latest">Latest release</span> <strong data-release-tag></strong> &middot; </span><a href="https://github.com/SamuelRioTz/remotedisplay/releases"><span data-i18n="dl_all">All releases on GitHub</span> &rarr;</a></p>
+    </div>
+</section>
+
+<section class="limitations">
+    <div class="container">
+        <div class="section-label" data-i18n="lim_label">Good to know</div>
+        <h2 class="section-title" data-i18n="lim_title">Known limitations</h2>
+        <p class="section-desc" data-i18n="lim_desc">Remote Display uses a private Apple API and talks directly to your Mac. Here's what that means in practice.</p>
+        <div class="limitations-grid">
+            <div class="limitation-item">
+                <svg class="lim-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                <p data-i18n="lim_1">Retina (2×) virtual monitors need a requested width of at least 1920 pixels; below that macOS 26 only offers the 1× variant and the scale is emulated with fewer points.</p>
+            </div>
+            <div class="limitation-item">
+                <svg class="lim-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                <p data-i18n-html="lim_2"><code>CGVirtualDisplay</code> is a private API: no Mac App Store, and behaviour may change between macOS versions.</p>
+            </div>
+            <div class="limitation-item">
+                <svg class="lim-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                <p data-i18n="lim_3">No relay yet: connections are direct, on your LAN or through a VPN.</p>
+            </div>
+            <div class="limitation-item">
+                <svg class="lim-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                <p data-i18n="lim_4">macOS builds are Apple silicon only for now and signed ad hoc; right-click → Open the first time. The iOS build uses development signing.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="community">
+    <div class="container">
+        <div class="community-card">
+            <div class="license-badge">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                AGPL-3.0
+            </div>
+            <h2 data-i18n="community_title">Built in the open</h2>
+            <p data-i18n-html="community_desc">Remote Display is free software built on <a href="https://github.com/rustdesk/rustdesk">RustDesk</a>: the engine inside is a modified copy of RustDesk 1.4.9 (AGPL-3.0), and the idea of a display that becomes the window comes from <a href="https://tart.run">Tart</a>. RustDesk is a trademark of its owners; this project is not affiliated with or endorsed by them. Contributions of all kinds are welcome.</p>
+            <div class="community-links">
+                <a href="https://github.com/SamuelRioTz/remotedisplay" class="btn btn-outline">
+                    <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                    <span data-i18n="community_source">Source code</span>
+                </a>
+                <a href="https://github.com/SamuelRioTz/remotedisplay/issues" class="btn btn-outline">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                    <span data-i18n="community_issues">Report an issue</span>
+                </a>
+                <a href="https://github.com/SamuelRioTz/remotedisplay/blob/main/CONTRIBUTING.md" class="btn btn-outline">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
+                    <span data-i18n="community_contribute">Contribute</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<footer>
+    <div class="container">
+        <p data-i18n-html="footer">&copy; 2026 Remote Display &middot; Licensed under <a href="https://github.com/SamuelRioTz/remotedisplay/blob/main/LICENSE">AGPL-3.0</a> &middot; Built on a modified copy of <a href="https://github.com/rustdesk/rustdesk">RustDesk</a></p>
+    </div>
+</footer>
+
+<script src="js/i18n.js"></script>
+<script src="js/downloads.js"></script>
+</body>
+</html>

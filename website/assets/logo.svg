@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+  <!-- Remote Display icon: blue→violet gradient tile, screen outline with the toolbar "pill" -->
+  <rect x="100" y="100" width="824" height="824" rx="196" fill="url(#bg)"/>
+  <rect x="278" y="300" width="468" height="336" rx="70" fill="none" stroke="#FFFFFF" stroke-width="52"/>
+  <rect x="336" y="522" width="164" height="54" rx="27" fill="#FFFFFF"/>
+  <rect x="486" y="656" width="52" height="44" fill="#FFFFFF"/>
+  <rect x="385" y="692" width="254" height="54" rx="27" fill="#FFFFFF"/>
+</svg>
