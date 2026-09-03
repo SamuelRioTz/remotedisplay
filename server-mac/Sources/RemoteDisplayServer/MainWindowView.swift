@@ -217,6 +217,18 @@ struct MainWindowView: View {
                     .controlSize(.small)
             }
             HStack {
+                Text("Website")
+                Spacer()
+                Link("remotedisplay.app", destination: URL(string: "https://remotedisplay.app")!)
+                    .controlSize(.small)
+            }
+            HStack {
+                Text("Contact")
+                Spacer()
+                Link("info@remotedisplay.app", destination: URL(string: "mailto:info@remotedisplay.app")!)
+                    .controlSize(.small)
+            }
+            HStack {
                 Text("Logs")
                 Spacer()
                 Button("Open Folder") { c.openLogs() }.controlSize(.small)

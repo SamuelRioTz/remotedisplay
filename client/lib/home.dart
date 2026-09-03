@@ -531,19 +531,37 @@ class _ClientHomeState extends State<ClientHome> {
           const SizedBox(height: 4),
           Text('Connect to your computer',
               style: TextStyle(color: ui.muted, fontSize: 14)),
-          const SizedBox(height: 6),
-          // AGPL §13: users interacting over the network must be offered the source.
-          GestureDetector(
-            onTap: () => launchUrl(
-                Uri.parse('https://github.com/SamuelRioTz/remotedisplay'),
-                mode: LaunchMode.externalApplication),
-            child: Text('Free software · AGPL-3.0 · Source code',
-                style: TextStyle(
-                    color: ui.muted,
-                    fontSize: 12,
-                    decoration: TextDecoration.underline)),
+          const SizedBox(height: 8),
+          // About row: website, source (AGPL §13: users interacting over the
+          // network must be offered the source), contact, and attribution.
+          Wrap(
+            spacing: 14,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _aboutLink(ui, 'remotedisplay.app', 'https://remotedisplay.app'),
+              _aboutLink(ui, 'GitHub',
+                  'https://github.com/SamuelRioTz/remotedisplay'),
+              _aboutLink(ui, 'info@remotedisplay.app',
+                  'mailto:info@remotedisplay.app'),
+              Text('Built on RustDesk · AGPL-3.0',
+                  style: TextStyle(color: ui.muted, fontSize: 12)),
+            ],
           ),
         ],
+      );
+
+  Widget _aboutLink(_Ui ui, String label, String url) => GestureDetector(
+        onTap: () =>
+            launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: Text(label,
+              style: TextStyle(
+                  color: ui.muted,
+                  fontSize: 12,
+                  decoration: TextDecoration.underline)),
+        ),
       );
 
   Widget _sectionTitle(_Ui ui, String text, {Widget? trailing}) => Row(
