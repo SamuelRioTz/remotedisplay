@@ -127,6 +127,15 @@ class ExternalScreenController {
   /// the swap when switching displays on the iPad and the initial hint.
   Future<void> onSessionUpdate() async {
     _maybeHint();
+    // The display shown out there no longer exists (a virtual was deleted,
+    // a monitor unplugged from the Mac): close the external view instead of
+    // leaving it on the engine's "plugged out" prompt with no menu row to
+    // close it from.
+    if (extDisplay.value >= 0 &&
+        extDisplay.value >= gFFI.ffiModel.pi.displays.length) {
+      await detach();
+      return;
+    }
     final current = gFFI.ffiModel.pi.currentDisplay;
     if (current == _lastMainDisplay || current == kAllDisplayValue) return;
     final prev = _lastMainDisplay;

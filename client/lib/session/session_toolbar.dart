@@ -907,12 +907,14 @@ class _SessionToolbarState extends State<SessionToolbar> {
           // Virtual → trash (delete); physical → switch (off = mirroring).
           onToggle: isVirtual ? null : (v) => toggle(mid, v),
           onDelete: isVirtual
-              ? () {
+              ? () async {
                   // If another window shows it, close it before destroying it.
                   if (otherWin != null) {
                     DesktopMultiWindow.invokeMethod(
                         kMainWindowId, kClientEventCloseWindow, otherWin);
                   }
+                  // Same for the iPad's external monitor.
+                  if (isExt) await ext?.detach();
                   toggle(mid, false);
                   if (isCurrent) _retitleWhenDisplayGone(mid);
                 }

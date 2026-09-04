@@ -276,3 +276,8 @@ to the external monitor size that virtual to the monitor's pixels (a temporary
 pill kept its old "Display N" label because the page body lives in
 BlockableOverlay's initial OverlayEntry (setState does not rebuild it) — the label
 is a ValueNotifier now.
+(5) Deleting the virtual that the external monitor was showing left the external
+view open on the engine's "display is plugged out" prompt, with no menu row left
+to close it: the trash now detaches the external view first, and the controller
+detaches on its own whenever the display it shows disappears (verified: the
+monitor went back to the iPadOS desktop).
