@@ -25,7 +25,9 @@ binaries in git (`release/out/` is in .gitignore).
 
 1. Bump `version:` in `client/pubspec.yaml` and in the main README, commit+push.
 2. **Windows PC**: `powershell -ExecutionPolicy Bypass -File release/release-windows.ps1 -Upload`
-   (builds, validates, creates the `v<ver>` Release and uploads zip+installer).
+   (builds, validates, creates the `v<ver>` Release and uploads zip+installer). Over a
+   non-interactive SSH session `gh` on the PC may be unauthenticated (401): then fetch the
+   two files from `release\out` with `scp` and upload them from the Mac (`gh release upload`).
    Requires an up-to-date engine DLL (`engine/rustdesk/target/release/librustdesk.dll`,
    recipe in `tools/README.md`).
 3. **Mac** (run by the Mac's Claude or Sam; codesign needs the graphical session):

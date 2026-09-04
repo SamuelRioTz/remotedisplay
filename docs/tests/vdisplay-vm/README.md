@@ -313,3 +313,31 @@ Verified:
 
 QEMU gotcha: `qmp.py … shot <path>` only works with a path inside the QEMU folder; copy the
 PNG afterwards.
+
+## 2026-09-04 — 1.0.4: Developer ID signing and notarization (server VM + Windows client)
+
+The macOS client and server are now signed with the personal team's *Developer ID
+Application* certificate (hardened runtime, secure timestamp), notarized and stapled, DMGs
+included. Verified:
+
+- Build Mac (Gatekeeper on): `spctl -a -t exec` on both apps and `spctl -a -t open
+  --context context:primary-signature` on both DMGs → `accepted, source=Notarized Developer
+  ID`; `stapler validate` passes for apps and DMGs; all four notarytool submissions `Accepted`.
+- Server VM (`macos-tahoe-base`): the DMG copied in with a Safari-style quarantine attribute is
+  accepted as *Notarized Developer ID*, and so is the app inside it. Launching the copied
+  bundle showed macOS' first-open sheet for downloads — "Apple checked it for malicious software
+  and none was detected" — instead of the old "unidentified developer" block. Note for tests: a
+  bundle copied with `cp -R` from a quarantined DMG keeps the flag and runs *translocated*
+  (`/private/var/folders/…/AppTranslocation/…`), so the LaunchAgent engine does not start; a
+  Finder drag-install is not translocated. `xattr -dr com.apple.quarantine` reproduces that.
+- The relaunched 1.0.4 server ran from `/Applications` with the engine under the LaunchAgent,
+  port 21118 open, permissions reported granted. The Windows 11 client VM (QEMU, `--connect
+  10.0.2.2:21119` through the host bridge) connected: HEVC via `hevc_videotoolbox`, one video
+  loop alive, engine at 99 MB; killing the client logged `last client left, restoring the
+  displays` and the loop ended with 0 alive.
+- Requirement check on the build Mac: the Developer ID build satisfies the new explicit
+  requirement (`identifier "app.remotedisplay.server" and anchor apple generic and certificate
+  leaf[subject.OU] = K45698KZ4W`), a copy re-signed with the *Apple Development* identity
+  satisfies it too (TCC grants shared between development and release builds), and the
+  Developer ID build does NOT satisfy the 1.0.3 requirement (which pinned the certificate's CN),
+  hence the one-time permission prompt when upgrading from 1.0.3.
