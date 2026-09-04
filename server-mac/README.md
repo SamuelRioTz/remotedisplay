@@ -47,7 +47,8 @@ again at the next login, and the app starts it when reopened.
    again after a Deny, so a second *Grant…* tap opens the Settings panel directly.
 3. **Grant… Accessibility**: same two-step behaviour; the dialog's *Open System Settings* lands
    on *Accessibility*; toggle + admin password. No restart needed.
-4. **Set… Permanent password** (min. 6 characters) → `remotedisplayd --set-lan-password` over IPC.
+4. **Set… Permanent password** (min. 6 characters) → `remotedisplayd --set-lan-password` over IPC; the
+   password travels on the engine's stdin, never as an argument (arguments are visible in `ps`).
 5. First client connection: macOS 26 shows *"remotedisplayd is requesting to bypass the
    system private window picker and directly access your screen and audio"* → **Allow**. This is
    Apple's periodic screen-capture reminder for apps without a picker; it can come back
@@ -162,3 +163,19 @@ Full setup and usage flow, as seen on the Tart test bench (resized; originals in
 
 **15. client vm video vp9**  
 ![client vm video vp9](docs/screenshots/15-client-vm-video-vp9.jpg)
+
+## Update notice
+
+At launch and every 6 hours the app asks the GitHub API for the latest release
+(`releases/latest`, one small request, User-Agent `RemoteDisplayServer/<version>`) and, if
+the tag is newer than `CFBundleShortVersionString`, shows *Version X is available* with a
+*Download* link in the header. Updating stays manual. The clients do the same once per launch
+on their home screen.
+
+## Signing
+
+`make sign` picks the identity through `sign-identity.sh`: only Sam's personal team
+(K45698KZ4W), preferring a *Developer ID Application* certificate and falling back to
+*Apple Development*. Never the first "Apple Development" match in the keychain — on the
+build Mac that one belongs to another organisation. Changing the signing team changes the
+code requirement, so Screen Recording and Accessibility must be granted again once.
