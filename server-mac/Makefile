@@ -14,13 +14,13 @@ INFO_PLIST  = Info.plist
 # Copied into the bundle as remotedisplayd.
 ENGINE_BIN ?= $(HOME)/dev/rustdesk/target/release/rustdesk
 
-# STABLE signing identity (TCC permissions survive rebuilds). Priority:
-# own remotedisplay-cs cert > Apple Development (from Xcode/Apple account) > ad-hoc.
-# Stable signing + SAME identity for app and engine = a single permission that persists.
-SIGN_ID ?= $(shell security find-identity -v -p codesigning 2>/dev/null | grep -oE "remotedisplay-cs|RemoteDisplaySign" | head -1)
-ifeq ($(strip $(SIGN_ID)),)
-SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null | grep -o '"Apple Development[^"]*"' | head -1 | tr -d '"')
-endif
+# STABLE signing identity (TCC permissions survive rebuilds), chosen by TEAM through
+# sign-identity.sh: Sam's personal team only (Developer ID Application if present,
+# else Apple Development). Never the first "Apple Development" match — on this Mac
+# that was the certificate of another organisation. Stable signing + SAME identity for
+# app and engine = a single permission that persists. Override with SIGN_ID=... or TEAM_ID=...
+TEAM_ID ?= K45698KZ4W
+SIGN_ID ?= $(shell ./sign-identity.sh $(TEAM_ID))
 CODE_ID := app.remotedisplay.server
 
 .PHONY: all build bundle sign run clean
