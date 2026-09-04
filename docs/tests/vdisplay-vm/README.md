@@ -248,3 +248,20 @@ shares the bundle id — it now handles it by restoring the displays first
 (`RDHeadlessAppDelegate`); and the app's engine lookup is anchored on
 `/Contents/MacOS/remotedisplayd --server$`, since a plain `pgrep -f
 "remotedisplayd --server"` also matched shells mentioning the name.
+
+### iPad: external monitor for macOS hosts (2026-09-04, real devices)
+
+Sam's iPad Pro (iPadOS 26.6.1) with an external monitor, connected to his Mac
+Studio (one physical + one virtual display): the MONITORS menu had no way to put
+the other monitor on the iPad's external display. The external-display action
+(`ExternalScreenController.attachDisplay`/`detach`) was only wired in the
+generic DISPLAYS section used for Windows/Linux hosts; the macOS section only
+knew the desktop "open in new window" slot. Fixed in `session_toolbar.dart`: on
+mobile with a monitor connected, each non-current row shows the external-display
+icon (or ✕ while it is out there, with " · external" in the detail).
+
+Verified on the real iPad with WebDriverAgent (`~/dev/WebDriverAgent`, screenshots of
+both screens via `/screenshot` and the added `/wda/screenshot/<displayId>`): tap →
+the external monitor switched to its native 2560x1600 and showed the Mac's
+Display 2 with the "192.168.1.115 | Display 2" pill, the iPad kept Monitor 1;
+✕ → the monitor went back to the iPadOS desktop.

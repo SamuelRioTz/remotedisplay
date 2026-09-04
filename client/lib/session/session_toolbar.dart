@@ -825,6 +825,10 @@ class _SessionToolbarState extends State<SessionToolbar> {
     final macMonitors =
         pi.platform == kPeerPlatformMacOS && pi.isMacVirtualDisplaySupported;
     final current = CurrentDisplayState.find(id).value;
+    // iPad external monitor (mobile only): which remote display is out there.
+    final ext = widget.externalScreen;
+    final extConnected = ext?.screenConnected.value ?? false;
+    final extDisplay = ext?.extDisplay.value ?? -1;
     if (macMonitors) {
       // remotedisplay: A SINGLE section for macOS — "monitor" and "display"
       // are the same thing, so each row combines selection (which one is
@@ -845,6 +849,7 @@ class _SessionToolbarState extends State<SessionToolbar> {
         final isVirtual = virtuals.contains(mid);
         final isCurrent = current == i;
         final otherWin = others[i];
+        final isExt = extDisplay == i;
         // Virtual: show pixels equivalent to 100% (= window size) and its
         // scale; tapping the detail opens the scale selector.
         final scale = isVirtual ? MonitorProfile.scaleOf(id, pi, mid) : 100;
@@ -860,7 +865,8 @@ class _SessionToolbarState extends State<SessionToolbar> {
           isCurrent: isCurrent,
           detail: '${px.width.toInt()}×${px.height.toInt()}'
               '${isVirtual ? ' · $scale%' : ''}'
-              '${otherWin != null && !isVirtual ? ' · open' : ''}',
+              '${otherWin != null && !isVirtual ? ' · open' : ''}'
+              '${isExt ? ' · external' : ''}',
           onDetailTap: isVirtual ? () => _showScaleMenu(anchor, i, mid) : null,
           // Tap: view it here; if it's already in another window, bring
           // that window forward (the ⧉ icon is there to open it in a new window).
@@ -872,20 +878,32 @@ class _SessionToolbarState extends State<SessionToolbar> {
                       openMonitorInTheSameTab(i, ffi, pi);
                       _setWindowTitleForDisplay(i);
                     },
-          // Open this monitor in a new window (or close the one already
-          // showing it). Fixed column: the current row leaves it empty.
-          openSlot: isDesktop,
-          openIcon: !isDesktop || isCurrent
-              ? null
-              : (otherWin != null
-                  ? Icons.close_rounded
-                  : Icons.open_in_new_rounded),
-          openTooltip:
-              otherWin != null ? 'Close its window' : 'Open in new window',
-          onOpen: otherWin != null
-              ? () => DesktopMultiWindow.invokeMethod(
-                  kMainWindowId, kClientEventCloseWindow, otherWin)
-              : () => openMonitorInNewTabOrWindow(i, id, pi),
+          // Desktop: open this monitor in a new window (or close the one
+          // already showing it). iPad with an external monitor: show it out
+          // there (or stop showing it) — the same feature the DISPLAYS
+          // section of Windows/Linux peers has had; it was missing here.
+          // Fixed column: the current row leaves it empty.
+          openSlot: isDesktop || extConnected,
+          openIcon: isDesktop
+              ? (isCurrent
+                  ? null
+                  : (otherWin != null
+                      ? Icons.close_rounded
+                      : Icons.open_in_new_rounded))
+              : (extConnected
+                  ? (isExt
+                      ? Icons.close_rounded
+                      : (!isCurrent ? Icons.tv_rounded : null))
+                  : null),
+          openTooltip: isDesktop
+              ? (otherWin != null ? 'Close its window' : 'Open in new window')
+              : (isExt ? 'Stop external display' : 'Show on external display'),
+          onOpen: isDesktop
+              ? (otherWin != null
+                  ? () => DesktopMultiWindow.invokeMethod(
+                      kMainWindowId, kClientEventCloseWindow, otherWin)
+                  : () => openMonitorInNewTabOrWindow(i, id, pi))
+              : (isExt ? () => ext?.detach() : () => ext?.attachDisplay(i)),
           // Virtual → trash (delete); physical → switch (off = mirroring).
           onToggle: isVirtual ? null : (v) => toggle(mid, v),
           onDelete: isVirtual
@@ -935,9 +953,6 @@ class _SessionToolbarState extends State<SessionToolbar> {
     } else if (pi.displays.length > 1) {
       // Other peers (Windows/Linux/etc.): the classic DISPLAYS section, just
       // to choose which monitor is shown.
-      final ext = widget.externalScreen;
-      final extConnected = ext?.screenConnected.value ?? false;
-      final extDisplay = ext?.extDisplay.value ?? -1;
       items.add(_header('DISPLAYS'));
       for (var i = 0; i < pi.displays.length; i++) {
         final d = pi.displays[i];
