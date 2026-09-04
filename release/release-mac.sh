@@ -33,7 +33,10 @@ make_dmg() { # make_dmg <App.app> <output.dmg> <volname>
 #    (Xcode project) and the server bundles target/release/rustdesk. Build both here so
 #    the packages never ship a stale engine (the client dylib needs the `flutter` feature).
 export VCPKG_ROOT="${VCPKG_ROOT:-$HOME/vcpkg}"   # scrap/build.rs needs libyuv from vcpkg
-( cd "$ROOT/engine/rustdesk" && cargo build --release --features flutter --lib && cargo build --release --bin rustdesk )
+#    `hwcodec` = hardware H264/H265 through the prebuilt ffmpeg the hwcodec crate ships
+#    (VideoToolbox here; the iOS and Android builds already had it). Without it everything
+#    was VP9 in software, even at 3440x1440.
+( cd "$ROOT/engine/rustdesk" && cargo build --release --features flutter,hwcodec --lib && cargo build --release --features hwcodec --bin rustdesk )
 
 # 1) Android
 if [ $SKIP_ANDROID = 0 ]; then

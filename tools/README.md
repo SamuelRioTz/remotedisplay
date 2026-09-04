@@ -93,7 +93,9 @@ Prerequisites: VS Build Tools 2022 (C++), Rust, vcpkg. **Gotchas solved:**
 4. **FFI bridge**: `cargo install flutter_rust_bridge_codegen --version 1.80.1`, then
    `flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --llvm-path "C:\Program Files\LLVM"`
    (ffigen needs libclang; install LLVM.LLVM).
-5. **DLL**: `VCPKG_ROOT=C:\Users\sam\vcpkg cargo build --locked --features flutter --lib --release` → `target/release/librustdesk.dll`
+5. **DLL**: `VCPKG_ROOT=C:\Users\sam\vcpkg cargo build --locked --features flutter,hwcodec --lib --release` → `target/release/librustdesk.dll`
+   (`hwcodec` = hardware H264/H265 decoding through the prebuilt ffmpeg of the hwcodec crate — D3D11VA/DXVA2 on
+   Windows; without it the client decoded everything in software with VP9).
 6. **Flutter 3.24.5** (NOT the system's 3.44/stable — breaks on DialogTheme/extended_text):
    now via fvm: `C:\Users\sam\fvm\versions\3.24.5\bin` first in PATH (the old folder
    `C:\Users\sam\flutter-3.24.5` was left empty), `flutter build windows --release`. If the build
