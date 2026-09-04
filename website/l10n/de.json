@@ -63,7 +63,7 @@
   "start_server_title": "Server installieren",
   "start_server_desc": "Installiere Remote Display Server aus dem DMG, schalte den Dienst ein, erteile Bildschirmaufnahme und Bedienungshilfen und lege ein Passwort fest. Er lebt in der Menüleiste.",
   "start_first_launch": "Erster Start",
-  "start_first_launch_desc": "Die macOS-Builds sind derzeit ad hoc signiert, Gatekeeper meldet sich also einmal. Rechtsklick → Öffnen, oder gehe zu <strong>Systemeinstellungen → Datenschutz &amp; Sicherheit</strong> und klicke auf <strong>Dennoch öffnen</strong>.",
+  "start_first_launch_desc": "Die DMGs sind mit einer Developer ID signiert und von Apple notarisiert, macOS öffnet sie also ohne Warnung. Der Server fragt einmal nach Bildschirmaufnahme und Bedienungshilfen in <strong>Systemeinstellungen → Datenschutz &amp; Sicherheit</strong>.",
   "start_server_btn": "Server herunterladen (ab macOS 14)",
   "start_step2": "Schritt 2 · auf PC, Tablet oder Handy",
   "start_client_title": "Client installieren",

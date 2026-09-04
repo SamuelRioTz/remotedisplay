@@ -22,6 +22,14 @@ ENGINE_BIN ?= $(HOME)/dev/rustdesk/target/release/rustdesk
 TEAM_ID ?= K45698KZ4W
 SIGN_ID ?= $(shell ./sign-identity.sh $(TEAM_ID))
 CODE_ID := app.remotedisplay.server
+# Explicit designated requirement keyed on identifier + team only. codesign's default one also
+# pins the certificate KIND (Apple Development vs Developer ID), and TCC stores that requirement
+# when a permission is granted: switching kinds would invalidate Screen Recording and
+# Accessibility. With this requirement a development build and a notarized Developer ID build
+# are interchangeable. --timestamp: secure timestamp, required by notarization.
+SIGN_FLAGS := --sign "$(SIGN_ID)" --identifier "$(CODE_ID)" --options runtime --timestamp \
+  --requirements '=designated => identifier "$(CODE_ID)" and anchor apple generic and certificate leaf[subject.OU] = "$(TEAM_ID)"' \
+  --entitlements Entitlements.plist --force
 
 .PHONY: all build bundle sign run clean
 
@@ -47,9 +55,10 @@ ifeq ($(strip $(SIGN_ID)),)
 	@codesign --sign - --options runtime --entitlements Entitlements.plist --force --deep "$(APP_BUNDLE)"
 else
 	@echo "Signing with stable identity: $(SIGN_ID)  (id=$(CODE_ID))"
-	@codesign --sign "$(SIGN_ID)" --identifier "$(CODE_ID)" --options runtime --entitlements Entitlements.plist --force "$(MACOS_DIR)/remotedisplayd"
-	@codesign --sign "$(SIGN_ID)" --identifier "$(CODE_ID)" --options runtime --entitlements Entitlements.plist --force "$(MACOS_DIR)/$(APP_NAME)"
-	@codesign --sign "$(SIGN_ID)" --identifier "$(CODE_ID)" --options runtime --entitlements Entitlements.plist --force "$(APP_BUNDLE)"
+	@codesign $(SIGN_FLAGS) "$(MACOS_DIR)/remotedisplayd"
+	@codesign $(SIGN_FLAGS) "$(MACOS_DIR)/$(APP_NAME)"
+	@codesign $(SIGN_FLAGS) "$(APP_BUNDLE)"
+	@codesign --verify --deep --strict "$(APP_BUNDLE)"
 endif
 	@xattr -dr com.apple.quarantine "$(APP_BUNDLE)" 2>/dev/null || true
 	@echo "Signed $(APP_BUNDLE)"

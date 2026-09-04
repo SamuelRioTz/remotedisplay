@@ -47,9 +47,9 @@ Binaries are on the [Releases](https://github.com/SamuelRioTz/remotedisplay/rele
 page: Windows installer and portable zip, macOS client and server DMGs, Android APK,
 iOS IPA (development signing for now).
 
-The macOS builds are Apple silicon only for now (the engine is not built for Intel) and
-are signed ad hoc; on first launch use right-click → Open, or allow the app in System
-Settings → Privacy & Security.
+The macOS builds are Apple silicon only for now (the engine is not built for Intel).
+Since 1.0.4 the client and server DMGs are signed with a Developer ID certificate and
+notarized by Apple, so macOS opens them without Gatekeeper warnings.
 
 ## Quick start
 

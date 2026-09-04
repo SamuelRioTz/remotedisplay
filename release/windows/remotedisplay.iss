@@ -1,7 +1,7 @@
 ; Windows installer for Remote Display (Inno Setup 6).
 ; Invoked by tools/release-windows.ps1 passing /DAppVersion=x.y.z /DSourceDir=<Release> /DOutDir=<out>
 #ifndef AppVersion
-  #define AppVersion "1.0.3"
+  #define AppVersion "1.0.4"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\client\build\windows\x64\runner\Release"

@@ -63,7 +63,7 @@
   "start_server_title": "Install the server",
   "start_server_desc": "Install Remote Display Server from the DMG, turn the service on, grant Screen Recording and Accessibility, and set a password. It lives in the menu bar.",
   "start_first_launch": "First launch",
-  "start_first_launch_desc": "macOS builds are signed ad hoc for now, so Gatekeeper will object once. Right-click → Open, or go to <strong>System Settings → Privacy &amp; Security</strong> and click <strong>Open Anyway</strong>.",
+  "start_first_launch_desc": "The DMGs are signed with a Developer ID and notarized by Apple, so macOS opens them without warnings. The server then asks once for Screen Recording and Accessibility in <strong>System Settings → Privacy &amp; Security</strong>.",
   "start_server_btn": "Download the server (macOS 14+)",
   "start_step2": "Step 2 · on your PC, tablet or phone",
   "start_client_title": "Install a client",

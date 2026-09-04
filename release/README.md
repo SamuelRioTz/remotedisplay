@@ -1,6 +1,6 @@
 # release/ — Remote Display binaries
 
-> **Current version: 1.0.3** (source of truth: `version:` in `client/pubspec.yaml`; it's
+> **Current version: 1.0.4** (source of truth: `version:` in `client/pubspec.yaml`; it's
 > reflected here, in the main README, and in the `v<version>` tag).
 >
 > **Version bump**: only when explicitly requested. When requested, the number changes
@@ -33,11 +33,32 @@ binaries in git (`release/out/` is in .gitignore).
    `release/out/`; with `--upload` it also uploads them to the `v<ver>` Release (creates it if it doesn't exist).
    The Mac ALREADY has `gh` authenticated (`SamuelRioTz`), so it uploads directly — step 4 (fetch
    from Windows) is only an alternative if the Mac didn't have `gh`.
-   If the keychain asks for access to the "Apple Development" key, choose **Always Allow**.
+   With the Developer ID identity present the two DMGs come out notarized and stapled
+   (about 2–5 minutes per submission; `--skip-notarize` for a quick local build).
    - Server's `ENGINE_BIN`: defaults to `engine/rustdesk/target/release/rustdesk` (the monorepo's
      engine binary, already with the serverless patches). Pass another path if you want.
 4. **Windows PC** (alternative, if the Mac doesn't have `gh`): `release/release-fetch-mac.ps1` —
    fetches the artifacts from the Mac via scp and uploads them to the same Release.
+
+## Signing and notarization (Mac)
+
+- Identity: `server-mac/sign-identity.sh` picks the personal team's (K45698KZ4W)
+  *Developer ID Application* certificate, else its *Apple Development* one. Never another
+  team's certificate.
+- The Developer ID identity is kept in a dedicated keychain,
+  `~/Library/Keychains/remotedisplay-signing.keychain-db`, unlocked for `codesign` without
+  prompts (`security set-key-partition-list`) and listed in the user search list. Its
+  password and the notary profile name are in `~/.config/remotedisplay/signing.env`
+  (mode 600, outside the repo; `release-mac.sh` sources it if present). The identity was
+  imported from Sam's private backup of the certificate and key; nothing of it is in this
+  repository.
+- Notarization uses `xcrun notarytool --keychain-profile remotedisplay-notary`, an App
+  Store Connect API key stored with `notarytool store-credentials`. Apps are submitted as
+  zips and stapled, then the DMG is signed, submitted and stapled too; the script fails on
+  anything but `Accepted` and prints Apple's log. `spctl` must report
+  `source=Notarized Developer ID`.
+- The macOS server signs with an explicit designated requirement (identifier + team), so a
+  development build and a notarized build share the TCC grants; see `server-mac/README.md`.
 
 ## Installing the IPA on the iPad/iPhone
 

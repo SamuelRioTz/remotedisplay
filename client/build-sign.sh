@@ -12,7 +12,9 @@ APP=build/macos/Build/Products/Release/RemoteDisplay.app
 # identity of another organisation.
 SIGN_ID="${SIGN_ID:-$(../server-mac/sign-identity.sh)}"
 if [ -n "$SIGN_ID" ]; then echo "Signing with: $SIGN_ID"; else echo "WARNING: no personal-team identity, ad-hoc signing"; SIGN_ID=-; fi
-codesign --force --deep --options runtime \
+# --timestamp: secure timestamp, required by notarization (ignored for ad-hoc signing).
+TS=--timestamp; [ "$SIGN_ID" = - ] && TS=
+codesign --force --deep --options runtime $TS \
   --entitlements macos/Runner/Release.entitlements --sign "$SIGN_ID" "$APP"
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 echo "OK -> $APP  (cp -R to /Applications to install)"

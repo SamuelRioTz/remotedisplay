@@ -100,9 +100,9 @@ as the UI, they share TCC permission attribution.
    # → .build/Remote Display Server.app
    ```
 
-`make sign` signs with the stable `remotedisplay-cs` certificate if it exists in the
-keychain (TCC permissions survive rebuilds); otherwise it signs ad-hoc (permissions get
-re-granted on every rebuild).
+`make sign` signs with the personal-team identity chosen by `sign-identity.sh` (see
+*Signing* below), so TCC permissions survive rebuilds; without one it signs ad-hoc and the
+permissions have to be granted again after every rebuild.
 
 ## Installing
 
@@ -177,5 +177,16 @@ on their home screen.
 `make sign` picks the identity through `sign-identity.sh`: only Sam's personal team
 (K45698KZ4W), preferring a *Developer ID Application* certificate and falling back to
 *Apple Development*. Never the first "Apple Development" match in the keychain — on the
-build Mac that one belongs to another organisation. Changing the signing team changes the
-code requirement, so Screen Recording and Accessibility must be granted again once.
+build Mac that one belongs to another organisation.
+
+The engine, the app binary and the bundle are signed with the hardened runtime, a secure
+timestamp and an explicit designated requirement made of the identifier
+`app.remotedisplay.server` plus the team. codesign's default requirement would also pin
+the certificate *kind*, and TCC stores the requirement when a permission is granted; with
+the explicit one a development build and a notarized Developer ID build satisfy the same
+Screen Recording and Accessibility grants. Releases up to 1.0.3 carried the default
+requirement, so the first Developer ID build asks for both permissions once more.
+
+Release builds (`release/release-mac.sh`) are notarized with Apple and stapled; the
+Developer ID identity lives in a dedicated keychain on the build Mac, see
+`release/README.md`.
