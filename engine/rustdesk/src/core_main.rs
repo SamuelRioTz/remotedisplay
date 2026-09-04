@@ -531,13 +531,28 @@ pub fn core_main() -> Option<Vec<String>> {
             // The serverless LAN-only server runs at the user level (not as an installed
             // RustDesk.app), so --password doesn't work; this talks to the running
             // --server over IPC (same user) and applies/persists the password.
+            // The password comes on stdin (one line) when no argument is given: an
+            // argument would show up in `ps` for every user on the Mac.
             if !is_cli_setting_change_disabled()
                 && !config::Config::is_disable_change_permanent_password()
-                && args.len() == 2
+                && (args.len() == 1 || args.len() == 2)
             {
-                match crate::ipc::set_permanent_password(args[1].to_owned()) {
-                    Ok(_) => println!("Done!"),
-                    Err(err) => println!("set-lan-password failed: {err}"),
+                let password = if args.len() == 2 {
+                    Some(args[1].to_owned())
+                } else {
+                    let mut line = String::new();
+                    std::io::stdin()
+                        .read_line(&mut line)
+                        .ok()
+                        .map(|_| line.trim_end_matches(['\r', '\n']).to_owned())
+                        .filter(|p| !p.is_empty())
+                };
+                match password {
+                    Some(password) => match crate::ipc::set_permanent_password(password) {
+                        Ok(_) => println!("Done!"),
+                        Err(err) => println!("set-lan-password failed: {err}"),
+                    },
+                    None => println!("set-lan-password failed: no password on stdin"),
                 }
             }
             return None;

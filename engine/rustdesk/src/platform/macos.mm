@@ -1243,7 +1243,7 @@ static void rdRestorePhysicalMode(CGDirectDisplayID display, const char *why) {
     // AFTER our restore went through (measured in the test VM, 2026-09-03: restored
     // to 1920x1080, then back at 1600x900 within a second). Watch for a while and
     // put it back, the same way the mirror-on path does with rdRepairMirrorSlavesOf.
-    for (int waited = 0; waited < 2000; waited += 250) {
+    for (int waited = 0; waited < 5000; waited += 250) {
         usleep(250 * 1000);
         CGDisplayModeRef now = CGDisplayCopyDisplayMode(display);
         bool same = rdSameMode(now, want);

@@ -12,6 +12,8 @@ import 'package:uni_links/uni_links.dart' show getInitialLink, uriLinkStream;
 import 'package:url_launcher/url_launcher.dart' show LaunchMode, launchUrl;
 import 'package:window_manager/window_manager.dart';
 
+import 'update_check.dart';
+
 import 'session/mobile_session.dart';
 
 /// Client home — discovered machines (cards, 1 per machine) + manual
@@ -87,6 +89,7 @@ class _ClientHomeState extends State<ClientHome> {
     gFFI.lanPeersModel.addListener(_refreshSaved);
     gFFI.recentPeersModel.addListener(_refreshSaved);
     bind.mainLoadLanPeers(); // the cached ones, instantly
+    UpdateCheck.run();
     bind.mainLoadRecentPeers(); // identity (real hostname) of already-connected IPs
     _discover();
     // Deep links on mobile (remotedisplay://connection/new/<host>?password=…):
@@ -546,6 +549,14 @@ class _ClientHomeState extends State<ClientHome> {
                   'mailto:info@remotedisplay.app'),
               Text('Built on RustDesk · AGPL-3.0',
                   style: TextStyle(color: ui.muted, fontSize: 12)),
+              // Newer release on GitHub (checked once per launch).
+              ValueListenableBuilder<String?>(
+                valueListenable: UpdateCheck.available,
+                builder: (_, v, __) => v == null
+                    ? const SizedBox.shrink()
+                    : _aboutLink(ui, 'Version $v available',
+                        UpdateCheck.releasesPage),
+              ),
             ],
           ),
         ],

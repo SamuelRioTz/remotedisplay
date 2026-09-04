@@ -533,6 +533,55 @@ fn get_capturer(
     }
 }
 
+// remotedisplay: how many capture loops are alive, and how many were ever started.
+static LIVE_VIDEO_LOOPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static STARTED_VIDEO_LOOPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+struct LiveVideoLoop(usize);
+
+impl LiveVideoLoop {
+    fn enter(display_idx: usize) -> Self {
+        use std::sync::atomic::Ordering::Relaxed;
+        let live = LIVE_VIDEO_LOOPS.fetch_add(1, Relaxed) + 1;
+        let started = STARTED_VIDEO_LOOPS.fetch_add(1, Relaxed) + 1;
+        log::info!("video loop for display {display_idx} started: {live} alive, {started} started since launch");
+        Self(display_idx)
+    }
+}
+
+impl Drop for LiveVideoLoop {
+    fn drop(&mut self) {
+        let live = LIVE_VIDEO_LOOPS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed) - 1;
+        log::info!("video loop for display {} ended: {live} alive", self.0);
+    }
+}
+
+/// remotedisplay (macOS): blocks until the display topology hash has not changed
+/// for 1.2 s (checked every 300 ms), or 8 s at most.
+#[cfg(target_os = "macos")]
+fn wait_for_stable_topology() {
+    let started = Instant::now();
+    let mut last = crate::platform::display_topology_hash();
+    let mut stable = 0;
+    while started.elapsed() < Duration::from_secs(8) {
+        std::thread::sleep(Duration::from_millis(300));
+        let now = crate::platform::display_topology_hash();
+        if now == last {
+            stable += 1;
+            if stable >= 4 {
+                break;
+            }
+        } else {
+            last = now;
+            stable = 0;
+        }
+    }
+    log::info!(
+        "display topology settled after {} ms",
+        started.elapsed().as_millis()
+    );
+}
+
 fn run(vs: VideoService) -> ResultType<()> {
     let mut _raii = Raii::new(vs.idx, vs.sp.name());
     // Wayland only support one video capturer for now. It is ok to call ensure_inited() here.
@@ -640,6 +689,9 @@ fn run(vs: VideoService) -> ResultType<()> {
         .unwrap()
         .set_support_changing_quality(&sp.name(), encoder.support_changing_quality());
     log::info!("initial quality: {quality:?}");
+    // remotedisplay: one capture loop = one capturer + one encoder. The count of live
+    // loops is logged on every start/end; a number that only grows is a leak.
+    let _live_loop = LiveVideoLoop::enter(display_idx);
 
     if sp.is_option_true(OPTION_REFRESH) {
         sp.set_option_bool(OPTION_REFRESH, false);
@@ -730,10 +782,16 @@ fn run(vs: VideoService) -> ResultType<()> {
             // This check may be redundant, but it is better to be safe.
             // The previous check in `sp.is_option_true(OPTION_REFRESH)` block may be enough.
             try_broadcast_display_changed(&sp, display_idx, &c, false)?;
-            // remotedisplay: una reconfiguracion que no movio los bounds (p.ej. el modo
-            // del fisico espejado) puede dejar mudo al CGDisplayStream: recrear.
+            // remotedisplay: a reconfiguration that did not move the bounds (e.g. the
+            // mode of the mirrored physical) can leave the CGDisplayStream silent:
+            // recreate the capturer. But one user action (create/resize a virtual,
+            // mirror) is a burst of several configuration transactions over a few
+            // seconds; recreating on each one made 5-10 capturers+encoders per
+            // action (seen in the Mac Studio log). Wait until the topology has been
+            // stable for a moment, then recreate once.
             #[cfg(target_os = "macos")]
             if crate::platform::display_topology_hash() != topology {
+                wait_for_stable_topology();
                 bail!("display topology changed");
             }
         }

@@ -93,6 +93,21 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
     // e.g. after a server restart that lost the virtual displays).
     if (params['display'] == null) {
       _watch = Timer.periodic(const Duration(milliseconds: 500), (_) => _tick());
+    } else {
+      // Per-monitor window: when the display it shows no longer exists (the
+      // virtual was deleted, the physical turned off), the engine falls back
+      // to display 0, which would duplicate the main window, and the server
+      // kept retrying the capture. Close this window instead.
+      final shown = params['display'] as int;
+      final windowId = params['windowId'];
+      _watch = Timer.periodic(const Duration(seconds: 1), (_) {
+        final pi = _remotePage.ffi.ffiModel.pi;
+        if (pi.displays.isEmpty || pi.displays.length > shown) return;
+        _watch?.cancel();
+        if (windowId == null) return;
+        final wc = WindowController.fromWindowId(windowId);
+        wc.setPreventClose(false).then((_) => wc.close());
+      });
     }
   }
 

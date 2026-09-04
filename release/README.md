@@ -56,7 +56,7 @@ The development signature expires: reinstall when the profile lapses.
 ## Notes
 
 - The Windows portable ZIP runs from any folder without installing; the config
-  lives in `%APPDATA%\RustDesk` (branding leftover still pending a rename).
+  lives in `%APPDATA%\RemoteDisplay` (older 0.x builds used `%APPDATA%\RustDesk`; that folder can be deleted).
 - Installer validated with silent install/uninstall (`/VERYSILENT`).
 - `gh` must point at THIS repo: the repo is a fork of rustdesk/rustdesk and unconfigured
   `gh` resolves to the parent. It's already fixed with `gh repo set-default

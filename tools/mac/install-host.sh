@@ -55,7 +55,7 @@ launchctl kickstart -k "gui/$UID_NUM/app.remotedisplay.engine"
 # so we have to wait for the daemon to bring up the socket.
 PW_OK=0
 for i in $(seq 1 15); do
-    if "$INSTALL_DIR/rustdesk" --set-lan-password "$PASS" 2>&1 | grep -q "Done!"; then
+    if printf '%s\n' "$PASS" | "$INSTALL_DIR/rustdesk" --set-lan-password 2>&1 | grep -q "Done!"; then
         PW_OK=1
         echo "Permanent password set"
         break

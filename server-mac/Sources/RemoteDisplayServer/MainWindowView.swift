@@ -53,6 +53,13 @@ struct MainWindowView: View {
                     .disabled(c.engineProblem != nil)
             }
             .padding(.vertical, 4)
+            if let v = c.updateAvailable {
+                HStack(spacing: 6) {
+                    Label("Version \(v) is available.", systemImage: "arrow.down.circle.fill")
+                    Link("Download", destination: ServerController.releasesPage)
+                }
+                .font(.system(size: 12.5)).foregroundStyle(.blue)
+            }
             if let problem = c.engineProblem {
                 Label(problem, systemImage: "exclamationmark.octagon.fill")
                     .font(.system(size: 12.5)).foregroundStyle(.red)

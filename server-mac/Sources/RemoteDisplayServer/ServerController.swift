@@ -29,6 +29,13 @@ final class ServerController {
     /// Whether a permanent password is set (RemoteDisplay.toml → password not empty).
     var passwordSet = false
     var engineVersion = "—"
+    /// Newer release published on GitHub (e.g. "1.0.3"), or nil. Checked at launch and
+    /// every 6 hours; the update itself stays manual (the link opens the releases page).
+    var updateAvailable: String?
+    static let releasesPage = URL(string: "https://github.com/SamuelRioTz/remotedisplay/releases/latest")!
+    private static let releasesAPI = URL(string: "https://api.github.com/repos/SamuelRioTz/remotedisplay/releases/latest")!
+    private var updateTimer: Timer?
+    var appVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0" }
     /// Reason the engine CANNOT run on this Mac (architecture,
     /// file permissions, missing binary). While not nil, nothing works.
     var engineProblem: String?
@@ -100,6 +107,10 @@ final class ServerController {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.refresh()
+        }
+        checkForUpdate()
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
+            self?.checkForUpdate()
         }
         // Only start the engine if it isn't already up. Calling setServiceEnabled
         // unconditionally would bootout+bootstrap the LaunchAgent on every app
@@ -248,19 +259,25 @@ final class ServerController {
     /// never finishes because nobody closes the write end — exactly the
     /// "Saving…" hang seen when setting the password with an engine that
     /// can't run (e.g. an arm64 binary on an Intel Mac).
-    static func runProcess(_ path: String, _ args: [String], timeout: TimeInterval, mergeStderr: Bool = false) -> ProcessResult {
+    static func runProcess(_ path: String, _ args: [String], timeout: TimeInterval, mergeStderr: Bool = false, stdin: String? = nil) -> ProcessResult {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
         let out = Pipe()
         p.standardOutput = out
         p.standardError = mergeStderr ? out : Pipe()
+        let inPipe = stdin == nil ? nil : Pipe()
+        if let inPipe = inPipe { p.standardInput = inPipe }
         let exited = DispatchSemaphore(value: 0)
         p.terminationHandler = { _ in exited.signal() }
         do {
             try p.run()
         } catch {
             return ProcessResult(output: "", status: nil, failure: describeLaunchError(error, path: path))
+        }
+        if let inPipe = inPipe, let text = stdin {
+            inPipe.fileHandleForWriting.write(text.data(using: .utf8) ?? Data())
+            try? inPipe.fileHandleForWriting.close()
         }
         var data = Data()
         let readDone = DispatchSemaphore(value: 0)
@@ -470,6 +487,37 @@ final class ServerController {
         return p.terminationStatus
     }
 
+    // MARK: - Update check
+
+    func checkForUpdate() {
+        var req = URLRequest(url: Self.releasesAPI)
+        req.timeoutInterval = 10
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        req.setValue("RemoteDisplayServer/\(appVersion)", forHTTPHeaderField: "User-Agent")
+        let current = appVersion
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
+            guard let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  var tag = json["tag_name"] as? String else { return }
+            if tag.hasPrefix("v") { tag.removeFirst() }
+            let newer = Self.isNewer(tag, than: current)
+            DispatchQueue.main.async { self?.updateAvailable = newer ? tag : nil }
+        }.resume()
+    }
+
+    /// "1.0.3" is newer than "1.0.2"; compares up to three numeric parts.
+    static func isNewer(_ candidate: String, than current: String) -> Bool {
+        func parts(_ v: String) -> [Int] {
+            v.split(separator: "+").first.map(String.init)?.split(separator: ".").map { Int($0.filter(\.isNumber)) ?? 0 } ?? []
+        }
+        let a = parts(candidate), b = parts(current)
+        for i in 0..<3 {
+            let x = i < a.count ? a[i] : 0, y = i < b.count ? b[i] : 0
+            if x != y { return x > y }
+        }
+        return false
+    }
+
     // MARK: - Permissions
 
     // The first tap asks macOS, whose own dialog offers "Open System Settings" and
@@ -536,7 +584,8 @@ final class ServerController {
         }
         let path = enginePath
         DispatchQueue.global().async {
-            let r = Self.runProcess(path, ["--set-lan-password", password], timeout: 15, mergeStderr: true)
+            // Over stdin, not argv: an argument is visible to every user in `ps`.
+            let r = Self.runProcess(path, ["--set-lan-password"], timeout: 15, mergeStderr: true, stdin: password + "\n")
             let ok = r.output.contains("Done!")
             let msg: String
             if ok {
