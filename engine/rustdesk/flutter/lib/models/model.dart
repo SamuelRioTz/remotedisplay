@@ -197,11 +197,14 @@ class FfiModel with ChangeNotifier {
     // sane minimum sizes; ignores transient window states
     if (pxW < 400 || pxH < 300) return;
     final s = scalePercent <= 0 ? 100 : scalePercent;
-    final w = (pxW * 100 / s).round();
-    final h = (pxH * 100 / s).round();
+    // Even numbers: hardware encoders refuse odd frame sizes (the server rounds
+    // down as well).
+    final w = (pxW * 100 / s).round() & ~1;
+    final h = (pxH * 100 / s).round() & ~1;
     // display.width/height arrive in pixels; scale = pixels/points
     final sc = display.scale <= 0 ? 1.0 : display.scale;
-    if ((display.width / sc).round() == w && (display.height / sc).round() == h) {
+    if (((display.width / sc).round() - w).abs() <= 1 &&
+        ((display.height / sc).round() - h).abs() <= 1) {
       return;
     }
     await bind.sessionChangeResolution(

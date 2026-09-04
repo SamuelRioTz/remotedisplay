@@ -1138,11 +1138,12 @@ class _SessionToolbarState extends State<SessionToolbar> {
     final px = await ext.externalPixelSize();
     if (px == null) return;
     final scale = MonitorProfile.scaleOf(widget.peerId, pi, mid);
-    final w = (px.width * 100 / scale).round();
-    final h = (px.height * 100 / scale).round();
+    final w = (px.width * 100 / scale).round() & ~1; // even: hardware encoders
+    final h = (px.height * 100 / scale).round() & ~1;
     final d = pi.displays[display];
     final sc = d.scale <= 0 ? 1.0 : d.scale;
-    if ((d.width / sc).round() == w && (d.height / sc).round() == h) return;
+    if (((d.width / sc).round() - w).abs() <= 1 &&
+        ((d.height / sc).round() - h).abs() <= 1) return;
     await ffi.ffiModel.changeResolutionOfDisplay(display, w, h);
     MonitorProfile.scheduleSave(widget.peerId, ffi);
   }

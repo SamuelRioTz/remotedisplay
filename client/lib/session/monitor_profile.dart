@@ -30,9 +30,10 @@ class VirtualSpec {
   final int scale;
   const VirtualSpec(this.w, this.h, this.scale);
 
-  /// Points requested from the server for this spec.
-  int get pointsW => (w * 100 / scale).round();
-  int get pointsH => (h * 100 / scale).round();
+  /// Points requested from the server for this spec. Even numbers: hardware
+  /// encoders refuse odd frame sizes (the server rounds down too).
+  int get pointsW => (w * 100 / scale).round() & ~1;
+  int get pointsH => (h * 100 / scale).round() & ~1;
   bool get hidpi => scale > 100;
 
   Map<String, dynamic> toJson() => {'w': w, 'h': h, 'scale': scale};
@@ -202,8 +203,9 @@ class MonitorProfile {
     if (idx < 0 || idx >= pi().displays.length) return;
     final d = pi().displays[idx];
     final sc = d.scale <= 0 ? 1.0 : d.scale;
-    if ((d.width / sc).round() != spec.pointsW ||
-        (d.height / sc).round() != spec.pointsH) {
+    // 1 px of tolerance: the server rounds sizes down to even numbers.
+    if (((d.width / sc).round() - spec.pointsW).abs() > 1 ||
+        ((d.height / sc).round() - spec.pointsH).abs() > 1) {
       await ffi.ffiModel.changeResolutionOfDisplay(idx, spec.pointsW, spec.pointsH);
       await Future.delayed(const Duration(milliseconds: 600));
     }

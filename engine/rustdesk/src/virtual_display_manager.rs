@@ -254,6 +254,15 @@ pub mod mac_vdisplay {
     pub const DEFAULT_HEIGHT: u32 = 1080;
     const MAX_VIRTUAL_DISPLAYS: usize = 4;
 
+    /// Hardware encoders (VideoToolbox here, D3D11/NVENC on the clients) refuse odd
+    /// frame sizes: a virtual created at a 1284x701 window made `hevc_videotoolbox`
+    /// fail and the whole connection fell back to VP9 in software (seen in the test
+    /// VM). Every size a virtual display gets goes through here.
+    #[inline]
+    fn even(v: u32) -> u32 {
+        v & !1
+    }
+
     extern "C" {
         fn MacVirtualDisplaySupported() -> bool;
         fn MacCreateVirtualDisplay(
@@ -324,7 +333,7 @@ pub mod mac_vdisplay {
         }
         let name = std::ffi::CString::new("Remote Display Virtual")?;
         let id = unsafe {
-            MacCreateVirtualDisplay(DEFAULT_WIDTH, DEFAULT_HEIGHT, 60.0, false, name.as_ptr())
+            MacCreateVirtualDisplay(even(DEFAULT_WIDTH), even(DEFAULT_HEIGHT), 60.0, false, name.as_ptr())
         };
         if id == 0 {
             bail!("Failed to create CGVirtualDisplay");
@@ -369,6 +378,7 @@ pub mod mac_vdisplay {
         if unsafe { !MacIsOurVirtualDisplay(id) } {
             return None;
         }
+        let (w, h) = (even(w), even(h));
         let ok = unsafe { MacResizeVirtualDisplay(id, w, h) };
         if !ok {
             log::error!("mac_vdisplay: resize of {id} to {w}x{h} failed");
@@ -396,8 +406,8 @@ pub mod mac_vdisplay {
     /// With on=true and width/height at 0, uses the default size.
     pub fn dynamic_main(on: bool, width: u32, height: u32) -> ResultType<()> {
         if on {
-            let w = if width == 0 { DEFAULT_WIDTH } else { width };
-            let h = if height == 0 { DEFAULT_HEIGHT } else { height };
+            let w = even(if width == 0 { DEFAULT_WIDTH } else { width });
+            let h = even(if height == 0 { DEFAULT_HEIGHT } else { height });
             if unsafe { !MacDynamicMainOn(w, h, false) } {
                 bail!("Failed to enable dynamic main display");
             }
