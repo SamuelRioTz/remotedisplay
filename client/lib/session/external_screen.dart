@@ -181,6 +181,20 @@ class ExternalScreenController {
     }
   }
 
+  /// Pixel size of the external monitor (its current mode), or null if none.
+  /// Used to size a virtual display shown out there to the monitor itself.
+  Future<Size?> externalPixelSize() async {
+    try {
+      final r = await kExtDisplayChannel.invokeMethod('screenSize');
+      if (r is List && r.length == 2) {
+        return Size((r[0] as num).toDouble(), (r[1] as num).toDouble());
+      }
+    } catch (e) {
+      debugPrint('[extscreen] screenSize failed: $e');
+    }
+    return null;
+  }
+
   /// Changes which remote display the external monitor shows (already open).
   Future<void> setExternalDisplay(int display) async {
     if (extDisplay.value < 0 || extDisplay.value == display) return;
@@ -234,7 +248,11 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
   FFI? _ffi;
   String? _error;
   String _peer = '';
-  int _display = -1;
+  // A ValueNotifier, not plain state: the page body lives inside
+  // BlockableOverlay's initial OverlayEntry, which is NOT rebuilt by this
+  // State's setState (the video still updates through its own Consumer).
+  // The pill kept saying "Display 2" after a switch to the third display.
+  final ValueNotifier<int> _display = ValueNotifier(-1);
   final _overlayState = BlockableOverlayState();
 
   // Remote cursor over this display (remote global position, forwarded by
@@ -287,16 +305,17 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
       getCachedSessionData: () async =>
           bind.mainGetLocalOption(key: kOptExtScreenCache),
     );
+    _display.value = display;
     setState(() {
       _ffi = ffi;
       _peer = peer;
-      _display = display;
     });
   }
 
   void _switchDisplay(int display) {
     final ffi = _ffi;
     if (ffi == null) return;
+    _display.value = display; // the pill listens to this
     ffi.imageModel.clearImage();
     // isDesktop=false → the engine's patched mobile branch: unions the
     // displays of the other ui-sessions instead of the exclusive set (doesn't cut off the iPad).
@@ -305,10 +324,13 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
       sessionId: ffi.sessionId,
       value: Int32List.fromList([display]),
     );
-    ffi.ffiModel.switchToNewDisplay(display, ffi.sessionId, ffi.id);
+    try {
+      ffi.ffiModel.switchToNewDisplay(display, ffi.sessionId, ffi.id);
+    } catch (e) {
+      debugPrint('[extscreen] switchToNewDisplay: $e');
+    }
     // Static content: without this, not a single frame arrives until something changes.
     bind.sessionRefresh(sessionId: ffi.sessionId, display: display);
-    setState(() => _display = display);
   }
 
   /// External monitor's session pill — same visual codes as the
@@ -335,12 +357,15 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
           const SizedBox(width: 10),
           Container(width: 1, height: 14, color: const Color(0x22FFFFFF)),
           const SizedBox(width: 10),
-          Text(
-            'Display ${_display + 1}',
-            style: const TextStyle(
-                color: Color(0xFFEDEDEF),
-                fontSize: 14,
-                fontWeight: FontWeight.w600),
+          ValueListenableBuilder<int>(
+            valueListenable: _display,
+            builder: (_, d, __) => Text(
+              'Display ${d + 1}',
+              style: const TextStyle(
+                  color: Color(0xFFEDEDEF),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),
@@ -350,6 +375,7 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
   @override
   void dispose() {
     _cursorPos.dispose();
+    _display.dispose();
     super.dispose();
   }
 
@@ -378,7 +404,12 @@ class _ExternalScreenViewState extends State<ExternalScreenView> {
                         CircularProgressIndicator(color: Color(0xFF3B82F6)),
                   );
                 }
-                return Center(
+                // Tight constraints on purpose: under loose ones (Center)
+                // FittedBox only shrinks, so a remote display smaller than
+                // the monitor (2048x1280 on a 2560x1600 screen) sat 1:1 in
+                // the middle with black borders. Now it fills the monitor,
+                // keeping the aspect ratio, like "Scale adaptive" on the iPad.
+                return SizedBox.expand(
                   child: FittedBox(
                     fit: BoxFit.contain,
                     child: SizedBox(

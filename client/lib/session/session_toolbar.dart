@@ -893,7 +893,7 @@ class _SessionToolbarState extends State<SessionToolbar> {
               : (extConnected
                   ? (isExt
                       ? Icons.close_rounded
-                      : (!isCurrent ? Icons.tv_rounded : null))
+                      : (!isCurrent ? Icons.open_in_new_rounded : null))
                   : null),
           openTooltip: isDesktop
               ? (otherWin != null ? 'Close its window' : 'Open in new window')
@@ -903,7 +903,7 @@ class _SessionToolbarState extends State<SessionToolbar> {
                   ? () => DesktopMultiWindow.invokeMethod(
                       kMainWindowId, kClientEventCloseWindow, otherWin)
                   : () => openMonitorInNewTabOrWindow(i, id, pi))
-              : (isExt ? () => ext?.detach() : () => ext?.attachDisplay(i)),
+              : (isExt ? () => ext?.detach() : () => _showOnExternal(i)),
           // Virtual → trash (delete); physical → switch (off = mirroring).
           onToggle: isVirtual ? null : (v) => toggle(mid, v),
           onDelete: isVirtual
@@ -982,7 +982,7 @@ class _SessionToolbarState extends State<SessionToolbar> {
               : (extConnected
                   ? (isExt
                       ? Icons.close_rounded
-                      : (!isCurrent ? Icons.tv_rounded : null))
+                      : (!isCurrent ? Icons.open_in_new_rounded : null))
                   : null),
           trailingTooltip: isDesktop
               ? (otherWin != null ? 'Close its window' : 'Open in new window')
@@ -992,7 +992,7 @@ class _SessionToolbarState extends State<SessionToolbar> {
                   ? () => DesktopMultiWindow.invokeMethod(
                       kMainWindowId, kClientEventCloseWindow, otherWin)
                   : () => openMonitorInNewTabOrWindow(i, id, pi))
-              : (isExt ? () => ext?.detach() : () => ext?.attachDisplay(i)),
+              : (isExt ? () => ext?.detach() : () => _showOnExternal(i)),
         ));
       }
       if (pi.isSupportMultiDisplay) {
@@ -1106,6 +1106,42 @@ class _SessionToolbarState extends State<SessionToolbar> {
     await ffi.ffiModel.applyDynamicResolution(
         scalePercent: mid >= 0 ? MonitorProfile.scaleOf(widget.peerId, pi, mid) : 100,
         devicePixelRatio: _dpr);
+    MonitorProfile.scheduleSave(widget.peerId, ffi);
+    // The monitor plugged into the iPad is a screen too.
+    await _fitExternal();
+  }
+
+  /// iPad: show remote display [i] on the external monitor and, if it is one
+  /// of the Mac's virtual displays, size it to the monitor (1:1, sharp) —
+  /// the monitor is a fixed screen, so "fit" there means the virtual follows it.
+  Future<void> _showOnExternal(int i) async {
+    final ext = widget.externalScreen;
+    if (ext == null) return;
+    await ext.attachDisplay(i);
+    await _fitExternal();
+  }
+
+  /// "Fit to screen" for the external monitor: the virtual shown out there
+  /// takes the monitor's pixel size (at that virtual's scale). Physicals
+  /// can't be resized freely: they are only scaled to fill the monitor.
+  Future<void> _fitExternal() async {
+    final ext = widget.externalScreen;
+    final ffi = _ffi;
+    if (ext == null || ext.extDisplay.value < 0) return;
+    final display = ext.extDisplay.value;
+    final pi = ffi.ffiModel.pi;
+    if (display >= pi.macDisplayIds.length) return;
+    final mid = pi.macDisplayIds[display];
+    if (!pi.macVirtualDisplays.contains(mid)) return;
+    final px = await ext.externalPixelSize();
+    if (px == null) return;
+    final scale = MonitorProfile.scaleOf(widget.peerId, pi, mid);
+    final w = (px.width * 100 / scale).round();
+    final h = (px.height * 100 / scale).round();
+    final d = pi.displays[display];
+    final sc = d.scale <= 0 ? 1.0 : d.scale;
+    if ((d.width / sc).round() == w && (d.height / sc).round() == h) return;
+    await ffi.ffiModel.changeResolutionOfDisplay(display, w, h);
     MonitorProfile.scheduleSave(widget.peerId, ffi);
   }
 

@@ -87,6 +87,17 @@ import Flutter
       switch call.method {
       case "isConnected":
         result(UIScreen.screens.count > 1)
+      case "screenSize":
+        // Pixel size of the external monitor's current mode (the one the
+        // external window is on, or the first non-main screen).
+        let screen = self.extWindow?.screen ?? UIScreen.screens.first(where: { $0 != UIScreen.main })
+        if let screen = screen {
+          let size = screen.currentMode?.size
+            ?? CGSize(width: screen.bounds.width * screen.scale, height: screen.bounds.height * screen.scale)
+          result([Double(size.width), Double(size.height)])
+        } else {
+          result(nil)
+        }
       case "attach":
         self.attachExternalScreen()
         result(nil)

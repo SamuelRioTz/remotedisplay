@@ -265,3 +265,14 @@ both screens via `/screenshot` and the added `/wda/screenshot/<displayId>`): tap
 the external monitor switched to its native 2560x1600 and showed the Mac's
 Display 2 with the "192.168.1.115 | Display 2" pill, the iPad kept Monitor 1;
 ✕ → the monitor went back to the iPadOS desktop.
+
+Follow-ups on the same iPad: (1) the external view used `Center(FittedBox(contain))`,
+and under loose constraints FittedBox only shrinks, so a remote display smaller
+than the monitor (2048x1280 on 2560x1600) sat 1:1 with black borders — now it
+fills the monitor (`SizedBox.expand`); (2) the action uses the same icon as the
+desktop "open in new window"; (3) "Fit to screen" and sending a *virtual* display
+to the external monitor size that virtual to the monitor's pixels (a temporary
+2816x1940 · 200% virtual became 2560x1600 · 200%, shown 1:1); (4) the external
+pill kept its old "Display N" label because the page body lives in
+BlockableOverlay's initial OverlayEntry (setState does not rebuild it) — the label
+is a ValueNotifier now.
