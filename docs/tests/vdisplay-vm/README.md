@@ -281,3 +281,35 @@ view open on the engine's "display is plugged out" prompt, with no menu row left
 to close it: the trash now detaches the external view first, and the controller
 detaches on its own whenever the display it shows disappears (verified: the
 monitor went back to the iPadOS desktop).
+
+## 2026-09-04 — two-VM run for the 1.0.3 batch (Windows client + macOS server)
+
+Rig: macOS server VM (`macos-tahoe-base`, Tart, 4 GB) and the Windows 11 QEMU VM restored to
+its `base-limpio` snapshot (4 GB), joined by the ssh bridge on port 21119. Both VMs at 8 GB
+starved the host (16 GB compressed, 4 GB of swap): the Windows guest looked hung — black
+480x270 screendump, ssh banner timeouts, QEMU RSS 80 MB — until both were cut to 4 GB.
+
+Verified:
+- **Hardware codecs** (`hwcodec` on the macOS engine, the macOS client and the Windows DLL):
+  the server negotiates H265 and creates `hevc_videotoolbox` encoders even inside the VM; the
+  Windows client logs `create H265 decoder success`. Before, everything was VP9 in software.
+- **Odd sizes broke hardware encoding**: a virtual created at a 1284x701 window made
+  `hevc_videotoolbox` fail ("new hw encoder failed … clear config") and the connection fell
+  back to VP9 for good; the client then persisted `codec-preference = 'vp9'` for the peer.
+  Fixed by rounding every virtual size down to even (engine and client): the same action now
+  yields 1284x700 and stays on HEVC. Clients that already saved VP9 must pick *Auto* again in
+  the codec menu once.
+- **Capture loop counters**: `video loop for display N started: X alive, Y started since
+  launch`; five full disconnect/reconnect cycles with the dynamic main and a virtual left the
+  engine at 94–106 MB RSS, 33–35 threads, and always 1 loop alive — no leak there. The
+  topology settle path fired once (`display topology settled after N ms`).
+- **Per-monitor window closes when its display is deleted**: the virtual opened in a second
+  window and deleted from that window's menu; the window closed by itself (id-based, since
+  deleting a lower display shifts the indices — the index-based first attempt left the window
+  showing the next display).
+- **Password over stdin**: `printf 'x\n' | remotedisplayd --set-lan-password` → `Done!`.
+- The server's disconnect reset also fires when the Windows client is killed.
+- The macOS notice for the server now reads "Software from “Samuel Rioja”" (personal team).
+
+QEMU gotcha: `qmp.py … shot <path>` only works with a path inside the QEMU folder; copy the
+PNG afterwards.
