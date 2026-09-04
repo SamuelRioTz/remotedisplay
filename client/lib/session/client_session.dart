@@ -98,11 +98,25 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
       // virtual was deleted, the physical turned off), the engine falls back
       // to display 0, which would duplicate the main window, and the server
       // kept retrying the capture. Close this window instead.
+      // Indices shift when a lower display is removed, so on macOS hosts the
+      // window is tied to the display's own id (macDisplayIds); the index is
+      // the fallback for other hosts.
       final shown = params['display'] as int;
       final windowId = params['windowId'];
+      int? shownMid;
       _watch = Timer.periodic(const Duration(seconds: 1), (_) {
         final pi = _remotePage.ffi.ffiModel.pi;
-        if (pi.displays.isEmpty || pi.displays.length > shown) return;
+        if (pi.displays.isEmpty) return;
+        final mids = pi.macDisplayIds;
+        bool gone;
+        if (mids.isNotEmpty) {
+          shownMid ??= shown < mids.length ? mids[shown] : null;
+          if (shownMid == null) return;
+          gone = !mids.contains(shownMid);
+        } else {
+          gone = pi.displays.length <= shown;
+        }
+        if (!gone) return;
         _watch?.cancel();
         if (windowId == null) return;
         final wc = WindowController.fromWindowId(windowId);
