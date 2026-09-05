@@ -55,7 +55,9 @@ notarized by Apple, so macOS opens them without Gatekeeper warnings.
 
 1. On the Mac, install **Remote Display Server** from the DMG, open it, turn the service
    on, grant Screen Recording and Accessibility, and set a password.
-2. On the client, connect to the Mac's IP (port `21118`) with that password. Machines on
+2. On the client, tap the Mac in *Your computers* (or connect to its IP, port `21118`, with
+   that password). Each computer lists its addresses (LAN, Tailscale) with whether they answer
+   from the current network; the gear adds an address or forgets a password. Machines on
    the same LAN are discovered automatically.
 3. Open the display menu in the toolbar: create a virtual monitor, hit *Fit to screen*,
    pick a scale.

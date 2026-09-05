@@ -341,3 +341,43 @@ included. Verified:
   satisfies it too (TCC grants shared between development and release builds), and the
   Developer ID build does NOT satisfy the 1.0.3 requirement (which pinned the certificate's CN),
   hence the one-time permission prompt when upgrading from 1.0.3.
+
+## 2026-09-05 — known computers, per-address reachability, connect sheet (Windows client + macOS server)
+
+Motivation: from another network the iPad still showed the Mac's LAN entry (cached discovery,
+never re-validated) and could not find its Tailscale address (iOS has no Tailscale CLI, so
+the engine never probed it). The home now lists every known computer with all its addresses,
+probes each one on every refresh, remembers the network used per computer and asks again when
+that network is gone.
+
+Rig: same two VMs; the build Mac runs the real server on 21118, so the VM server is reached
+through host bridges on 21119 ("LAN" route, `10.0.2.2:21119` from the Windows guest) and 21120
+("Tailscale" route through the host's CGNAT address `100.64.0.2:21120`). Helpers in
+`harness/vm.sh` (`bridges`, `wshot`, `wclick`) and `harness/run-win11-4g.sh`.
+
+Verified in the Windows VM (screenshots `to_remove/routes-*.png` during the run):
+- Discovery entries that do not answer a TCP probe are greyed with "Not reachable from this
+  network"; reachable ones get a green dot. The engine's own `online` flag is not used (it only
+  marks duplicates).
+- Manual connection to `10.0.2.2:21119` with "remember" produced a card grouped by hostname
+  (`manageds-virtual-machine`, admin · Mac OS) with the key icon; the per-peer flag
+  `rd-remember = 'Y'` was written and the engine saved the password.
+- Settings (gear): the address list with status, "Add address" → `100.64.0.2:21120` appeared as
+  "Tailscale · Reachable · added by you"; both routes then showed on the card.
+- Connecting through the Tailscale route without its own password borrowed the LAN one
+  (`rd-copy-password-from`): a second peer file appeared and the server opened the session.
+- A computer with two networks and none chosen opens the connect sheet (radio options with
+  status, "Password saved for this address", "Connect via LAN/Tailscale"); choosing Tailscale
+  connected (window title `100.64.0.2:21120`) and the card marked that chip as selected.
+- Dropping the 21120 bridge + refresh: the selected Tailscale chip turned grey with "Tailscale
+  does not answer here · tap to choose another network"; tapping the card opened the sheet with
+  the banner "Tailscale · 100.64.0.2:21120, used last time, does not answer from this network.
+  Choose another one." and LAN preselected; connecting via LAN made LAN the selected network
+  (`rd-preferred-routes = {"manageds-virtual-machine":"10.0.2.2:21119"}`).
+- Bug found on the way: the reachability probe ignored a `host:port` id (connected to
+  `10.0.2.2:21119` on port 21118) and showed the route as unreachable; fixed by splitting the
+  port off the id.
+
+Not verified yet: the real iPad (WebDriverAgent needs the device unlocked) — the engine-side
+probing of known Tailscale addresses is what makes the Mac show up from another network there.
+
