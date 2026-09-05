@@ -208,9 +208,19 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
   Future<void> _probeNew() =>
       _probe(_knownIps().where((ip) => !_reach.containsKey(ip)).toSet());
 
+  /// Addresses may carry a port ("host:port") when the server is not on the
+  /// default direct-access port; the engine accepts them as ids.
+  ({String host, int port}) _split(String id) {
+    final i = id.lastIndexOf(':');
+    if (i > 0 && !id.contains(']')) {
+      final p = int.tryParse(id.substring(i + 1));
+      if (p != null && p > 0) return (host: id.substring(0, i), port: p);
+    }
+    return (host: id, port: _port);
+  }
+
   Future<void> _probe(Set<String> ips) async {
     if (ips.isEmpty) return;
-    final port = _port;
     if (mounted) {
       setState(() {
         for (final ip in ips) {
@@ -222,7 +232,8 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
     await Future.wait(ips.map((ip) async {
       var ok = false;
       try {
-        final s = await Socket.connect(ip, port, timeout: _probeTimeout);
+        final a = _split(ip);
+        final s = await Socket.connect(a.host, a.port, timeout: _probeTimeout);
         s.destroy();
         ok = true;
       } catch (_) {}
@@ -487,7 +498,7 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
 
   // 100.64.0.0/10 — CGNAT range used by Tailscale.
   bool _isTailscale(String ip) {
-    final parts = ip.split('.');
+    final parts = _split(ip).host.split('.');
     if (parts.length != 4 || parts[0] != '100') return false;
     final b = int.tryParse(parts[1]) ?? -1;
     return b >= 64 && b <= 127;
