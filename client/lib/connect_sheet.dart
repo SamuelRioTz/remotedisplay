@@ -89,6 +89,10 @@ class ConnectSheet extends StatefulWidget {
   final HomeUi ui;
   final Machine machine;
   final String initialIp;
+
+  /// Why the sheet asks (e.g. the network used last time is gone); shown as a
+  /// banner above the choices.
+  final String? note;
   final Future<void> Function(String ip,
       {String? password, required bool remember}) onConnect;
   final VoidCallback onSettings;
@@ -98,6 +102,7 @@ class ConnectSheet extends StatefulWidget {
     required this.ui,
     required this.machine,
     required this.initialIp,
+    this.note,
     required this.onConnect,
     required this.onSettings,
   });
@@ -121,15 +126,19 @@ class _ConnectSheetState extends State<ConnectSheet> {
   MachineRoute get _route =>
       widget.machine.route(_ip) ?? widget.machine.routes.first;
 
+  /// A password is known for the route itself or for another address of the
+  /// same machine (the home copies it over on connect).
+  bool get _known => _route.saved || widget.machine.saved;
+
   Future<void> _go() async {
     if (_busy) return;
     final r = _route;
     final pw = _pw.text;
-    if (!r.saved && pw.isEmpty) return;
+    if (!_known && pw.isEmpty) return;
     setState(() => _busy = true);
     Navigator.of(context).pop();
     await widget.onConnect(r.ip,
-        password: r.saved ? null : pw, remember: _remember);
+        password: _known ? null : pw, remember: _remember);
   }
 
   @override
@@ -137,7 +146,7 @@ class _ConnectSheetState extends State<ConnectSheet> {
     final ui = widget.ui;
     final m = widget.machine;
     final r = _route;
-    final canGo = r.saved || _pw.text.isNotEmpty;
+    final canGo = _known || _pw.text.isNotEmpty;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
@@ -152,8 +161,30 @@ class _ConnectSheetState extends State<ConnectSheet> {
                   Navigator.of(context).pop();
                   widget.onSettings();
                 },
-                icon: Icon(Icons.tune_rounded, size: 20, color: ui.muted),
+                icon: Icon(Icons.settings_outlined, size: 20, color: ui.muted),
               )),
+          if (widget.note != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: ui.accent.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: ui.accent.withOpacity(0.35)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.swap_horiz_rounded, size: 16, color: ui.accentSoft),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(widget.note!,
+                        style: TextStyle(color: ui.fgSoft, fontSize: 12.5)),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 18),
           Text('CONNECT THROUGH',
               style: TextStyle(
@@ -187,12 +218,15 @@ class _ConnectSheetState extends State<ConnectSheet> {
             ),
           ],
           const SizedBox(height: 16),
-          if (r.saved)
+          if (_known)
             Row(
               children: [
                 Icon(Icons.key_rounded, size: 15, color: ui.muted),
                 const SizedBox(width: 8),
-                Text('Password saved for this address',
+                Text(
+                    r.saved
+                        ? 'Password saved for this address'
+                        : 'Password saved for this computer (${widget.machine.savedRoute!.kind})',
                     style: TextStyle(color: ui.fgSoft, fontSize: 13)),
               ],
             )
@@ -232,7 +266,9 @@ class _ConnectSheetState extends State<ConnectSheet> {
           ],
           const SizedBox(height: 14),
           ui.primaryButton(
-              label: 'Connect', onPressed: canGo ? _go : null, busy: _busy),
+              label: 'Connect via ${r.kind}',
+              onPressed: canGo ? _go : null,
+              busy: _busy),
         ],
       ),
     );
@@ -255,6 +291,13 @@ class _ConnectSheetState extends State<ConnectSheet> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Icon(
+                selected
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.radio_button_off_rounded,
+                size: 15,
+                color: selected ? ui.accentSoft : ui.muted),
+            const SizedBox(width: 8),
             statusDot(ui, route),
             const SizedBox(width: 8),
             Icon(route.tailscale ? Icons.vpn_lock_outlined : Icons.lan_outlined,

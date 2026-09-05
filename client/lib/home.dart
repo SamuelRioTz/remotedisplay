@@ -42,6 +42,7 @@ class ClientHome extends StatefulWidget {
 
 class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
   static const _manualKey = 'rd-manual-routes';
+  static const _preferredKey = 'rd-preferred-routes';
   static const _probeTimeout = Duration(milliseconds: 1500);
   static const _probeEvery = Duration(seconds: 20);
 
@@ -67,6 +68,8 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
   Set<String> _savedIps = {};
   // Addresses added by hand: ip → machine key they were attached to.
   Map<String, String> _manual = {};
+  // Address used last per machine (machine key → ip): what a plain tap uses.
+  Map<String, String> _preferred = {};
   // TCP probe of each known address on the last refresh (null = probing).
   final Map<String, bool?> _reach = {};
   // Bumped on every change the sheets should redraw for.
@@ -89,7 +92,8 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
     }
     gFFI.lanPeersModel.addListener(_onPeersChanged);
     gFFI.recentPeersModel.addListener(_onPeersChanged);
-    _loadManual();
+    _manual = _loadMap(_manualKey);
+    _preferred = _loadMap(_preferredKey);
     bind.mainLoadLanPeers(); // the cached ones, instantly
     UpdateCheck.run();
     bind.mainLoadRecentPeers(); // identity (real hostname) of already-connected IPs
@@ -244,22 +248,34 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
 
   // ── manual addresses ────────────────────────────────────────────────────
 
-  void _loadManual() {
+  /// String→string map stored as JSON in one of the engine's local options.
+  Map<String, String> _loadMap(String key) {
     try {
-      final raw = bind.mainGetLocalOption(key: _manualKey);
-      if (raw.isEmpty) return;
+      final raw = bind.mainGetLocalOption(key: key);
+      if (raw.isEmpty) return {};
       final data = jsonDecode(raw);
       if (data is Map) {
-        _manual = {
+        return {
           for (final e in data.entries)
             if (e.key is String && e.value is String) e.key: e.value
         };
       }
     } catch (_) {}
+    return {};
   }
 
   Future<void> _saveManual() async {
     await bind.mainSetLocalOption(key: _manualKey, value: jsonEncode(_manual));
+  }
+
+  /// Remembers the address used for a machine (shown as its selected network).
+  Future<void> _rememberRoute(String machineKey, String ip) async {
+    if (_preferred[machineKey] == ip) return;
+    _preferred[machineKey] = ip;
+    if (mounted) setState(() {});
+    _bump();
+    await bind.mainSetLocalOption(
+        key: _preferredKey, value: jsonEncode(_preferred));
   }
 
   /// Real hostname and OS of each Tailscale peer (same CLI the engine uses
@@ -379,30 +395,66 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
     _probeAll();
   }
 
-  /// Tap on a machine (or on one of its routes): one tap when a password is
-  /// saved, otherwise the connect sheet (route + password + remember).
+  /// Connects to [m] through [ip], remembering that choice. Without a typed
+  /// password, an address that has none saved borrows the one saved for
+  /// another address of the same machine (same salt, so the hash is valid).
+  Future<void> _connectVia(Machine m, String ip,
+      {String? password, bool remember = true}) async {
+    await _rememberRoute(m.key, ip);
+    final route = m.route(ip);
+    if (password == null && route != null && !route.saved) {
+      final donor = m.savedRoute;
+      if (donor != null) {
+        try {
+          await bind.mainSetPeerOption(
+              id: ip, key: 'rd-copy-password-from', value: donor.ip);
+        } catch (_) {}
+        await _refreshSaved();
+      }
+    }
+    return _connect(ip, password: password, remember: remember);
+  }
+
+  /// Tap on a machine, or on one of its route chips ([ip]).
+  ///
+  /// The network used last time is remembered per machine: while it answers,
+  /// a tap connects through it (one tap when a password is known). When it is
+  /// gone or does not answer from this network, or when the machine has several
+  /// networks and none was ever chosen, the connect sheet asks which one to
+  /// use (and for the password if none is known).
   Future<void> _openConnect(Machine m, {String? ip}) async {
     if (_connecting) return;
     final ui = HomeUi(Theme.of(context).brightness == Brightness.dark);
-    final route = (ip == null ? null : m.route(ip)) ?? m.best;
-    if (route.saved) return _connect(route.ip);
-    final donor = m.savedRoute;
-    if (donor != null) {
-      // Another address of the same machine has the password: reuse it.
-      try {
-        await bind.mainSetPeerOption(
-            id: route.ip, key: 'rd-copy-password-from', value: donor.ip);
-      } catch (_) {}
-      await _refreshSaved();
-      return _connect(route.ip);
+    final explicit = ip == null ? null : m.route(ip);
+    MachineRoute? target = explicit;
+    String? note;
+    if (explicit == null) {
+      final rememberedIp = _preferred[m.key];
+      final remembered = m.preferred;
+      if (rememberedIp != null && remembered == null) {
+        note = 'The address you used last ($rememberedIp) is no longer listed. '
+            'Choose a network.';
+      } else if (remembered != null && remembered.reachable == false) {
+        note = '${remembered.kind} · ${remembered.ip}, used last time, does not '
+            'answer from this network. Choose another one.';
+      } else if (remembered != null) {
+        target = remembered;
+      } else if (m.routes.length == 1) {
+        target = m.routes.first;
+      }
+      // several networks and none chosen yet → ask
+    }
+    if (target != null && (target.saved || m.saved)) {
+      return _connectVia(m, target.ip);
     }
     if (!mounted) return;
     await _showSheet((ctx) => ConnectSheet(
           ui: ui,
           machine: m,
-          initialIp: route.ip,
+          initialIp: (target ?? m.live ?? m.best).ip,
+          note: note,
           onConnect: (ip, {password, required remember}) =>
-              _connect(ip, password: password, remember: remember),
+              _connectVia(m, ip, password: password, remember: remember),
           onSettings: () => _openSettings(m),
         ));
   }
@@ -485,6 +537,11 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
   Future<void> _removeAddress(MachineRoute r) async {
     _manual.remove(r.ip);
     await _saveManual();
+    if (_preferred.values.contains(r.ip)) {
+      _preferred.removeWhere((_, v) => v == r.ip);
+      await bind.mainSetLocalOption(
+          key: _preferredKey, value: jsonEncode(_preferred));
+    }
     try {
       await bind.mainRemoveDiscovered(id: r.ip);
       await bind.mainRemovePeer(id: r.ip);
@@ -584,6 +641,8 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
 
     final machines = byKey.values.toList();
     for (final m in machines) {
+      final pref = _preferred[m.key];
+      if (pref != null && m.route(pref) != null) m.preferredIp = pref;
       // LAN before Tailscale; within a kind, reachable first.
       m.routes.sort((a, b) {
         final k = (a.tailscale ? 1 : 0) - (b.tailscale ? 1 : 0);
@@ -1021,6 +1080,8 @@ class _MachineCardState extends State<_MachineCard> {
       if (m.platform.isNotEmpty) m.platform,
     ].join(' · ');
     final offline = !m.probing && m.live == null;
+    final pref = m.preferred;
+    final prefLost = pref != null && pref.reachable == false;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -1105,6 +1166,12 @@ class _MachineCardState extends State<_MachineCard> {
                             : 'Not reachable from this network · add its Tailscale address in settings to reach it from anywhere',
                         style: TextStyle(color: ui.muted, fontSize: 11.5),
                       ),
+                    ] else if (prefLost) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '${pref.kind} does not answer here · tap to choose another network',
+                        style: TextStyle(color: ui.muted, fontSize: 11.5),
+                      ),
                     ],
                   ],
                 ),
@@ -1115,7 +1182,7 @@ class _MachineCardState extends State<_MachineCard> {
                 tooltip: 'Settings',
                 visualDensity: VisualDensity.compact,
                 onPressed: widget.onSettings,
-                icon: Icon(Icons.tune_rounded, size: 18, color: ui.muted),
+                icon: Icon(Icons.settings_outlined, size: 18, color: ui.muted),
               ),
               Icon(Icons.arrow_forward_rounded,
                   size: 18,
@@ -1143,22 +1210,32 @@ class _MachineCardState extends State<_MachineCard> {
 
   Widget _routeChip(HomeUi ui, MachineRoute r, {required bool enabled}) {
     final dim = r.reachable == false;
+    final selected = widget.machine.preferredIp == r.ip;
     return Tooltip(
-      message: '${routeStatus(r)} · tap to connect through this address',
+      message: [
+        routeStatus(r),
+        if (selected) 'selected network (used last time)',
+        'tap to connect through this address',
+      ].join(' · '),
       waitDuration: const Duration(milliseconds: 500),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(999),
         onTap: enabled ? () => widget.onConnect(r.ip) : null,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
           decoration: BoxDecoration(
-            color: ui.chip,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: ui.border),
+            color: selected ? ui.accent.withOpacity(0.12) : ui.chip,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+                color: selected ? ui.accent.withOpacity(0.6) : ui.border),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (selected) ...[
+                Icon(Icons.check_rounded, size: 12, color: ui.accentSoft),
+                const SizedBox(width: 4),
+              ],
               statusDot(ui, r, size: 6),
               const SizedBox(width: 6),
               Icon(r.tailscale ? Icons.vpn_lock_outlined : Icons.lan_outlined,

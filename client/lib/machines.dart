@@ -32,7 +32,15 @@ class Machine {
   String username = '';
   final List<MachineRoute> routes = [];
 
+  /// Address the user connected through last time (remembered per machine).
+  /// A plain tap uses it while it answers; when it is gone or silent the
+  /// connect sheet asks to choose a network again.
+  String? preferredIp;
+
   Machine({required this.key, required this.name});
+
+  MachineRoute? get preferred =>
+      preferredIp == null ? null : route(preferredIp!);
 
   bool get identified => platform.isNotEmpty || username.isNotEmpty;
 
