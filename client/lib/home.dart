@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common.dart' hide Dialog;
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
@@ -12,16 +12,27 @@ import 'package:uni_links/uni_links.dart' show getInitialLink, uriLinkStream;
 import 'package:url_launcher/url_launcher.dart' show LaunchMode, launchUrl;
 import 'package:window_manager/window_manager.dart';
 
+import 'connect_sheet.dart';
+import 'home_ui.dart';
+import 'machines.dart';
 import 'update_check.dart';
 
 import 'session/mobile_session.dart';
 
-/// Client home — discovered machines (cards, 1 per machine) + manual
-/// connection. Discovery is done by the engine (UDP broadcast + direct port
-/// scan on local subnets and Tailscale peers, see engine lan.rs); it arrives
-/// via `load_lan_peers` into gFFI.lanPeersModel with id = IP. Here we group
-/// the IPs (LAN/Tailscale) of the same machine via hostname +
-/// `tailscale status`, to show ONE card per machine.
+/// Client home — your computers (cards, 1 per machine) + manual connection.
+///
+/// Sources, merged per machine (see `machines.dart`):
+///  - discovered by the engine (UDP broadcast + direct-port scan of the local
+///    subnets, of the Tailscale peers, and of the Tailscale addresses it already
+///    knows — see engine lan.rs), arriving via `load_lan_peers` with id = IP;
+///  - recent peers (the engine's per-address config of everything we connected
+///    to: hostname, platform, user, saved password);
+///  - addresses added by hand in a machine's settings (local option
+///    `rd-manual-routes`).
+/// IPs (LAN/Tailscale) of the same machine are grouped via hostname (+
+/// `tailscale status` on desktop). Every refresh also probes each address with
+/// a TCP connect to the direct-access port, so a route that does not answer
+/// from the current network shows as such and a tap uses the one that does.
 class ClientHome extends StatefulWidget {
   const ClientHome({super.key});
 
@@ -29,35 +40,18 @@ class ClientHome extends StatefulWidget {
   State<ClientHome> createState() => _ClientHomeState();
 }
 
-class _Route {
-  final String ip;
-  final bool tailscale;
-  _Route(this.ip, this.tailscale);
-}
+class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
+  static const _manualKey = 'rd-manual-routes';
+  static const _probeTimeout = Duration(milliseconds: 1500);
+  static const _probeEvery = Duration(seconds: 20);
 
-class _Machine {
-  String name;
-  String platform = '';
-  String username = '';
-  // One of its routes has a saved password → one tap connects.
-  bool saved = false;
-  final List<_Route> routes = [];
-  _Machine({required this.name});
-
-  /// LAN first; Tailscale as fallback.
-  _Route get preferred =>
-      routes.firstWhere((r) => !r.tailscale, orElse: () => routes.first);
-
-  bool get identified => platform.isNotEmpty || username.isNotEmpty;
-}
-
-class _ClientHomeState extends State<ClientHome> {
   final _ip = TextEditingController();
   final _pw = TextEditingController();
   bool _connecting = false;
   bool _scanning = false;
   bool _manualOpen = false;
   Timer? _scanTimer;
+  Timer? _probeTimer;
 
   // Tailscale IP → (real hostname, platform), via `tailscale status --json`.
   // The HostName from the JSON is the hostname the machine reports (not the
@@ -71,10 +65,17 @@ class _ClientHomeState extends State<ClientHome> {
   Set<String> _tsAll = {};
   // IPs with a saved password in the engine's peer config.
   Set<String> _savedIps = {};
+  // Addresses added by hand: ip → machine key they were attached to.
+  Map<String, String> _manual = {};
+  // TCP probe of each known address on the last refresh (null = probing).
+  final Map<String, bool?> _reach = {};
+  // Bumped on every change the sheets should redraw for.
+  final _rev = ValueNotifier<int>(0);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Reinforce showing the main window once the first frame is mounted
     // (see note in main.dart / RESULT of the handoff about standalone visibility).
     if (isDesktop) {
@@ -86,12 +87,16 @@ class _ClientHomeState extends State<ClientHome> {
         } catch (_) {}
       });
     }
-    gFFI.lanPeersModel.addListener(_refreshSaved);
-    gFFI.recentPeersModel.addListener(_refreshSaved);
+    gFFI.lanPeersModel.addListener(_onPeersChanged);
+    gFFI.recentPeersModel.addListener(_onPeersChanged);
+    _loadManual();
     bind.mainLoadLanPeers(); // the cached ones, instantly
     UpdateCheck.run();
     bind.mainLoadRecentPeers(); // identity (real hostname) of already-connected IPs
-    _discover();
+    _refresh();
+    _probeTimer = Timer.periodic(_probeEvery, (_) {
+      if (!_connecting) _probeAll();
+    });
     // Deep links on mobile (remotedisplay://connection/new/<host>?password=…):
     // they connect with OUR mobile session. On desktop the engine resolves
     // them (handleUriLink in main.dart), here only the mobile flow.
@@ -130,13 +135,41 @@ class _ClientHomeState extends State<ClientHome> {
 
   @override
   void dispose() {
-    gFFI.lanPeersModel.removeListener(_refreshSaved);
-    gFFI.recentPeersModel.removeListener(_refreshSaved);
+    WidgetsBinding.instance.removeObserver(this);
+    gFFI.lanPeersModel.removeListener(_onPeersChanged);
+    gFFI.recentPeersModel.removeListener(_onPeersChanged);
     _linkSub?.cancel();
     _scanTimer?.cancel();
+    _probeTimer?.cancel();
+    _rev.dispose();
     _ip.dispose();
     _pw.dispose();
     super.dispose();
+  }
+
+  /// Back from another app / the network may have changed (iPad leaving home):
+  /// refresh everything, so stale routes are marked and new ones found.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_connecting) _refresh();
+  }
+
+  void _onPeersChanged() {
+    _refreshSaved();
+    _probeNew();
+    _bump();
+  }
+
+  void _bump() {
+    if (mounted) _rev.value++;
+  }
+
+  /// Everything: engine discovery, Tailscale identities, saved passwords and
+  /// the reachability of every known address.
+  void _refresh() {
+    _discover();
+    _probeAll();
+    _refreshSaved();
   }
 
   void _discover() {
@@ -151,6 +184,71 @@ class _ClientHomeState extends State<ClientHome> {
     _scanTimer = Timer(const Duration(seconds: 5), () {
       if (mounted) setState(() => _scanning = false);
     });
+  }
+
+  // ── reachability ────────────────────────────────────────────────────────
+
+  int get _port {
+    try {
+      final v = int.tryParse(bind.mainGetOptionSync(key: 'direct-access-port'));
+      if (v != null && v > 0) return v;
+    } catch (_) {}
+    return 21118;
+  }
+
+  Set<String> _knownIps() => {
+        ...gFFI.lanPeersModel.peers.map((p) => p.id),
+        ...gFFI.recentPeersModel.peers.map((p) => p.id),
+        ..._manual.keys,
+      }..removeWhere((ip) => ip.isEmpty || _tsSelf.contains(ip));
+
+  Future<void> _probeAll() => _probe(_knownIps());
+
+  /// Only the addresses that have never been probed (new discoveries).
+  Future<void> _probeNew() =>
+      _probe(_knownIps().where((ip) => !_reach.containsKey(ip)).toSet());
+
+  Future<void> _probe(Set<String> ips) async {
+    if (ips.isEmpty) return;
+    final port = _port;
+    if (mounted) {
+      setState(() {
+        for (final ip in ips) {
+          _reach[ip] = null;
+        }
+      });
+    }
+    _bump();
+    await Future.wait(ips.map((ip) async {
+      var ok = false;
+      try {
+        final s = await Socket.connect(ip, port, timeout: _probeTimeout);
+        s.destroy();
+        ok = true;
+      } catch (_) {}
+      if (mounted) setState(() => _reach[ip] = ok);
+    }));
+    _bump();
+  }
+
+  // ── manual addresses ────────────────────────────────────────────────────
+
+  void _loadManual() {
+    try {
+      final raw = bind.mainGetLocalOption(key: _manualKey);
+      if (raw.isEmpty) return;
+      final data = jsonDecode(raw);
+      if (data is Map) {
+        _manual = {
+          for (final e in data.entries)
+            if (e.key is String && e.value is String) e.key: e.value
+        };
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveManual() async {
+    await bind.mainSetLocalOption(key: _manualKey, value: jsonEncode(_manual));
   }
 
   /// Real hostname and OS of each Tailscale peer (same CLI the engine uses
@@ -217,6 +315,7 @@ class _ClientHomeState extends State<ClientHome> {
             _tsSelf = self;
             _tsAll = all;
           });
+          _bump();
         }
         return;
       } catch (_) {}
@@ -226,24 +325,32 @@ class _ClientHomeState extends State<ClientHome> {
   /// Which IPs have a saved password (async query to the engine); it is
   /// recalculated when peers change and when returning from a session.
   Future<void> _refreshSaved() async {
-    final ids = <String>{
-      ...gFFI.lanPeersModel.peers.map((p) => p.id),
-      ...gFFI.recentPeersModel.peers.map((p) => p.id),
-    };
     final saved = <String>{};
-    for (final id in ids) {
+    for (final id in _knownIps()) {
       try {
         if (await bind.mainPeerHasPassword(id: id)) saved.add(id);
       } catch (_) {}
     }
     if (mounted && !setEquals(saved, _savedIps)) {
       setState(() => _savedIps = saved);
+      _bump();
     }
   }
 
-  Future<void> _connect(String id, {String? password}) async {
+  // ── connecting ──────────────────────────────────────────────────────────
+
+  Future<void> _connect(String id,
+      {String? password, bool remember = true}) async {
     if (id.isEmpty || _connecting) return;
     setState(() => _connecting = true);
+    try {
+      // A password typed here is remembered (or not) as chosen: the engine
+      // reads this per-peer flag when the session is created (session_add).
+      await bind.mainSetPeerOption(
+          id: id,
+          key: 'rd-remember',
+          value: password == null ? '' : (remember ? 'Y' : 'N'));
+    } catch (_) {}
     try {
       if (isDesktop) {
         // Opens our session window via the engine's multi-window plumbing.
@@ -256,7 +363,126 @@ class _ClientHomeState extends State<ClientHome> {
     } catch (_) {}
     await Future.delayed(const Duration(milliseconds: 700));
     if (mounted) setState(() => _connecting = false);
+    bind.mainLoadRecentPeers(); // a first connection adds identity + address
     _refreshSaved(); // it may have checked "remember password"
+    _probeAll();
+  }
+
+  /// Tap on a machine (or on one of its routes): one tap when a password is
+  /// saved, otherwise the connect sheet (route + password + remember).
+  Future<void> _openConnect(Machine m, {String? ip}) async {
+    if (_connecting) return;
+    final ui = HomeUi(Theme.of(context).brightness == Brightness.dark);
+    final route = (ip == null ? null : m.route(ip)) ?? m.best;
+    if (route.saved) return _connect(route.ip);
+    final donor = m.savedRoute;
+    if (donor != null) {
+      // Another address of the same machine has the password: reuse it.
+      try {
+        await bind.mainSetPeerOption(
+            id: route.ip, key: 'rd-copy-password-from', value: donor.ip);
+      } catch (_) {}
+      await _refreshSaved();
+      return _connect(route.ip);
+    }
+    if (!mounted) return;
+    await _showSheet((ctx) => ConnectSheet(
+          ui: ui,
+          machine: m,
+          initialIp: route.ip,
+          onConnect: (ip, {password, required remember}) =>
+              _connect(ip, password: password, remember: remember),
+          onSettings: () => _openSettings(m),
+        ));
+  }
+
+  Future<void> _openSettings(Machine m) async {
+    final ui = HomeUi(Theme.of(context).brightness == Brightness.dark);
+    final key = m.key;
+    await _showSheet((ctx) => MachineSettingsSheet(
+          ui: ui,
+          revision: _rev,
+          lookup: () {
+            for (final x in _machines()) {
+              if (x.key == key) return x;
+            }
+            return null;
+          },
+          onAddAddress: (a) => _addAddress(key, a),
+          onRemoveAddress: _removeAddress,
+          onForgetPassword: (r) async {
+            await bind.mainForgetPassword(id: r.ip);
+            await _refreshSaved();
+          },
+          onForgetMachine: () async {
+            final x = _machines().where((x) => x.key == key);
+            for (final r in x.isEmpty ? <MachineRoute>[] : x.first.routes) {
+              await _removeAddress(r);
+            }
+          },
+          onConnect: (ip) => _openConnect(m, ip: ip),
+        ));
+  }
+
+  /// Sheets: bottom sheet on mobile, centered dialog on desktop.
+  Future<T?> _showSheet<T>(WidgetBuilder builder) {
+    final ui = HomeUi(Theme.of(context).brightness == Brightness.dark);
+    if (isDesktop) {
+      return showDialog<T>(
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: ui.card,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(color: ui.border)),
+          child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: builder(ctx)),
+        ),
+      );
+    }
+    return showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: ui.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: SafeArea(
+            child: SingleChildScrollView(
+                child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: builder(ctx)))),
+      ),
+    );
+  }
+
+  Future<void> _addAddress(String machineKey, String address) async {
+    final a = address.trim();
+    if (a.isEmpty) return;
+    _manual[a] = machineKey;
+    await _saveManual();
+    _bump();
+    await _probe({a});
+    await _refreshSaved();
+  }
+
+  /// Drops an address from every source: the discovered cache, the recent
+  /// peers (this also drops its saved password) and the manual list.
+  Future<void> _removeAddress(MachineRoute r) async {
+    _manual.remove(r.ip);
+    await _saveManual();
+    try {
+      await bind.mainRemoveDiscovered(id: r.ip);
+      await bind.mainRemovePeer(id: r.ip);
+    } catch (_) {}
+    _reach.remove(r.ip);
+    bind.mainLoadLanPeers();
+    bind.mainLoadRecentPeers();
+    if (mounted) setState(() {});
+    _bump();
   }
 
   // 100.64.0.0/10 — CGNAT range used by Tailscale.
@@ -273,18 +499,18 @@ class _ClientHomeState extends State<ClientHome> {
     return label.isEmpty ? null : label;
   }
 
-  /// Groups the engine's entries (1 per IP) into machines (1 per computer).
-  List<_Machine> _machines() {
+  /// Groups every known address (1 entry per IP) into machines (1 per computer).
+  List<Machine> _machines() {
     // The engine can save the same IP twice (entry identified by broadcast +
     // bare entry from the port scan): first dedupe by IP, preferring the
-    // identified one.
+    // identified one. Recent peers and manual addresses join as bare entries.
     final byIp = <String, Peer>{};
-    for (final p in gFFI.lanPeersModel.peers) {
-      if (_tsSelf.contains(p.id)) continue; // this machine, don't list ourselves
-      // CGNAT IP that no longer exists in the tailnet (left over in lan_peers
-      // from a previous tailnet): ghost card, don't list it.
+    void add(Peer p) {
+      if (p.id.isEmpty || _tsSelf.contains(p.id)) return; // never ourselves
+      // CGNAT IP that no longer exists in the tailnet (left over from a
+      // previous tailnet): ghost card, don't list it.
       if (_isTailscale(p.id) && _tsAll.isNotEmpty && !_tsAll.contains(p.id)) {
-        continue;
+        return;
       }
       final prev = byIp[p.id];
       if (prev == null || (prev.platform.isEmpty && p.platform.isNotEmpty)) {
@@ -292,31 +518,45 @@ class _ClientHomeState extends State<ClientHome> {
       }
     }
 
+    for (final p in gFFI.lanPeersModel.peers) {
+      add(p);
+    }
+    for (final p in gFFI.recentPeersModel.peers) {
+      add(p);
+    }
+    for (final ip in _manual.keys) {
+      if (!byIp.containsKey(ip)) add(Peer.fromJson({'id': ip}));
+    }
+
     // Then group by machine identity. Sources, in order: hostname from the
     // LAN broadcast, hostname saved from a previous connection to that IP
     // (recent peers — so the Mac's Tailscale IP groups with its LAN IP even
-    // if the broadcast doesn't cross into Tailscale), and hostname reported
-    // by `tailscale status`. No name → its own card per IP.
+    // if the broadcast doesn't cross into Tailscale), hostname reported by
+    // `tailscale status`, the machine an address was added to by hand. No
+    // name → its own card per IP.
     final recentById = {
       for (final r in gFFI.recentPeersModel.peers)
         if (r.hostname.isNotEmpty) r.id: r
     };
-    final byKey = <String, _Machine>{};
+    final byKey = <String, Machine>{};
     for (final p in byIp.values) {
       final recent = recentById[p.id];
-      final knownHost = p.platform.isNotEmpty
+      final knownHost = p.platform.isNotEmpty && p.hostname.isNotEmpty
           ? p.hostname
           : (recent != null && recent.platform.isNotEmpty
               ? recent.hostname
               : null);
       final identifiedName = knownHost == null ? null : _hostLabel(knownHost);
       final tsName = _tsName[p.id];
-      final key = identifiedName ?? tsName ?? 'ip:${p.id}';
+      final key = identifiedName ?? tsName ?? _manual[p.id] ?? 'ip:${p.id}';
 
       final m = byKey.putIfAbsent(
-          key, () => _Machine(name: identifiedName ?? tsName ?? p.id));
-      m.routes.add(_Route(p.id, _isTailscale(p.id)));
-      if (_savedIps.contains(p.id)) m.saved = true;
+          key, () => Machine(key: key, name: identifiedName ?? tsName ?? p.id));
+      final route = MachineRoute(p.id,
+          tailscale: _isTailscale(p.id), manual: _manual.containsKey(p.id));
+      route.reachable = _reach.containsKey(p.id) ? _reach[p.id] : null;
+      route.saved = _savedIps.contains(p.id);
+      m.routes.add(route);
       if (m.platform.isEmpty) {
         m.platform = p.platform.isNotEmpty
             ? p.platform
@@ -333,24 +573,32 @@ class _ClientHomeState extends State<ClientHome> {
 
     final machines = byKey.values.toList();
     for (final m in machines) {
-      m.routes.sort((a, b) => (a.tailscale ? 1 : 0) - (b.tailscale ? 1 : 0));
+      // LAN before Tailscale; within a kind, reachable first.
+      m.routes.sort((a, b) {
+        final k = (a.tailscale ? 1 : 0) - (b.tailscale ? 1 : 0);
+        if (k != 0) return k;
+        return (a.reachable == true ? 0 : 1) - (b.reachable == true ? 0 : 1);
+      });
     }
-    // Identified ones on top, loose IPs below.
-    return [
-      ...machines.where((m) => m.identified),
-      ...machines.where((m) => !m.identified),
-    ];
+    // Reachable machines on top, then identified ones, then loose IPs.
+    int rank(Machine m) =>
+        (m.live != null ? 0 : 2) + (m.identified ? 0 : 1);
+    machines.sort((a, b) {
+      final r = rank(a) - rank(b);
+      return r != 0 ? r : a.name.compareTo(b.name);
+    });
+    return machines;
   }
 
-  /// Removes the machine from the discovered list (long press on the
-  /// card; it reappears if it's still on the network on the next scan).
-  Future<void> _forgetMachine(_Machine m) async {
+  /// Removes the machine (long press on the card): every address from every
+  /// source; it reappears if it is still on the network on the next scan.
+  Future<void> _forgetMachine(Machine m) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('Forget "${m.name}"'),
         content: const Text(
-            'Removed from the list. If it is still on your network it will show up again on the next scan.'),
+            'Its addresses and saved passwords are removed. If it is still on your network it shows up again on the next scan.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -363,15 +611,14 @@ class _ClientHomeState extends State<ClientHome> {
     );
     if (ok != true) return;
     for (final r in m.routes) {
-      await bind.mainRemoveDiscovered(id: r.ip);
+      await _removeAddress(r);
     }
-    bind.mainLoadLanPeers();
   }
 
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final ui = _Ui(dark);
+    final ui = HomeUi(dark);
 
     return Scaffold(
       backgroundColor: ui.bg,
@@ -391,7 +638,7 @@ class _ClientHomeState extends State<ClientHome> {
                   constraints: const BoxConstraints(maxWidth: 440),
                   child: ListenableBuilder(
                     listenable: Listenable.merge(
-                        [gFFI.lanPeersModel, gFFI.recentPeersModel]),
+                        [gFFI.lanPeersModel, gFFI.recentPeersModel, _rev]),
                     builder: (context, _) {
                       final machines = _machines();
                       return Column(
@@ -400,7 +647,7 @@ class _ClientHomeState extends State<ClientHome> {
                         children: [
                           _header(ui),
                           const SizedBox(height: 26),
-                          _sectionTitle(ui, 'ON YOUR NETWORK',
+                          _sectionTitle(ui, 'YOUR COMPUTERS',
                               trailing: _scanIndicator(ui)),
                           const SizedBox(height: 10),
                           _machineCards(ui, machines),
@@ -414,7 +661,7 @@ class _ClientHomeState extends State<ClientHome> {
                                 Icon(Icons.lock_outline,
                                     size: 12, color: ui.muted),
                                 const SizedBox(width: 6),
-                                Text('Local network · no servers',
+                                Text('Direct connection · no relay servers',
                                     style: TextStyle(
                                         color: ui.muted, fontSize: 12)),
                               ],
@@ -460,7 +707,7 @@ class _ClientHomeState extends State<ClientHome> {
   }
 
   Widget _winBtn(
-          _Ui ui, IconData icon, String tooltip, VoidCallback onTap,
+          HomeUi ui, IconData icon, String tooltip, VoidCallback onTap,
           {bool danger = false}) =>
       Tooltip(
         message: tooltip,
@@ -496,7 +743,7 @@ class _ClientHomeState extends State<ClientHome> {
         ),
       );
 
-  Widget _header(_Ui ui) => Column(
+  Widget _header(HomeUi ui) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -562,7 +809,7 @@ class _ClientHomeState extends State<ClientHome> {
         ],
       );
 
-  Widget _aboutLink(_Ui ui, String label, String url) => GestureDetector(
+  Widget _aboutLink(HomeUi ui, String label, String url) => GestureDetector(
         onTap: () =>
             launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
         child: MouseRegion(
@@ -575,7 +822,7 @@ class _ClientHomeState extends State<ClientHome> {
         ),
       );
 
-  Widget _sectionTitle(_Ui ui, String text, {Widget? trailing}) => Row(
+  Widget _sectionTitle(HomeUi ui, String text, {Widget? trailing}) => Row(
         children: [
           Text(text,
               style: TextStyle(
@@ -588,21 +835,24 @@ class _ClientHomeState extends State<ClientHome> {
         ],
       );
 
-  Widget _scanIndicator(_Ui ui) => _scanning
+  Widget _scanIndicator(HomeUi ui) => _scanning
       ? SizedBox(
           width: 12,
           height: 12,
           child: CircularProgressIndicator(strokeWidth: 1.5, color: ui.muted))
-      : InkWell(
-          borderRadius: BorderRadius.circular(6),
-          onTap: _discover,
-          child: Padding(
-            padding: const EdgeInsets.all(2),
-            child: Icon(Icons.refresh, size: 16, color: ui.muted),
+      : Tooltip(
+          message: 'Refresh: scan the network and re-check every address',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: _refresh,
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Icon(Icons.refresh, size: 16, color: ui.muted),
+            ),
           ),
         );
 
-  Widget _machineCards(_Ui ui, List<_Machine> machines) {
+  Widget _machineCards(HomeUi ui, List<Machine> machines) {
     if (machines.isEmpty) {
       return Container(
         width: double.infinity,
@@ -616,7 +866,7 @@ class _ClientHomeState extends State<ClientHome> {
               child: Text(
                 _scanning
                     ? 'Looking for computers on your network…'
-                    : 'No computers found. Check that the server is running.',
+                    : 'No computers yet. Start Remote Display Server on the Mac (same network, or Tailscale on both) or enter its address below.',
                 style: TextStyle(color: ui.muted, fontSize: 13),
               ),
             ),
@@ -633,7 +883,9 @@ class _ClientHomeState extends State<ClientHome> {
               machine: m,
               ui: ui,
               enabled: !_connecting,
-              onConnect: (ip) => _connect(ip),
+              onConnect: (ip) => _openConnect(m, ip: ip),
+              onTap: () => _openConnect(m),
+              onSettings: () => _openSettings(m),
               onForget: () => _forgetMachine(m),
             ),
           ),
@@ -642,28 +894,9 @@ class _ClientHomeState extends State<ClientHome> {
   }
 
   /// "Manual connection" card, collapsed by default (opens on its own if no
-  /// machine was found).
-  Widget _manualCard(_Ui ui, {required bool forceOpen}) {
+  /// machine is known). A machine connected this way joins the list above.
+  Widget _manualCard(HomeUi ui, {required bool forceOpen}) {
     final open = _manualOpen || forceOpen;
-
-    InputDecoration deco(String hint, IconData icon) => InputDecoration(
-          hintText: hint,
-          hintStyle: TextStyle(color: ui.muted, fontSize: 14),
-          prefixIcon: Icon(icon, size: 18, color: ui.muted),
-          filled: true,
-          fillColor: ui.field,
-          contentPadding:
-              const EdgeInsets.symmetric(vertical: 15, horizontal: 8),
-          border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide.none),
-          enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide.none),
-          focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: ui.accent, width: 1.5)),
-        );
 
     void go() =>
         _connect(_ip.text.trim(), password: _pw.text.isEmpty ? null : _pw.text);
@@ -675,8 +908,9 @@ class _ClientHomeState extends State<ClientHome> {
           TextField(
             controller: _ip,
             style: TextStyle(color: ui.fg, fontSize: 15),
-            decoration:
-                deco('IP  (e.g. 192.168.1.117)', Icons.computer_outlined),
+            decoration: ui.input(
+                'IP or Tailscale IP  (e.g. 192.168.1.117)',
+                Icons.computer_outlined),
             onSubmitted: (_) => go(),
           ),
           const SizedBox(height: 10),
@@ -684,41 +918,14 @@ class _ClientHomeState extends State<ClientHome> {
             controller: _pw,
             obscureText: true,
             style: TextStyle(color: ui.fg, fontSize: 15),
-            decoration: deco('Password', Icons.lock_outline),
+            decoration: ui.input('Password', Icons.lock_outline),
             onSubmitted: (_) => go(),
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [ui.accent, ui.violet]),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: ElevatedButton(
-                onPressed: _connecting ? null : go,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  disabledBackgroundColor: Colors.transparent,
-                  foregroundColor: Colors.white,
-                  shadowColor: Colors.transparent,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                ),
-                child: _connecting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Text('Connect',
-                        style: TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w600)),
-              ),
-            ),
-          ),
+          ui.primaryButton(
+              label: 'Connect',
+              onPressed: _connecting ? null : go,
+              busy: _connecting),
         ],
       ),
     );
@@ -765,14 +972,16 @@ class _ClientHomeState extends State<ClientHome> {
   }
 }
 
-/// Card for a discovered machine: icon, name, and its routes (LAN /
-/// Tailscale) as chips — tapping the card connects via the best route,
-/// tapping a chip connects via that IP.
+/// Card for a known machine: icon, name, its routes (LAN / Tailscale) as
+/// chips with their reachability, a settings button. Tapping the card connects
+/// through the best route, tapping a chip through that address.
 class _MachineCard extends StatefulWidget {
-  final _Machine machine;
-  final _Ui ui;
+  final Machine machine;
+  final HomeUi ui;
   final bool enabled;
   final void Function(String ip) onConnect;
+  final VoidCallback onTap;
+  final VoidCallback onSettings;
   final VoidCallback onForget;
 
   const _MachineCard({
@@ -780,6 +989,8 @@ class _MachineCard extends StatefulWidget {
     required this.ui,
     required this.enabled,
     required this.onConnect,
+    required this.onTap,
+    required this.onSettings,
     required this.onForget,
   });
 
@@ -790,21 +1001,6 @@ class _MachineCard extends StatefulWidget {
 class _MachineCardState extends State<_MachineCard> {
   bool _hover = false;
 
-  IconData get _icon {
-    switch (widget.machine.platform) {
-      case kPeerPlatformMacOS:
-        return Icons.laptop_mac;
-      case kPeerPlatformWindows:
-        return Icons.desktop_windows_outlined;
-      case kPeerPlatformLinux:
-        return Icons.computer_outlined;
-      case kPeerPlatformAndroid:
-        return Icons.smartphone_outlined;
-      default:
-        return Icons.dns_outlined; // IP only (no platform info)
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final m = widget.machine;
@@ -813,17 +1009,18 @@ class _MachineCardState extends State<_MachineCard> {
       if (m.username.isNotEmpty) m.username,
       if (m.platform.isNotEmpty) m.platform,
     ].join(' · ');
+    final offline = !m.probing && m.live == null;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       cursor: widget.enabled ? SystemMouseCursors.click : MouseCursor.defer,
       child: GestureDetector(
-        onTap: widget.enabled ? () => widget.onConnect(m.preferred.ip) : null,
+        onTap: widget.enabled ? widget.onTap : null,
         onLongPress: widget.onForget,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(14, 14, 8, 14),
           decoration: BoxDecoration(
             color: ui.card,
             borderRadius: BorderRadius.circular(14),
@@ -833,22 +1030,26 @@ class _MachineCardState extends State<_MachineCard> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(11),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      ui.accent.withOpacity(m.identified ? 0.22 : 0.10),
-                      ui.violet.withOpacity(m.identified ? 0.22 : 0.10),
-                    ],
+              Opacity(
+                opacity: offline ? 0.55 : 1,
+                child: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(11),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        ui.accent.withOpacity(m.identified ? 0.22 : 0.10),
+                        ui.violet.withOpacity(m.identified ? 0.22 : 0.10),
+                      ],
+                    ),
                   ),
+                  child: Icon(platformIcon(m.platform),
+                      size: 21,
+                      color: m.identified ? ui.accentSoft : ui.muted),
                 ),
-                child: Icon(_icon,
-                    size: 21, color: m.identified ? ui.accentSoft : ui.muted),
               ),
               const SizedBox(width: 13),
               Expanded(
@@ -861,7 +1062,7 @@ class _MachineCardState extends State<_MachineCard> {
                           child: Text(m.name,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                  color: ui.fg,
+                                  color: offline ? ui.fgSoft : ui.fg,
                                   fontSize: 14.5,
                                   fontWeight: FontWeight.w600)),
                         ),
@@ -885,17 +1086,32 @@ class _MachineCardState extends State<_MachineCard> {
                           _routeChip(ui, r, enabled: widget.enabled),
                       ],
                     ),
+                    if (offline) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        m.routes.any((r) => r.tailscale)
+                            ? 'Not reachable from this network right now'
+                            : 'Not reachable from this network · add its Tailscale address in settings to reach it from anywhere',
+                        style: TextStyle(color: ui.muted, fontSize: 11.5),
+                      ),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
               if (m.saved) _savedBadge(ui),
-              const SizedBox(width: 6),
+              IconButton(
+                tooltip: 'Settings',
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.onSettings,
+                icon: Icon(Icons.tune_rounded, size: 18, color: ui.muted),
+              ),
               Icon(Icons.arrow_forward_rounded,
                   size: 18,
                   color: _hover || !isDesktop
                       ? ui.accentSoft
                       : ui.accentSoft.withOpacity(0.55)),
+              const SizedBox(width: 4),
             ],
           ),
         ),
@@ -905,68 +1121,49 @@ class _MachineCardState extends State<_MachineCard> {
 
   /// Indicator for saved access (password remembered, one tap connects):
   /// a small, dim key next to the arrow, with no background or text.
-  Widget _savedBadge(_Ui ui) => Tooltip(
+  Widget _savedBadge(HomeUi ui) => Tooltip(
         message: 'Password saved: one tap connects',
         child: Padding(
-          padding: const EdgeInsets.only(right: 4),
+          padding: const EdgeInsets.only(right: 2),
           child: Icon(Icons.key_rounded,
               size: 14, color: ui.muted.withOpacity(0.7)),
         ),
       );
 
-  Widget _routeChip(_Ui ui, _Route r, {required bool enabled}) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: enabled ? () => widget.onConnect(r.ip) : null,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: ui.chip,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: ui.border),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(r.tailscale ? Icons.vpn_lock_outlined : Icons.lan_outlined,
-                size: 12, color: ui.muted),
-            const SizedBox(width: 5),
-            Text('${r.tailscale ? 'Tailscale' : 'LAN'} · ${r.ip}',
-                style: TextStyle(
-                    color: ui.fgSoft,
-                    fontSize: 11.5,
-                    fontFeatures: const [FontFeature.tabularFigures()])),
-          ],
+  Widget _routeChip(HomeUi ui, MachineRoute r, {required bool enabled}) {
+    final dim = r.reachable == false;
+    return Tooltip(
+      message: '${routeStatus(r)} · tap to connect through this address',
+      waitDuration: const Duration(milliseconds: 500),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: enabled ? () => widget.onConnect(r.ip) : null,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: ui.chip,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: ui.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              statusDot(ui, r, size: 6),
+              const SizedBox(width: 6),
+              Icon(r.tailscale ? Icons.vpn_lock_outlined : Icons.lan_outlined,
+                  size: 12, color: ui.muted.withOpacity(dim ? 0.6 : 1)),
+              const SizedBox(width: 5),
+              Text('${r.kind} · ${r.ip}',
+                  style: TextStyle(
+                      color: dim ? ui.muted.withOpacity(0.8) : ui.fgSoft,
+                      fontSize: 11.5,
+                      decoration: dim ? TextDecoration.lineThrough : null,
+                      decorationColor: ui.muted.withOpacity(0.6),
+                      fontFeatures: const [FontFeature.tabularFigures()])),
+            ],
+          ),
         ),
       ),
     );
   }
-}
-
-/// Dark-first palette (with a light variant).
-class _Ui {
-  final bool dark;
-  _Ui(this.dark);
-
-  Color get accent => const Color(0xFF3B82F6);
-  Color get violet => const Color(0xFF8B5CF6);
-  Color get accentSoft =>
-      dark ? const Color(0xFF93B8FA) : const Color(0xFF2563EB);
-  // Dark = OLED: PURE black background (pixel off) and barely elevated
-  // surfaces, to take advantage of OLED screens (tablet/phone).
-  Color get bg => dark ? Colors.black : const Color(0xFFF4F5F8);
-  Color get card => dark ? const Color(0xFF101114) : Colors.white;
-  Color get field => dark ? const Color(0xFF1B1D22) : const Color(0xFFF0F1F3);
-  Color get chip => dark ? const Color(0xFF17191D) : const Color(0xFFF0F1F3);
-  Color get fg => dark ? const Color(0xFFEDEDEF) : const Color(0xFF15171A);
-  Color get fgSoft => dark ? const Color(0xFFC6C9CE) : const Color(0xFF474D57);
-  Color get muted => dark ? const Color(0xFF8A8F98) : const Color(0xFF6B7280);
-  Color get border =>
-      dark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06);
-
-  BoxDecoration get cardDeco => BoxDecoration(
-        color: card,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: border),
-      );
 }

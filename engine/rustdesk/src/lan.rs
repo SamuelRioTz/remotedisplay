@@ -522,7 +522,34 @@ fn scan_targets() -> Vec<Ipv4Addr> {
             targets.push(ip);
         }
     }
+    for ip in known_tailscale_ips() {
+        if seen.insert(u32::from(ip)) {
+            targets.push(ip);
+        }
+    }
     targets
+}
+
+/// remotedisplay: Tailscale addresses this client already knows — discovered before or
+/// connected to — probed on every discovery even where there is no Tailscale CLI (iOS,
+/// Android). The Tailscale app provides the tunnel and the host answers with its identity,
+/// so a Mac at home shows up (and its LAN entry is seen to be gone) from another network.
+fn known_tailscale_ips() -> Vec<Ipv4Addr> {
+    let mut ips: Vec<Ipv4Addr> = Vec::new();
+    let mut push = |id: &str| {
+        if let Ok(ip) = id.trim().parse::<Ipv4Addr>() {
+            if is_tailscale_ip(u32::from(ip)) && !ips.contains(&ip) {
+                ips.push(ip);
+            }
+        }
+    };
+    for p in config::LanPeers::load().peers {
+        push(&p.id);
+    }
+    for (id, _, _) in config::PeerConfig::peers(None) {
+        push(&id);
+    }
+    ips
 }
 
 // throttle: the "Discovered" tab calls discover() on every rebuild;

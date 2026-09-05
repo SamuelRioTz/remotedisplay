@@ -1342,6 +1342,7 @@ pub fn session_add(
         None
     };
 
+    let remember_preset = !preset_password.is_empty();
     let session: Session<FlutterHandler> = Session {
         password: preset_password,
         server_keyboard_enabled: Arc::new(RwLock::new(true)),
@@ -1366,6 +1367,22 @@ pub fn session_add(
         shared_password,
         conn_token,
     );
+
+    // remotedisplay: a password preset by the client's connect sheet is remembered, or not,
+    // as the per-peer option `rd-remember` says (the client sets Y/N right before connecting).
+    // Without it the default stays: remember only when one was already saved.
+    if remember_preset {
+        let flag = hbb_common::config::PeerConfig::load(&id)
+            .options
+            .get("rd-remember")
+            .cloned()
+            .unwrap_or_default();
+        match flag.as_str() {
+            "Y" => session.lc.write().unwrap().remember = true,
+            "N" => session.lc.write().unwrap().remember = false,
+            _ => {}
+        }
+    }
 
     let session = Arc::new(session.clone());
     sessions::insert_session(session_id.to_owned(), conn_type, session.clone());
