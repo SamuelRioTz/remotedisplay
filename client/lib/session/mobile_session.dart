@@ -63,7 +63,9 @@ class _MobileSessionScreenState extends State<MobileSessionScreen> {
         }
         if (locked && !_captureToastShown) {
           _captureToastShown = true;
-          showToast('Trackpad captured — Input menu to release');
+          // At the top: at the bottom it sat on the remote Dock.
+          showToast('Trackpad captured · release it from the Input menu',
+              alignment: const Alignment(0, -0.9));
         }
         break;
       case 'relMove':

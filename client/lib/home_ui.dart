@@ -29,10 +29,12 @@ class HomeUi {
         border: Border.all(color: border),
       );
 
-  InputDecoration input(String hint, IconData icon) => InputDecoration(
+  InputDecoration input(String hint, IconData icon, {Widget? suffix}) =>
+      InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: muted, fontSize: 14),
         prefixIcon: Icon(icon, size: 18, color: muted),
+        suffixIcon: suffix,
         filled: true,
         fillColor: field,
         contentPadding:
@@ -88,3 +90,12 @@ class HomeUi {
     );
   }
 }
+
+/// Eye button for password fields.
+Widget eyeButton(HomeUi ui, bool shown, VoidCallback onTap) => IconButton(
+      tooltip: shown ? 'Hide password' : 'Show password',
+      onPressed: onTap,
+      icon: Icon(shown ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+          size: 18, color: ui.muted),
+    );
+

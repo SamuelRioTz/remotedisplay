@@ -116,6 +116,7 @@ class _ConnectSheetState extends State<ConnectSheet> {
   final _pw = TextEditingController();
   bool _remember = true;
   bool _busy = false;
+  bool _showPw = false;
 
   @override
   void dispose() {
@@ -234,9 +235,11 @@ class _ConnectSheetState extends State<ConnectSheet> {
             TextField(
               controller: _pw,
               autofocus: true,
-              obscureText: true,
+              obscureText: !_showPw,
               style: TextStyle(color: ui.fg, fontSize: 15),
-              decoration: ui.input('Password', Icons.lock_outline),
+              decoration: ui.input('Password', Icons.lock_outline,
+                  suffix: eyeButton(
+                      ui, _showPw, () => setState(() => _showPw = !_showPw))),
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) => _go(),
             ),
@@ -329,6 +332,7 @@ class MachineSettingsSheet extends StatefulWidget {
   final Machine? Function() lookup;
   final ValueListenable<int> revision;
   final Future<void> Function(String address) onAddAddress;
+  final Future<void> Function(String alias) onRename;
   final Future<void> Function(MachineRoute r) onRemoveAddress;
   final Future<void> Function(MachineRoute r) onForgetPassword;
   final Future<void> Function() onForgetMachine;
@@ -340,6 +344,7 @@ class MachineSettingsSheet extends StatefulWidget {
     required this.lookup,
     required this.revision,
     required this.onAddAddress,
+    required this.onRename,
     required this.onRemoveAddress,
     required this.onForgetPassword,
     required this.onForgetMachine,
@@ -352,13 +357,18 @@ class MachineSettingsSheet extends StatefulWidget {
 
 class _MachineSettingsSheetState extends State<MachineSettingsSheet> {
   final _addr = TextEditingController();
+  final _name = TextEditingController();
   bool _adding = false;
+  bool _nameSeeded = false;
 
   @override
   void dispose() {
     _addr.dispose();
+    _name.dispose();
     super.dispose();
   }
+
+  void _saveName() => widget.onRename(_name.text);
 
   Future<void> _add() async {
     final a = _addr.text.trim();
@@ -404,6 +414,10 @@ class _MachineSettingsSheetState extends State<MachineSettingsSheet> {
           });
           return const SizedBox(height: 80);
         }
+        if (!_nameSeeded) {
+          _name.text = m.name;
+          _nameSeeded = true;
+        }
         return Padding(
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
           child: Column(
@@ -411,7 +425,27 @@ class _MachineSettingsSheetState extends State<MachineSettingsSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               machineHeader(ui, m),
-              const SizedBox(height: 18),
+              const SizedBox(height: 16),
+              Text('NAME',
+                  style: TextStyle(
+                      color: ui.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1.2)),
+              const SizedBox(height: 6),
+              Focus(
+                onFocusChange: (has) {
+                  if (!has) _saveName();
+                },
+                child: TextField(
+                  controller: _name,
+                  style: TextStyle(color: ui.fg, fontSize: 14),
+                  decoration: ui.input(
+                      'Name shown on the card', Icons.badge_outlined),
+                  onSubmitted: (_) => _saveName(),
+                ),
+              ),
+              const SizedBox(height: 14),
               Text('ADDRESSES',
                   style: TextStyle(
                       color: ui.muted,

@@ -59,6 +59,7 @@ pub(super) fn start_listening() -> ResultType<()> {
                                     hostname,
                                     username: crate::platform::get_active_username(),
                                     platform: whoami::platform().to_string(),
+                                    misc: advertised_addrs(&self_addr),
                                     ..Default::default()
                                 };
                                 msg_out.set_peer_discovery(peer);
@@ -301,6 +302,23 @@ fn wait_response(
                                     platform: p.platform.clone(),
                                     online: true,
                                 }));
+                                // remotedisplay: the host also tells us its other addresses
+                                // (its Tailscale one): one more entry per address, with the
+                                // same identity, so the client knows that route before it
+                                // ever leaves the LAN. Not probed here (online = false).
+                                for extra in parse_advertised_addrs(&p.misc) {
+                                    if extra == addr.ip().to_string() {
+                                        continue;
+                                    }
+                                    allow_err!(tx.send(config::DiscoveryPeer {
+                                        id: extra.clone(),
+                                        ip_mac: HashMap::from([(extra, p.mac.clone())]),
+                                        username: p.username.clone(),
+                                        hostname: p.hostname.clone(),
+                                        platform: p.platform.clone(),
+                                        online: false,
+                                    }));
+                                }
                             }
                         }
                     }
@@ -387,6 +405,70 @@ fn get_scan_port() -> u16 {
 fn is_tailscale_ip(u: u32) -> bool {
     // 100.64.0.0/10 (CGNAT — Tailscale's range)
     (u & 0xFFC0_0000) == 0x6440_0000
+}
+
+/// remotedisplay: what a host tells clients about its other addresses in the discovery
+/// reply's `misc` field: `{"addrs":["100.64.0.2"]}`. Only the Tailscale (CGNAT) addresses,
+/// other than the one the reply leaves from: a client that saw the Mac on the LAN then knows
+/// how to reach it from anywhere, without typing the address by hand.
+fn advertised_addrs(self_addr: &IpAddr) -> String {
+    let mut addrs: Vec<String> = Vec::new();
+    for (ip, _) in local_ipv4_networks() {
+        if is_tailscale_ip(u32::from(ip)) && IpAddr::V4(ip) != *self_addr {
+            let s = ip.to_string();
+            if !addrs.contains(&s) {
+                addrs.push(s);
+            }
+        }
+    }
+    if addrs.is_empty() {
+        String::new()
+    } else {
+        serde_json::json!({ "addrs": addrs }).to_string()
+    }
+}
+
+/// The addresses of an `advertised_addrs` payload, Tailscale ones only (anything else, or
+/// junk, is ignored: the field is free-form).
+fn parse_advertised_addrs(misc: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if misc.is_empty() {
+        return out;
+    }
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(misc) {
+        if let Some(list) = v.get("addrs").and_then(|a| a.as_array()) {
+            for a in list {
+                if let Some(s) = a.as_str() {
+                    if let Ok(ip) = s.trim().parse::<Ipv4Addr>() {
+                        if is_tailscale_ip(u32::from(ip)) && !out.contains(&ip.to_string()) {
+                            out.push(ip.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod advertised_addrs_tests {
+    use super::*;
+
+    #[test]
+    fn parses_only_tailscale_addresses() {
+        let got = parse_advertised_addrs(r#"{"addrs":["100.64.0.2","192.168.1.5","100.64.0.2","nope"]}"#);
+        assert_eq!(got, vec!["100.64.0.2".to_string()]);
+        assert!(parse_advertised_addrs("").is_empty());
+        assert!(parse_advertised_addrs("garbage").is_empty());
+        assert!(parse_advertised_addrs(r#"{"addrs":"100.64.0.2"}"#).is_empty());
+    }
+
+    #[test]
+    fn round_trip_with_the_payload_format() {
+        let payload = serde_json::json!({ "addrs": ["100.64.0.7"] }).to_string();
+        assert_eq!(parse_advertised_addrs(&payload), vec!["100.64.0.7".to_string()]);
+    }
 }
 
 // iOS: Tailscale is a separate app, with no CLI.

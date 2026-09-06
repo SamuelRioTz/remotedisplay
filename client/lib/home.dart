@@ -43,6 +43,7 @@ class ClientHome extends StatefulWidget {
 class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
   static const _manualKey = 'rd-manual-routes';
   static const _preferredKey = 'rd-preferred-routes';
+  static const _aliasKey = 'rd-aliases';
   static const _probeTimeout = Duration(milliseconds: 1500);
   static const _probeEvery = Duration(seconds: 20);
 
@@ -51,6 +52,7 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
   bool _connecting = false;
   bool _scanning = false;
   bool _manualOpen = false;
+  bool _showPw = false;
   Timer? _scanTimer;
   Timer? _probeTimer;
 
@@ -70,6 +72,8 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
   Map<String, String> _manual = {};
   // Address used last per machine (machine key → ip): what a plain tap uses.
   Map<String, String> _preferred = {};
+  // Names given by the user (machine key → alias).
+  Map<String, String> _aliases = {};
   // TCP probe of each known address on the last refresh (null = probing).
   final Map<String, bool?> _reach = {};
   // Bumped on every change the sheets should redraw for.
@@ -94,6 +98,7 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
     gFFI.recentPeersModel.addListener(_onPeersChanged);
     _manual = _loadMap(_manualKey);
     _preferred = _loadMap(_preferredKey);
+    _aliases = _loadMap(_aliasKey);
     bind.mainLoadLanPeers(); // the cached ones, instantly
     UpdateCheck.run();
     bind.mainLoadRecentPeers(); // identity (real hostname) of already-connected IPs
@@ -276,6 +281,19 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
     _bump();
     await bind.mainSetLocalOption(
         key: _preferredKey, value: jsonEncode(_preferred));
+  }
+
+  /// Name chosen by the user for a machine; empty removes it.
+  Future<void> _rename(String machineKey, String alias) async {
+    final a = alias.trim();
+    if (a.isEmpty) {
+      _aliases.remove(machineKey);
+    } else {
+      _aliases[machineKey] = a;
+    }
+    if (mounted) setState(() {});
+    _bump();
+    await bind.mainSetLocalOption(key: _aliasKey, value: jsonEncode(_aliases));
   }
 
   /// Real hostname and OS of each Tailscale peer (same CLI the engine uses
@@ -472,6 +490,7 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
             return null;
           },
           onAddAddress: (a) => _addAddress(key, a),
+          onRename: (a) => _rename(key, a),
           onRemoveAddress: _removeAddress,
           onForgetPassword: (r) async {
             await bind.mainForgetPassword(id: r.ip);
@@ -505,19 +524,19 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
         ),
       );
     }
+    // Centered and capped: on an iPad a full-width sheet puts the buttons a
+    // long way from the text.
     return showModalBottomSheet<T>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: 560),
       backgroundColor: ui.card,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: SafeArea(
-            child: SingleChildScrollView(
-                child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 520),
-                    child: builder(ctx)))),
+        child: SingleChildScrollView(child: builder(ctx)),
       ),
     );
   }
@@ -641,6 +660,8 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
 
     final machines = byKey.values.toList();
     for (final m in machines) {
+      final alias = _aliases[m.key];
+      if (alias != null && alias.isNotEmpty) m.name = alias;
       final pref = _preferred[m.key];
       if (pref != null && m.route(pref) != null) m.preferredIp = pref;
       // LAN before Tailscale; within a kind, reachable first.
@@ -953,7 +974,7 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
               machine: m,
               ui: ui,
               enabled: !_connecting,
-              onConnect: (ip) => _openConnect(m, ip: ip),
+              onSelect: (ip) => _rememberRoute(m.key, ip),
               onTap: () => _openConnect(m),
               onSettings: () => _openSettings(m),
               onForget: () => _forgetMachine(m),
@@ -968,8 +989,15 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
   Widget _manualCard(HomeUi ui, {required bool forceOpen}) {
     final open = _manualOpen || forceOpen;
 
-    void go() =>
-        _connect(_ip.text.trim(), password: _pw.text.isEmpty ? null : _pw.text);
+    Future<void> go() async {
+      final ip = _ip.text.trim();
+      if (ip.isEmpty) return;
+      await _connect(ip, password: _pw.text.isEmpty ? null : _pw.text);
+      // Never leave the password on screen; the machine now has its own card.
+      _pw.clear();
+      _ip.clear();
+      if (mounted) setState(() => _manualOpen = false);
+    }
 
     final body = Padding(
       padding: const EdgeInsets.fromLTRB(18, 2, 18, 18),
@@ -986,9 +1014,11 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
           const SizedBox(height: 10),
           TextField(
             controller: _pw,
-            obscureText: true,
+            obscureText: !_showPw,
             style: TextStyle(color: ui.fg, fontSize: 15),
-            decoration: ui.input('Password', Icons.lock_outline),
+            decoration: ui.input('Password', Icons.lock_outline,
+                suffix: eyeButton(
+                    ui, _showPw, () => setState(() => _showPw = !_showPw))),
             onSubmitted: (_) => go(),
           ),
           const SizedBox(height: 16),
@@ -1049,7 +1079,9 @@ class _MachineCard extends StatefulWidget {
   final Machine machine;
   final HomeUi ui;
   final bool enabled;
-  final void Function(String ip) onConnect;
+
+  /// A route chip was tapped: make it the selected network (no connection).
+  final void Function(String ip) onSelect;
   final VoidCallback onTap;
   final VoidCallback onSettings;
   final VoidCallback onForget;
@@ -1058,7 +1090,7 @@ class _MachineCard extends StatefulWidget {
     required this.machine,
     required this.ui,
     required this.enabled,
-    required this.onConnect,
+    required this.onSelect,
     required this.onTap,
     required this.onSettings,
     required this.onForget,
@@ -1128,27 +1160,21 @@ class _MachineCardState extends State<_MachineCard> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(m.name,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                  color: offline ? ui.fgSoft : ui.fg,
-                                  fontSize: 14.5,
-                                  fontWeight: FontWeight.w600)),
-                        ),
-                        if (subtitle.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(subtitle,
-                                overflow: TextOverflow.ellipsis,
-                                style:
-                                    TextStyle(color: ui.muted, fontSize: 12)),
-                          ),
-                        ],
-                      ],
-                    ),
+                    // The name gets the whole line; user · platform below it.
+                    Text(m.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: offline ? ui.fgSoft : ui.fg,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600)),
+                    if (subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: ui.muted, fontSize: 12)),
+                    ],
                     const SizedBox(height: 7),
                     Wrap(
                       spacing: 6,
@@ -1169,7 +1195,7 @@ class _MachineCardState extends State<_MachineCard> {
                     ] else if (prefLost) ...[
                       const SizedBox(height: 6),
                       Text(
-                        '${pref.kind} does not answer here · tap to choose another network',
+                        '${pref.kind} does not answer here · pick another network or tap to choose',
                         style: TextStyle(color: ui.muted, fontSize: 11.5),
                       ),
                     ],
@@ -1214,13 +1240,12 @@ class _MachineCardState extends State<_MachineCard> {
     return Tooltip(
       message: [
         routeStatus(r),
-        if (selected) 'selected network (used last time)',
-        'tap to connect through this address',
+        selected ? 'selected network' : 'tap to select this network',
       ].join(' · '),
       waitDuration: const Duration(milliseconds: 500),
       child: InkWell(
         borderRadius: BorderRadius.circular(999),
-        onTap: enabled ? () => widget.onConnect(r.ip) : null,
+        onTap: enabled && !selected ? () => widget.onSelect(r.ip) : null,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
           decoration: BoxDecoration(

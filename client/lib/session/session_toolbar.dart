@@ -200,9 +200,17 @@ class _SessionToolbarState extends State<SessionToolbar> {
     );
   }
 
-  /// Collapsed pill: just the button to re-expand.
-  Widget _collapsedContent() => _iconBtn(Icons.chevron_right_rounded,
-      'Show toolbar', (_) => setState(() => _collapsed = false));
+  /// Collapsed pill: the button to re-expand plus Disconnect, so leaving the
+  /// session is always one tap away.
+  Widget _collapsedContent() => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _iconBtn(Icons.chevron_right_rounded, 'Show toolbar',
+              (_) => setState(() => _collapsed = false)),
+          _iconBtn(Icons.close_rounded, 'Disconnect', (_) => _disconnect(),
+              color: _danger),
+        ],
+      );
 
   Widget _expandedContent() => Row(
         mainAxisSize: MainAxisSize.min,
