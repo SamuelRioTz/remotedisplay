@@ -52,7 +52,7 @@
   "how_client_title": "Client",
   "how_client_desc": "Eine Flutter-App auf derselben Engine. Sie besitzt das Monitorprofil für jeden Mac, mit dem sie sich verbindet, und gleicht den Server beim Verbinden damit ab.",
   "how_transport_title": "Transport",
-  "how_transport_desc": "Das RustDesk-Protokoll über eine direkte IP-Verbindung, ohne Rendezvous oder Relay. Geräte im LAN werden automatisch gefunden; über das Internet nutzt du ein VPN wie Tailscale.",
+  "how_transport_desc": "Das RustDesk-Protokoll über eine direkte IP-Verbindung, ohne Rendezvous oder Relay. Geräte im LAN werden automatisch gefunden, und der Server nennt seine Tailscale-Adresse, damit Clients ihn aus anderen Netzen über dein eigenes VPN erreichen.",
   "how_measured_title": "Gemessen, nicht vermutet",
   "how_measured_desc": "macOS 26 hat Eigenheiten bei virtuellen Displays (Wahl des HiDPI-Modus, Spiegelgruppen, die sich bei Moduswechseln auflösen, prozessbezogene Display-Listen). Das Repository bewahrt die Test-Harnesses auf, mit denen sie gemessen wurden.",
   "how_readme_btn": "Technische Notizen lesen",

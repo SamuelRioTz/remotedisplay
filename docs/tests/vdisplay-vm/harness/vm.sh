@@ -5,7 +5,7 @@
 # 21120 ("Tailscale" route via the host's 100.x address): see bridges() below.
 export TART_HOME=/Volumes/sam-ex/macOS-tart
 SSHOPTS=(-o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=8)
-vip()  { tart ip "$1" 2>/dev/null; }
+vip()  { tart ip --resolver=arp "$1" 2>/dev/null || tart ip "$1" 2>/dev/null; }
 _retry() { local n; for n in 1 2 3; do "$@" && return 0; sleep 2; done; return 1; }
 vssh() { local vm="$1"; shift; _retry sshpass -p admin ssh "${SSHOPTS[@]}" admin@"$(vip "$vm")" "$@"; }
 vcp()  { local vm="$1" src="$2" dst="$3"; _retry sshpass -p admin scp -q -r "${SSHOPTS[@]}" "$src" admin@"$(vip "$vm")":"$dst"; }
