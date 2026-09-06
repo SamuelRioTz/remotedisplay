@@ -23,6 +23,9 @@ final class ServerController {
     var accessibilityOK = false
     var lanIP: String?
     var tailscaleIP: String?
+    /// Local-network privacy access (macOS 15+): true = works, false = blocked or pending,
+    /// nil = not checked yet. Only affects automatic discovery, not connections by address.
+    var localNetworkOK: Bool?
     var lastError: String?
     /// Peers currently connected ("ip:port" remote), via the engine's lsof.
     var sessions: [String] = []
@@ -69,6 +72,9 @@ final class ServerController {
     private var prevScreen = false
     private var prevAccessibility = false
     private var firstRefresh = true
+    @ObservationIgnored private let localNetProbe = LocalNetworkProbe()
+    @ObservationIgnored private var lastLocalNetProbe = Date.distantPast
+    @ObservationIgnored private var localNetProbing = false
 
     private var enginePath: String { Bundle.main.bundlePath + "/Contents/MacOS/remotedisplayd" }
     private var agentPlistPath: String { NSHomeDirectory() + "/Library/LaunchAgents/\(Self.agentLabel).plist" }
@@ -171,8 +177,29 @@ final class ServerController {
         if justGranted && serviceRunning && !firstRefresh {
             restartEngine()
         }
+        checkLocalNetwork()
         ensureDesiredState()
         firstRefresh = false
+    }
+
+    /// Local-network access is only meaningful while the engine is up (it does the
+    /// discovery). Re-checked every 15 s while blocked/unknown, every 60 s once it works;
+    /// the result updates `localNetworkOK` on the main thread.
+    private func checkLocalNetwork() {
+        guard serviceRunning else {
+            if localNetworkOK != nil { localNetworkOK = nil }
+            return
+        }
+        guard !localNetProbing else { return }
+        let interval: TimeInterval = (localNetworkOK == true) ? 60 : 15
+        guard Date().timeIntervalSince(lastLocalNetProbe) > interval else { return }
+        lastLocalNetProbe = Date()
+        localNetProbing = true
+        localNetProbe.check { [weak self] allowed in
+            guard let self else { return }
+            self.localNetProbing = false
+            if self.localNetworkOK != allowed { self.localNetworkOK = allowed }
+        }
     }
 
     private func readEnginePerms() -> (screen: Bool, accessibility: Bool)? {
@@ -538,6 +565,12 @@ final class ServerController {
             UserDefaults.standard.set(true, forKey: Self.screenPromptedKey)
             Permissions.requestScreenRecording()
         }
+    }
+
+    func grantLocalNetwork() {
+        // No request API for Local Network: the prompt only comes from real network use
+        // (the engine already triggers it). The button opens the exact Settings panel.
+        Permissions.openLocalNetworkSettings()
     }
 
     func grantAccessibility() {

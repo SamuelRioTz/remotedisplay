@@ -127,6 +127,7 @@ struct MainWindowView: View {
 
     private var connectSection: some View {
         Section {
+            if c.localNetworkOK == false { localNetworkRow }
             if let ip = c.lanIP { addrRow("Local network", "\(ip):\(ServerController.port)") }
             if let ts = c.tailscaleIP { addrRow("Tailscale", "\(ts):\(ServerController.port)") }
             if c.lanIP == nil && c.tailscaleIP == nil {
@@ -135,8 +136,33 @@ struct MainWindowView: View {
         } header: {
             Text("Connect from another device")
         } footer: {
-            Text("Direct connection only — no relay or account. Clients on the same network discover this Mac automatically; otherwise enter the address above.")
+            if c.localNetworkOK == false {
+                Text("Allow… opens System Settings → Privacy & Security → Local Network; turn Remote Display Server on. Until then, connect by typing the address above.")
+            } else {
+                Text("Direct connection only — no relay or account. Clients on the same network discover this Mac automatically; otherwise enter the address above.")
+            }
         }
+    }
+
+    /// Shown only when macOS' Local Network privacy control is blocking discovery. Not a
+    /// blocking requirement: connecting by address still works, so it stays out of the
+    /// Setup checklist and lives here, where discovery is explained.
+    private var localNetworkRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "wifi.slash")
+                .font(.system(size: 16))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Local network access is off").font(.system(size: 13, weight: .medium))
+                Text("Clients can't discover this Mac automatically. Connecting by the address below still works.")
+                    .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button("Allow…") { c.grantLocalNetwork() }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+        }
+        .padding(.vertical, 2)
     }
 
     private func addrRow(_ label: String, _ value: String) -> some View {

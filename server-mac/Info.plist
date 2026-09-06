@@ -35,6 +35,14 @@
     <string>14.0</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Remote Display Server answers discovery from clients on your local network and accepts their direct connections.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_rdprobe._udp</string>
+    </array>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_rdprobe._udp</string>
+    </array>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright © 2026 Samuel Rioja. Licensed under AGPL-3.0. Based on RustDesk.</string>
 </dict>
