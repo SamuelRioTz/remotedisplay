@@ -9,6 +9,8 @@ use hbb_common::get_version_number;
 use hbb_common::protobuf::MessageField;
 use scrap::Display;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::AtomicU64;
 
 // https://github.com/rustdesk/rustdesk/discussions/6042, avoiding dbus call
 
@@ -33,6 +35,10 @@ lazy_static::lazy_static! {
 
 // https://github.com/rustdesk/rustdesk/pull/8537
 static TEMP_IGNORE_DISPLAYS_CHANGED: AtomicBool = AtomicBool::new(false);
+// remotedisplay (macOS): last display-topology hash we acted on, to ignore the spurious
+// reconfiguration notifications a hardware mirror emits ~1/s (see check_update_displays).
+#[cfg(target_os = "macos")]
+static LAST_TOPOLOGY_HASH: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Default)]
 struct SyncDisplaysInfo {
@@ -332,6 +338,25 @@ pub(super) fn get_display_info(idx: usize) -> Option<DisplayInfo> {
 // Display to DisplayInfo
 // The DisplayInfo is be sent to the peer.
 pub(super) fn check_update_displays(all: &Vec<Display>) {
+    // remotedisplay (macOS): with a hardware mirror active, macOS keeps firing display
+    // reconfiguration callbacks about once a second even when nothing changed, and the raw
+    // display list jitters (online flag, scale, ordering). That flips is_synced, which
+    // broadcasts "Displays changed" to the client, which replies with PeerInfo, which makes
+    // the server refresh the video service (OPTION_REFRESH -> SWITCH) — an endless
+    // restart-per-second storm that freezes the session. Gate on the topology hash
+    // (id/active/main/mirror/bounds/mode): if it did not change, the difference is spurious,
+    // so leave is_synced alone. Any real change (resolution, mirror on/off, plug/unplug,
+    // virtual create/destroy) flips the hash and is processed as before. Explicit resyncs
+    // (new subscriber, force_displays_resync, temp_ignore cleanup) set is_synced directly
+    // and are unaffected.
+    #[cfg(target_os = "macos")]
+    {
+        let h = crate::platform::display_topology_hash();
+        let prev = LAST_TOPOLOGY_HASH.swap(h, Ordering::Relaxed);
+        if prev == h && prev != 0 {
+            return;
+        }
+    }
     // For compatibility: if only one display, scale remains 1.0 and we use the physical size for `uinput`.
     // If there are multiple displays, we use the logical size for `uinput` by setting scale to d.scale().
     #[cfg(target_os = "linux")]
