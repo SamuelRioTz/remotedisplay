@@ -455,3 +455,15 @@ hosts; nothing is restored when the last client leaves (there is nothing of thei
   reset", state file back to all-off at the next start.
 - Swift app: the main window's new *Monitors* section (both toggles + footer) seen in the VM
   through the remote session; the menu-bar toggles read the same state.
+- **Black virtual after a dynamic-main cycle (found by these tests, fixed before publishing)**:
+  `--dynamic-main on` → `off` → `--plug-virtual on` → the new virtual showed BLACK at the client
+  (old and new client alike, fresh connections too) while `screencapture -D 2` inside the VM had
+  the content and `#displays=2 … name:16` proved the capturer was on the right display: the
+  CGDisplayStream of a CGVirtualDisplay created while a *disabled* display exists (the cached,
+  hidden dynamic-main virtual) never delivers a frame. Re-enabling the hidden one (dynamic main
+  on again) streamed fine, and the black one started streaming after that transaction. A clean
+  sequence (no dynamic-main cycle first) always streamed, on 1.0.7 and 1.0.8. Fix: virtual
+  displays are never destroyed while the service runs — a removed one is *parked* (disabled,
+  kept in the registry) and the next create re-enables it, so a brand-new display is only made
+  when nothing is disabled (at most two per process). This also removes the ghost-display risk of
+  destroying an ex mirror master.

@@ -962,6 +962,7 @@ struct RDVDisplayEntry {
     std::string iccPath;       // the .icc macOS generated for this display
     uint32_t serial;           // stable slot (so macOS reuses its profile)
     bool hidpiRequested = false; // what the client requested; `hidpi` is the actual measured backing
+    bool parked = false;         // disabled and kept for reuse (see rdParkedVirtualLocked)
 };
 
 static std::mutex g_rdVDisplayMutex;
@@ -1350,11 +1351,55 @@ static bool rdApplyVDisplayMode(CGVirtualDisplay *display, uint32_t width, uint3
     return ok;
 }
 
+static bool rdSetDisplayEnabled(CGDirectDisplayID display, bool enabled);   // defined further below
+static bool rdWaitActiveState(CGDirectDisplayID id, bool wantActive, int timeoutMs);
+static bool rdParkVirtual(uint32_t displayID);
+extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint32_t height);
+
+// Virtual displays are never destroyed while the process runs. A display that is removed
+// (standalone virtual off, dynamic main off) is PARKED: disabled with CGSConfigureDisplayEnabled,
+// out of the active list, kept in the registry; the next create re-enables it instead of making
+// a new one. Two reasons, both measured on macOS 26: destroying an ex mirror master leaves a
+// ghost display, and a CGVirtualDisplay created while a disabled display exists gets a
+// CGDisplayStream that never delivers a frame (black picture at the client, while screencapture
+// still sees the content) until some later configuration transaction. With parking, a brand-new
+// display is only ever created when nothing is disabled, and at most two exist per process.
+static uint32_t rdParkedVirtualLocked() {
+    for (auto const &kv : g_rdVDisplays) {
+        if (kv.second.parked) return kv.first;
+    }
+    return 0;
+}
+
 extern "C" uint32_t MacCreateVirtualDisplay(uint32_t width, uint32_t height, double refreshRate,
                                             bool hidpi, const char *name) {
     if (!MacVirtualDisplaySupported()) {
         NSLog(@"remotedisplay vdisplay: CGVirtualDisplay not available on this system");
         return 0;
+    }
+    uint32_t parked = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+        parked = rdParkedVirtualLocked();
+    }
+    if (parked != 0) {
+        if (rdSetDisplayEnabled(parked, true) && rdWaitActiveState(parked, true, 5000)) {
+            {
+                std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+                auto it = g_rdVDisplays.find(parked);
+                if (it != g_rdVDisplays.end()) {
+                    it->second.parked = false;
+                    it->second.hidpiRequested = hidpi;
+                }
+            }
+            if (!MacResizeVirtualDisplay(parked, width, height)) {
+                NSLog(@"remotedisplay vdisplay: recycled virtual %u did not take %ux%u", parked, width, height);
+            }
+            rdAssignSRGBProfile(parked);
+            NSLog(@"remotedisplay vdisplay: recycled parked virtual %u (%ux%u points, hidpi=%d)", parked, width, height, hidpi);
+            return parked;
+        }
+        NSLog(@"remotedisplay vdisplay: parked virtual %u did not come back; creating a new one", parked);
     }
     Class descCls = NSClassFromString(@"CGVirtualDisplayDescriptor");
     Class displayCls = NSClassFromString(@"CGVirtualDisplay");
@@ -1450,7 +1495,8 @@ extern "C" uint32_t MacListVirtualDisplays(uint32_t *ids, uint32_t max) {
     uint32_t n = 0;
     for (auto const &kv : g_rdVDisplays) {
         if (n >= max) break;
-        // The hidden dynamic-main virtual (cached, OFF) is not reported.
+        // Parked displays (disabled, kept for reuse) are not reported.
+        if (kv.second.parked) continue;
         if (kv.first == g_rdDynMainVirtual && !g_rdDynMainActive) continue;
         ids[n++] = kv.first;
     }
@@ -1781,6 +1827,18 @@ extern "C" bool MacDestroyVirtualDisplay(uint32_t displayID) {
         NSLog(@"remotedisplay vdisplay: destroy of %u = turning off dynamic main", displayID);
         return MacDynamicMainOff(); // takes the lock on its own
     }
+    {
+        std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+        auto it = g_rdVDisplays.find(displayID);
+        if (it == g_rdVDisplays.end()) return false;
+        if (it->second.parked) return true; // already out of the way
+    }
+    // Park it instead of destroying it (see rdParkedVirtualLocked).
+    if (rdParkVirtual(displayID)) {
+        NSLog(@"remotedisplay vdisplay: parked ID %u (kept for reuse)", displayID);
+        return true;
+    }
+    // Could not disable it (no CGSConfigureDisplayEnabled?): destroy for real, the old way.
     std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
     auto it = g_rdVDisplays.find(displayID);
     if (it == g_rdVDisplays.end()) return false;
@@ -1795,9 +1853,9 @@ extern "C" bool MacDestroyVirtualDisplay(uint32_t displayID) {
 extern "C" void MacDestroyAllVirtualDisplays() {
     std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
     for (auto it = g_rdVDisplays.begin(); it != g_rdVDisplays.end();) {
-        // The dynamic main's cached virtual is NOT destroyed here: it stays
-        // hidden as a mirror slave and gets recycled; it dies with the process.
-        if (it->first == g_rdDynMainVirtual) {
+        // The dynamic main's virtual and the parked ones are NOT destroyed here
+        // (ex mirror masters would leave ghosts); they die with the process.
+        if (it->first == g_rdDynMainVirtual || it->second.parked) {
             ++it;
             continue;
         }
@@ -1915,7 +1973,11 @@ extern "C" bool MacDynamicMainReconcile() {
         g_rdDynMainActive = false;
     }
     if (CGMainDisplayID() == vid) rdSetMainDisplay(physical);
-    rdSetDisplayEnabled(vid, false);
+    rdParkVirtual(vid);
+    {
+        std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+        g_rdDynMainVirtual = 0;
+    }
     return true;
 }
 
@@ -1992,6 +2054,16 @@ static bool rdSetDisplayEnabled(CGDirectDisplayID display, bool enabled) {
     return true;
 }
 
+// Park a virtual: disabled (out of the active list, invisible) and flagged for reuse.
+static bool rdParkVirtual(uint32_t displayID) {
+    bool ok = rdSetDisplayEnabled(displayID, false);
+    if (ok) rdWaitActiveState(displayID, false, 3000);
+    std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+    auto it = g_rdVDisplays.find(displayID);
+    if (it != g_rdVDisplays.end()) it->second.parked = ok;
+    return ok;
+}
+
 // Unmirrors `display` and waits for the change to SETTLE (no mirror relation
 // and back in the active list). Chaining mirror configs without waiting for
 // settling creates mirror cycles and leaves 0 active displays (macOS 26).
@@ -2037,34 +2109,23 @@ extern "C" bool MacDynamicMainOn(uint32_t width, uint32_t height, bool hidpi) {
     // VM it was already mirroring the virtual right after the virtual appeared, and the
     // later call below could only fall back to the native mode.
     rdRememberPhysicalMode(physical);
-    uint32_t vid = 0;
-    {
-        std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
-        vid = g_rdDynMainVirtual; // recycle the cached virtual if it exists
-    }
-    if (vid != 0) {
-        // Was disabled (hidden): re-enable it and wait for it to come back.
-        if (!rdSetDisplayEnabled(vid, true) || !rdWaitActiveState(vid, true, 5000)) {
-            NSLog(@"remotedisplay vdisplay: cached virtual %u did not become active again", vid);
-            return false;
-        }
-        MacResizeVirtualDisplay(vid, width, height);
-        rdWaitForBounds(vid, width, height, 3000);
-    } else {
-        vid = MacCreateVirtualDisplay(width, height, 60, hidpi, "Remote Display Dynamic");
-        if (vid == 0) return false;
-    }
+    // A parked virtual (the one hidden by the last OFF, or a removed standalone one) is
+    // recycled by MacCreateVirtualDisplay; a brand-new display is created only when
+    // nothing is parked.
+    uint32_t vid = MacCreateVirtualDisplay(width, height, 60, hidpi, "Remote Display Dynamic");
+    if (vid == 0) return false;
+    rdWaitForBounds(vid, width, height, 3000);
 
     if (!rdSetMainDisplay(vid)) {
         NSLog(@"remotedisplay vdisplay: could not promote the virtual to main");
-        rdSetDisplayEnabled(vid, false); // hide it again
+        rdParkVirtual(vid); // park it again
         return false;
     }
     rdRememberPhysicalMode(physical);
     if (!rdSetMirror(physical, vid)) {
         NSLog(@"remotedisplay vdisplay: could not mirror physical %u onto virtual %u", physical, vid);
         rdSetMainDisplay(physical);
-        rdSetDisplayEnabled(vid, false);
+        rdParkVirtual(vid);
         return false;
     }
     {
@@ -2109,11 +2170,14 @@ extern "C" bool MacDynamicMainOff() {
     // 3. Hide the virtual by disabling it (CGSConfigureDisplayEnabled):
     //    leaves the active list instantly, without the mirror cycles that
     //    trying to re-mirror it as a slave would produce (ex-master, macOS 26).
-    if (!rdSetDisplayEnabled(vid, false)) {
-        NSLog(@"remotedisplay vdisplay: could not disable virtual %u", vid);
+    if (!rdParkVirtual(vid)) {
+        NSLog(@"remotedisplay vdisplay: could not park virtual %u", vid);
     }
-    rdWaitActiveState(vid, false, 3000);
-    NSLog(@"remotedisplay vdisplay: dynamic main OFF (physical %u main, virtual %u hidden)", physical, vid);
+    {
+        std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+        g_rdDynMainVirtual = 0; // parked: either toggle may recycle it
+    }
+    NSLog(@"remotedisplay vdisplay: dynamic main OFF (physical %u main, virtual %u parked)", physical, vid);
     return ok;
 }
 
