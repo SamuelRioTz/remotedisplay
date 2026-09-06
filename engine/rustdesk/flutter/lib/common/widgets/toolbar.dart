@@ -995,21 +995,6 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
         child: Text(translate('Show displays as individual windows'))));
   }
 
-  final isMultiScreens = !isWeb && (await getScreenRectList()).length > 1;
-  if (pi.isSupportMultiDisplay && isMultiScreens) {
-    final value = bind.sessionGetUseAllMyDisplaysForTheRemoteSession(
-            sessionId: ffi.sessionId) ==
-        'Y';
-    v.add(TToggleMenu(
-        value: value,
-        onChanged: (value) {
-          if (value == null) return;
-          bind.sessionSetUseAllMyDisplaysForTheRemoteSession(
-              sessionId: sessionId, value: value ? 'Y' : 'N');
-        },
-        child: Text(translate('Use all my displays for the remote session'))));
-  }
-
   // 444
   final codec_format = ffi.qualityMonitorModel.data.codecFormat;
   if (versionCmp(pi.version, "1.2.4") >= 0 &&

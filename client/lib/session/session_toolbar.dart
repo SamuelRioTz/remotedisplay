@@ -697,7 +697,6 @@ class _SessionToolbarState extends State<SessionToolbar> {
         translate('True color (4:4:4)'),
         translate('Show quality monitor'),
         translate('Show displays as individual windows'),
-        translate('Use all my displays for the remote session'),
       }.contains(_label(t));
 
   bool _isViewOnly(TToggleMenu t) => _label(t) == translate('View Mode');

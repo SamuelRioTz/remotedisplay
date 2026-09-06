@@ -238,11 +238,6 @@ List<(String, String)> otherDefaultSettings() {
         'Show displays as individual windows',
         kKeyShowDisplaysAsIndividualWindows
       ),
-    if (isDesktop)
-      (
-        'Use all my displays for the remote session',
-        kKeyUseAllMyDisplaysForTheRemoteSession
-      ),
     ('Keep terminal sessions on disconnect', kOptionTerminalPersistent),
   ];
 
