@@ -398,3 +398,26 @@ Tailscale app, so this exercises the real iOS path):
   a trailing "\n"); the session pill toggles with its "<"/">" button and the × only works once
   the pill is expanded and idle; touches inside the session go to the remote trackpad.
 
+## 2026-09-06 — 1.0.6: Tailscale address learned from discovery, UX round (VMs + real iPad)
+
+Rig change: the Tart server VM now runs **bridged** (`tart run --net-bridged=en1`), so it sits on
+the real LAN (192.168.1.208) and the iPad discovers it directly — no host bridges needed for
+the LAN route. `tart ip` needs `--resolver=arp` for a bridged VM (`harness/vm.sh` does it).
+A CGNAT alias (`ifconfig en0 alias 100.64.99.1 255.192.0.0`, lost on reboot) stands in for the
+Mac's Tailscale address. On the first LAN traffic macOS 26 in the VM showed the *Local Network*
+privacy prompt for the server (our `NSLocalNetworkUsageDescription`); answer Allow.
+
+- **Server advertises its Tailscale address**: `harness/discover-probe.py <ip>` (UDP 21119, the
+  discovery port is `RENDEZVOUS_PORT + 3`) shows `misc = {"addrs":["100.64.99.1"]}` in the pong;
+  unit tests `lan::advertised_addrs_tests` cover the payload parsing.
+- **Real iPad learns it**: a fresh launch listed the VM found on the LAN with two routes, LAN
+  192.168.1.208 (green) and Tailscale 100.64.99.1 (grey, struck through: not routable here), with
+  no manual step (`to_remove/ux-ipad-1-home-learned.png`).
+- Chips now select: tapping the Tailscale chip marked it (check) without connecting; the card tap
+  then opened the sheet with the "used last time, does not answer" banner, password field with
+  the eye, Remember toggle, "Connect via LAN" — centered and capped at 560 pt on the iPad.
+- Rename from settings ("VM de prueba" on the iPad, "VM Windows test" on Windows) shows on the
+  card; names have their own line, user · platform below.
+- Collapsed session pill shows [>][×]; the × disconnected from the collapsed state.
+- Windows VM: same checks (two-line names, chip select, rename) with the 1.0.6 client.
+
