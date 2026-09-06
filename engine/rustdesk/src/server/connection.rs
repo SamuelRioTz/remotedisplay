@@ -1016,9 +1016,19 @@ impl Connection {
                             }
                         }
                         Some(message::Union::PeerInfo(_pi)) => {
-                            conn.refresh_video_display(None);
+                            // remotedisplay (macOS): the display list changed. The video loop
+                            // restarts on its own when the topology changes; refreshing here
+                            // as well doubled every restart. Refresh only if the loop showing
+                            // this connection's display predates the current topology.
                             #[cfg(target_os = "macos")]
-                            conn.retina.set_displays(&_pi.displays);
+                            {
+                                if video_service::loop_predates_topology(conn.display_idx) {
+                                    conn.refresh_video_display(None);
+                                }
+                                conn.retina.set_displays(&_pi.displays);
+                            }
+                            #[cfg(not(target_os = "macos"))]
+                            conn.refresh_video_display(None);
                         }
                         Some(message::Union::CursorPosition(pos)) => {
                             #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -4144,17 +4154,13 @@ impl Connection {
             if let Some(server) = self.server.upgrade() {
                 self.switch_display_to(display_idx, server.clone());
 
-                // remotedisplay/macOS: virtual displays are sized explicitly by the
-                // client (profile, fit, scale). The size that comes in the
-                // SwitchDisplay message is what the client HAD cached (it can be
-                // stale or in points): applying it here would overwrite the scale/size just
-                // set. Skipped for our virtuals.
+                // remotedisplay/macOS: never apply the size cached in the client's peer
+                // config. It is keyed by display INDEX, so once the list changes it lands
+                // on a different display (a client once tried to set its iPad size on the
+                // Mac's built-in panel). Virtuals are sized explicitly by Fit; physical
+                // monitors are not changed from remote at all.
                 #[cfg(target_os = "macos")]
-                let skip_switch_resize = display_service::try_get_displays()
-                    .ok()
-                    .and_then(|ds| ds.get(display_idx).map(|d| d.name()))
-                    .map(|name| virtual_display_manager::mac_vdisplay::is_virtual_display(&name))
-                    .unwrap_or(false);
+                let skip_switch_resize = true;
                 #[cfg(not(target_os = "macos"))]
                 let skip_switch_resize = false;
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -4284,6 +4290,36 @@ impl Connection {
             msg_out
         };
 
+        // remotedisplay (macOS): monitors are set up on the Mac itself (menu-bar app) and
+        // go back to normal when the service stops; clients only view them. The one change
+        // a client may make is the scale (HiDPI) of a virtual it is viewing, and that goes
+        // through the display manager like every other display change.
+        #[cfg(target_os = "macos")]
+        {
+            use crate::server::display_manager::{self as dm, Op};
+            let base = virtual_display_manager::MAC_HIDPI_INDEX_BASE;
+            if t.display >= base {
+                let id = (t.display - base) as u32;
+                if let Err(e) = dm::run(Op::SetHiDPI { id, on: t.on }).await {
+                    log::error!("Failed to set hidpi={} on virtual display {id}: {e}", t.on);
+                    self.send(make_msg(format!("Failed to change the scale: {e}")))
+                        .await;
+                }
+            } else {
+                log::info!(
+                    "ToggleVirtualDisplay {} on={} refused: monitors are managed on the Mac",
+                    t.display,
+                    t.on
+                );
+                self.send(make_msg(
+                    "Monitors are set up on the Mac itself: use the Remote Display Server menu bar app."
+                        .to_owned(),
+                ))
+                .await;
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
         if t.on {
             if !virtual_display_manager::is_virtual_display_supported() {
                 self.send(make_msg("idd_not_support_under_win10_2004_tip".to_string()))
@@ -4291,26 +4327,6 @@ impl Connection {
             } else {
                 #[cfg(windows)]
                 let res = virtual_display_manager::plug_in_monitor(t.display as _, Vec::new());
-                // remotedisplay: on macOS display = -2 is the "dynamic main" (case 1);
-                // indices >= 0 create a normal virtual display (case 2).
-                #[cfg(target_os = "macos")]
-                let res = if t.display == virtual_display_manager::MAC_DYNAMIC_MAIN_INDEX {
-                    virtual_display_manager::mac_vdisplay::dynamic_main(true, 0, 0)
-                } else if t.display >= virtual_display_manager::MAC_HIDPI_INDEX_BASE {
-                    // scale: turn HiDPI on for the virtual with that ID
-                    virtual_display_manager::mac_vdisplay::set_hidpi(
-                        (t.display - virtual_display_manager::MAC_HIDPI_INDEX_BASE) as u32,
-                        true,
-                    )
-                } else if t.display >= virtual_display_manager::MAC_RAW_DISPLAY_ID_BASE {
-                    // turn on a specific display (a turned-off physical) by its ID
-                    virtual_display_manager::mac_vdisplay::set_display_enabled(
-                        (t.display - virtual_display_manager::MAC_RAW_DISPLAY_ID_BASE) as u32,
-                        true,
-                    )
-                } else {
-                    virtual_display_manager::plug_in_monitor(t.display as _)
-                };
                 if let Err(e) = res {
                     log::error!("Failed to plug in virtual display: {}", e);
                     self.send(make_msg(format!(
@@ -4319,8 +4335,6 @@ impl Connection {
                     )))
                     .await;
                 }
-                #[cfg(target_os = "macos")]
-                display_service::force_displays_resync();
             }
         } else {
             if let Err(e) = virtual_display_manager::plug_out_monitor(t.display, false, true) {
@@ -4331,8 +4345,6 @@ impl Connection {
                 )))
                 .await;
             }
-            #[cfg(target_os = "macos")]
-            display_service::force_displays_resync();
         }
     }
 
@@ -4361,50 +4373,63 @@ impl Connection {
                     {
                         return;
                     }
-                    #[allow(unused_mut)]
+                    #[allow(unused_mut, unused_variables)]
                     let mut record_changed = true;
                     #[cfg(windows)]
                     if virtual_display_manager::amyuni_idd::is_my_display(&name) {
                         record_changed = false;
                     }
-                    // remotedisplay: macOS virtual displays — exact hot resize
-                    // (applySettings in-place), without going through the mode list.
+                    // remotedisplay/macOS: a virtual display is hot-resized through the
+                    // display manager (exact size, announced once when settled). Physical
+                    // monitors are never changed from remote: the Mac's configuration is
+                    // the Mac's.
                     #[cfg(target_os = "macos")]
-                    if let Some(_ok) =
-                        virtual_display_manager::mac_vdisplay::change_resolution_if_is_virtual_display(
-                            &name,
-                            r.width as _,
-                            r.height as _,
-                        )
                     {
-                        display_service::force_displays_resync();
+                        if virtual_display_manager::mac_vdisplay::is_virtual_display(&name) {
+                            if let Ok(id) = name.parse::<u32>() {
+                                crate::server::display_manager::submit(
+                                    crate::server::display_manager::Op::Resize {
+                                        id,
+                                        width: r.width as _,
+                                        height: r.height as _,
+                                    },
+                                );
+                            }
+                        } else {
+                            log::info!(
+                                "ignoring resolution change of physical display '{}' to {}x{}: not changed from remote on macOS",
+                                name,
+                                r.width,
+                                r.height
+                            );
+                        }
                         return;
                     }
                     #[cfg(not(target_os = "macos"))]
-                    let scale = 1.0;
-                    #[cfg(target_os = "macos")]
-                    let scale = display.scale();
-                    let original = (
-                        ((display.width() as f64) / scale).round() as _,
-                        (display.height() as f64 / scale).round() as _,
-                    );
-                    if record_changed {
-                        display_service::set_last_changed_resolution(
-                            &name,
-                            original,
-                            (r.width, r.height),
-                        );
-                    }
-                    if let Err(e) =
-                        crate::platform::change_resolution(&name, r.width as _, r.height as _)
                     {
-                        log::error!(
-                            "Failed to change resolution '{}' to ({},{}): {:?}",
-                            &name,
-                            r.width,
-                            r.height,
-                            e
+                        let scale = 1.0;
+                        let original = (
+                            ((display.width() as f64) / scale).round() as _,
+                            (display.height() as f64 / scale).round() as _,
                         );
+                        if record_changed {
+                            display_service::set_last_changed_resolution(
+                                &name,
+                                original,
+                                (r.width, r.height),
+                            );
+                        }
+                        if let Err(e) =
+                            crate::platform::change_resolution(&name, r.width as _, r.height as _)
+                        {
+                            log::error!(
+                                "Failed to change resolution '{}' to ({},{}): {:?}",
+                                &name,
+                                r.width,
+                                r.height,
+                                e
+                            );
+                        }
                     }
                 }
             }
@@ -6690,32 +6715,10 @@ mod raii {
                 // Windows (IDD): virtuals are destroyed when the last client leaves.
                 #[cfg(windows)]
                 let _ = virtual_display_manager::reset_all();
-                // remotedisplay/macOS: same idea — the last client leaving (or
-                // dropping) puts the displays back: physicals turned off come
-                // back on, the dynamic main is undone and the virtual monitors
-                // go away. Each client re-applies its own monitor profile on
-                // connect, so nothing is lost. The reset waits for macOS to
-                // settle (seconds): run it off the async runtime, and skip it if
-                // a client came back in the meantime.
-                #[cfg(target_os = "macos")]
-                if virtual_display_manager::is_virtual_display_supported() {
-                    std::thread::spawn(|| {
-                        let remotes = AUTHED_CONNS
-                            .lock()
-                            .unwrap()
-                            .iter()
-                            .filter(|c| c.conn_type == AuthConnType::Remote)
-                            .count();
-                        if remotes > 0 {
-                            log::info!("mac_vdisplay: a client is back, keeping the displays");
-                            return;
-                        }
-                        log::info!("mac_vdisplay: last client left, restoring physicals (virtuals kept)");
-                        if let Err(e) = virtual_display_manager::restore_physicals() {
-                            log::error!("mac_vdisplay: restore physicals failed: {e}");
-                        }
-                    });
-                }
+                // remotedisplay/macOS: nothing to put back. Monitors are configured on the
+                // Mac itself and outlive client sessions; they are reset only when the
+                // service stops (SIGTERM/quit). Clients connecting or leaving never change
+                // the Mac's displays.
                 #[cfg(target_os = "linux")]
                 scrap::wayland::pipewire::try_close_session();
             }

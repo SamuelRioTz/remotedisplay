@@ -421,3 +421,37 @@ privacy prompt for the server (our `NSLocalNetworkUsageDescription`); answer All
 - Collapsed session pill shows [>][×]; the × disconnected from the collapsed state.
 - Windows VM: same checks (two-line names, chip select, rename) with the 1.0.6 client.
 
+
+## 2026-09-06 — 1.0.8: monitors configured on the Mac only (SimpleDisplay model), display manager
+
+Rig: Tart server VM on NAT (192.168.64.6) with host bridges 21119/21120, Windows 11 QEMU client
+(`C:\RemoteDisplayTest`, a 1.0.5 build, deliberately OLD to exercise the refusal path).
+
+What changed: every display mutation (server virtual monitor, "main screen follows remote", a
+client's Fit/scale on a virtual, the reset on SIGTERM) goes through one worker thread
+(`engine/rustdesk/src/server/display_manager.rs`). While it works, the display service holds
+its broadcast and the video loop leaves its capturer alone; when macOS has settled it announces
+ONCE. The menu-bar app reads `~/Library/Application Support/remotedisplay-displays.json`
+(written by the manager) instead of spawning `--plug-virtual status` every 4 s, and its toggles
+show a working state until the engine answers. Clients no longer create/delete virtuals, turn
+physicals off, or make the physical dynamic; cached per-index sizes are never applied on macOS
+hosts; nothing is restored when the last client leaves (there is nothing of theirs to restore).
+
+- **Server toggles (no client)**: `--plug-virtual on` 1.7 s, `on` again = no-op in 0 ms,
+  `--dynamic-main on` 4.1 s, `off` 7.6 s, `--plug-virtual off` 1.5 s (the removal is
+  asynchronous in WindowServer: the manager waits up to 3 s for the topology to reflect a
+  change it made). State file correct after each step; `status` for both = the file.
+- **Server toggles with the Windows client connected, per action**: exactly 1 "Displays
+  changed", 1 refresh, 1 SWITCH, 0 extra topology restarts, 1 video loop started — for plug
+  on, dynamic main on, dynamic main off and plug off alike. Before the manager the same
+  actions cost 3–5 restarts each (the 1.0.7 log of Sam's Mac shows 4 in 4 s for one toggle).
+- **Client disconnect/reconnect**: the virtual stayed (state file `virtual_ids:[7]` before and
+  after); the log shows only "Connection closed"; no restore, no dynamic-main change, no
+  resolution attempt on reconnect.
+- **Old client taps Fit on the physical display**: server log `ToggleVirtualDisplay -2 on=true
+  refused: monitors are managed on the Mac`; the client gets the "Monitors are set up on the
+  Mac itself" message box; the Mac's screen is untouched.
+- **Service stop** (bootout during the redeploy): `ResetAll` through the manager, "displays
+  reset", state file back to all-off at the next start.
+- Swift app: the main window's new *Monitors* section (both toggles + footer) seen in the VM
+  through the remote session; the menu-bar toggles read the same state.

@@ -24,8 +24,13 @@ struct StatusMenu: View {
         Toggle("Service Active", isOn: Binding(
             get: { c.serviceRunning }, set: { c.setServiceEnabled($0) }))
         if c.serviceRunning {
-            Toggle("Virtual monitor", isOn: Binding(
+            // Monitors are configured here, on the Mac, and reset when the service stops.
+            Toggle(c.displayBusy ? "Virtual monitor…" : "Virtual monitor", isOn: Binding(
                 get: { c.virtualMonitorOn }, set: { c.setVirtualMonitor($0) }))
+                .disabled(c.displayBusy)
+            Toggle(c.displayBusy ? "Main screen follows remote…" : "Main screen follows remote", isOn: Binding(
+                get: { c.dynamicMainOn }, set: { c.setDynamicMain($0) }))
+                .disabled(c.displayBusy)
         }
         Toggle("Open at Login", isOn: Binding(
             get: { c.launchAtLogin }, set: { c.setLaunchAtLogin($0) }))

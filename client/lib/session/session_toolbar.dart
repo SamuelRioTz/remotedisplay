@@ -24,7 +24,7 @@ import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 
 import 'external_screen.dart';
-import 'monitor_profile.dart';
+import 'monitor_scale.dart';
 import 'trackpad_screen.dart';
 import 'win_events.dart';
 
@@ -461,25 +461,22 @@ class _SessionToolbarState extends State<SessionToolbar> {
     return {};
   }
 
-  /// After deleting the virtual monitor being viewed, the engine switches on
-  /// its own to the remaining one but the window title doesn't find out:
-  /// wait for that display to leave the list and reflect the current one.
-  Future<void> _retitleWhenDisplayGone(int mid) async {
-    for (var attempt = 0; attempt < 40; attempt++) {
-      await Future.delayed(const Duration(milliseconds: 100));
-      if (!mounted) return;
-      if (!_ffi.ffiModel.pi.macDisplayIds.contains(mid)) break;
-    }
-    if (!mounted) return;
-    _setWindowTitleForDisplay(CurrentDisplayState.find(widget.peerId).value);
-  }
-
   /// Reflects in the window title which display it shows.
   void _setWindowTitleForDisplay(int display) {
     if (!isDesktop) return;
     WindowController.fromWindowId(stateGlobal.windowId)
         .setTitle(sessionWindowTitle(widget.peerId, display));
   }
+
+  /// Disabled, dimmed one-liner (a hint at the end of a section).
+  PopupMenuEntry<void> _note(String text) => PopupMenuItem<void>(
+        enabled: false,
+        height: 30,
+        child: Text(text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: _fgDim, fontSize: 11)),
+      );
 
   PopupMenuEntry<void> _check(bool value, Widget label, VoidCallback onTap,
           {String? detail}) =>
@@ -492,21 +489,16 @@ class _SessionToolbarState extends State<SessionToolbar> {
             offIcon: Icons.check_box_outline_blank_rounded),
       );
 
-  /// Unified monitor row (macOS): combines selection (which one is shown),
-  /// physical/virtual indicator, resolution, open/close in another window,
-  /// and on/off switch or trash — so there isn't a "Displays" list and a
-  /// separate "Monitors" one for the same set. Tap on the row = view that
-  /// monitor here; the switch turns off a physical one (mirroring); the
-  /// trash destroys a virtual one.
+  /// Unified monitor row (macOS): selection (which one is shown), physical or
+  /// virtual badge, resolution (tap = scale, on virtuals) and open/close in
+  /// another window. Monitors themselves are added or removed on the Mac
+  /// (menu-bar app), never from here.
   PopupMenuEntry<void> _monitorRow({
     required String label,
     required bool isVirtual,
-    required bool isOn,
     String? detail,
     bool isCurrent = false,
     VoidCallback? onSelect,
-    ValueChanged<bool>? onToggle,
-    VoidCallback? onDelete,
     bool openSlot = false,
     IconData? openIcon,
     String? openTooltip,
@@ -533,7 +525,7 @@ class _SessionToolbarState extends State<SessionToolbar> {
                   ? Icons.cast_connected_rounded
                   : Icons.desktop_windows_rounded,
               size: 16,
-              color: isOn ? Colors.white : _fgDim,
+              color: Colors.white,
             ),
             const SizedBox(width: 8),
             // Name — fixed width.
@@ -541,8 +533,7 @@ class _SessionToolbarState extends State<SessionToolbar> {
               width: 74,
               child: Text(label,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: isOn ? Colors.white : _fg, fontSize: 13)),
+                  style: const TextStyle(color: Colors.white, fontSize: 13)),
             ),
             // Physical/virtual badge — fixed width, left-aligned.
             SizedBox(
@@ -632,48 +623,6 @@ class _SessionToolbarState extends State<SessionToolbar> {
                         ),
                       ),
               ),
-            // Virtual: trash (create/delete). Physical: on/off switch (the
-            // physical one isn't deleted, it's turned off by mirroring it onto the main one).
-            SizedBox(
-              width: 40,
-              child: isVirtual
-                  ? Builder(
-                      builder: (itemCtx) => Tooltip(
-                        message: 'Remove virtual monitor',
-                        waitDuration: const Duration(milliseconds: 400),
-                        child: InkWell(
-                          onTap: onDelete == null
-                              ? null
-                              : () {
-                                  Navigator.pop(itemCtx);
-                                  onDelete();
-                                },
-                          borderRadius: BorderRadius.circular(8),
-                          hoverColor: const Color(0x22FF5555),
-                          child: const Padding(
-                            padding: EdgeInsets.all(8),
-                            child: Icon(Icons.delete_outline_rounded,
-                                size: 18, color: _danger),
-                          ),
-                        ),
-                      ),
-                    )
-                  : Builder(
-                      builder: (itemCtx) => Transform.scale(
-                        scale: 0.7,
-                        child: Switch(
-                          value: isOn,
-                          activeColor: const Color(0xFF6FC0FF),
-                          onChanged: onToggle == null
-                              ? null
-                              : (v) {
-                                  Navigator.pop(itemCtx);
-                                  onToggle(v);
-                                },
-                        ),
-                      ),
-                    ),
-            ),
           ],
         ),
       );
@@ -839,16 +788,12 @@ class _SessionToolbarState extends State<SessionToolbar> {
     if (macMonitors) {
       // remotedisplay: A SINGLE section for macOS — "monitor" and "display"
       // are the same thing, so each row combines selection (which one is
-      // shown), physical/virtual badge, resolution and on/off switch. No
-      // duplicate lists.
+      // shown), physical/virtual badge and resolution. Monitors are configured
+      // on the Mac itself (menu-bar app) and reset when its service stops: from
+      // here you only choose what to view, fit a virtual to the window and pick
+      // its scale.
       final dispIds = pi.macDisplayIds; // aligned with pi.displays
       final virtuals = pi.macVirtualDisplays.toSet();
-      final physicalOff = pi.macPhysicalOff;
-      void toggle(int mid, bool on) {
-        bind.sessionToggleVirtualDisplay(
-            sessionId: ffi.sessionId, index: kMacRawDisplayIdBase + mid, on: on);
-        MonitorProfile.scheduleSave(id, ffi); // per-client profile
-      }
       items.add(_header('MONITORS'));
       for (var i = 0; i < pi.displays.length && i < dispIds.length; i++) {
         final mid = dispIds[i];
@@ -859,16 +804,15 @@ class _SessionToolbarState extends State<SessionToolbar> {
         final isExt = extDisplay == i;
         // Virtual: show pixels equivalent to 100% (= window size) and its
         // scale; tapping the detail opens the scale selector.
-        final scale = isVirtual ? MonitorProfile.scaleOf(id, pi, mid) : 100;
+        final scale = isVirtual ? MonitorScale.of(id, pi, mid) : 100;
         final px = isVirtual
-            ? MonitorProfile.pixelSizeOf(pi, i, scale)
+            ? MonitorScale.pixelSizeOf(pi, i, scale)
             : Size(d.width.toDouble(), d.height.toDouble());
         items.add(_monitorRow(
           // Sequential numbering by position: macOS's internal display ID
           // (mid) isn't consecutive and is confusing ("Monitor 8").
           label: 'Monitor ${i + 1}',
           isVirtual: isVirtual,
-          isOn: true,
           isCurrent: isCurrent,
           detail: '${px.width.toInt()}×${px.height.toInt()}'
               '${isVirtual ? ' · $scale%' : ''}'
@@ -887,9 +831,8 @@ class _SessionToolbarState extends State<SessionToolbar> {
                     },
           // Desktop: open this monitor in a new window (or close the one
           // already showing it). iPad with an external monitor: show it out
-          // there (or stop showing it) — the same feature the DISPLAYS
-          // section of Windows/Linux peers has had; it was missing here.
-          // Fixed column: the current row leaves it empty.
+          // there (or stop showing it). Fixed column: the current row leaves
+          // it empty.
           openSlot: isDesktop || extConnected,
           openIcon: isDesktop
               ? (isCurrent
@@ -911,35 +854,6 @@ class _SessionToolbarState extends State<SessionToolbar> {
                       kMainWindowId, kClientEventCloseWindow, otherWin)
                   : () => openMonitorInNewTabOrWindow(i, id, pi))
               : (isExt ? () => ext?.detach() : () => _showOnExternal(i)),
-          // Virtual → trash (delete); physical → switch (off = mirroring).
-          onToggle: isVirtual ? null : (v) => toggle(mid, v),
-          onDelete: isVirtual
-              ? () async {
-                  // If another window shows it, close it before destroying it.
-                  if (otherWin != null) {
-                    DesktopMultiWindow.invokeMethod(
-                        kMainWindowId, kClientEventCloseWindow, otherWin);
-                  }
-                  // Same for the iPad's external monitor.
-                  if (isExt) await ext?.detach();
-                  toggle(mid, false);
-                  if (isCurrent) _retitleWhenDisplayGone(mid);
-                }
-              : null,
-        ));
-      }
-      // Physical monitors turned off (mirrored): the switch turns them back
-      // on. They continue the numbering after the active ones.
-      var offN = pi.displays.length;
-      for (final mid in physicalOff) {
-        offN++;
-        items.add(_monitorRow(
-          label: 'Monitor $offN',
-          isVirtual: false,
-          isOn: false,
-          detail: 'off',
-          openSlot: isDesktop,
-          onToggle: (v) => toggle(mid, v),
         ));
       }
       if (pi.isSupportMultiDisplay && pi.displays.length > 1) {
@@ -954,11 +868,8 @@ class _SessionToolbarState extends State<SessionToolbar> {
           offIcon: Icons.grid_view_outlined,
         ));
       }
-      // Create a virtual with the window's CURRENT size as the default.
-      items.add(_radio(false, const Text('Create virtual monitor'),
-          () => _createVirtualMonitorAtWindowSize(),
-          onIcon: Icons.add_circle_rounded,
-          offIcon: Icons.add_circle_outline_rounded));
+      items.add(_note(
+          'Add or remove monitors on the Mac: Remote Display Server menu bar.'));
     } else if (pi.displays.length > 1) {
       // Other peers (Windows/Linux/etc.): the classic DISPLAYS section, just
       // to choose which monitor is shown.
@@ -1040,43 +951,6 @@ class _SessionToolbarState extends State<SessionToolbar> {
     await _showItemsMenu(anchor, items);
   }
 
-  /// Creates a virtual monitor and sets this window's CURRENT size as its
-  /// initial resolution. The server creates it with a default; as soon as
-  /// the new display appears in the list, it's selected and the window's
-  /// size (captured before creating it) is applied to it.
-  Future<void> _createVirtualMonitorAtWindowSize() async {
-    final ffi = _ffi;
-    final size = ffi.ffiModel.viewportSize;
-    final dpr = _dpr;
-    final scale = _defaultScale;
-    final before = ffi.ffiModel.pi.macDisplayIds.toSet();
-    bind.sessionToggleVirtualDisplay(
-        sessionId: ffi.sessionId, index: 0, on: true);
-    if (size == null) return;
-    // window's PHYSICAL pixels; the spec derives points and HiDPI from the scale
-    final w = (size.width * dpr).round();
-    final h = (size.height * dpr).round();
-    if (w < 400 || h < 300) return;
-    // Wait (up to ~4s) for the server to announce the new display.
-    for (var attempt = 0; attempt < 40; attempt++) {
-      await Future.delayed(const Duration(milliseconds: 100));
-      final pi = ffi.ffiModel.pi;
-      final ids = pi.macDisplayIds;
-      final newMid = ids.firstWhere((m) => !before.contains(m), orElse: () => -1);
-      if (newMid == -1) continue;
-      final idx = ids.indexOf(newMid);
-      if (idx < 0 || idx >= pi.displays.length) continue;
-      // View it and fit it to the window's size at the client's scale.
-      openMonitorInTheSameTab(idx, ffi, pi);
-      _setWindowTitleForDisplay(idx);
-      await Future.delayed(const Duration(milliseconds: 200));
-      await MonitorProfile.applySpec(
-          widget.peerId, ffi, newMid, VirtualSpec(w, h, scale));
-      break;
-    }
-    MonitorProfile.scheduleSave(widget.peerId, ffi);
-  }
-
   /// Goes back to viewing the full remote screen: "adaptive" style (fits
   /// the window) and canvas reset (undoes the pinch zoom/pan on mobile or
   /// the scroll on desktop).
@@ -1096,26 +970,17 @@ class _SessionToolbarState extends State<SessionToolbar> {
     await Future.delayed(const Duration(milliseconds: 120));
     if (!mounted) return;
     final pi = ffi.ffiModel.pi;
-    final macMonitors =
-        pi.platform == kPeerPlatformMacOS && pi.isMacVirtualDisplaySupported;
     final current = CurrentDisplayState.find(widget.peerId).value;
-    if (macMonitors &&
-        current != kAllDisplayValue &&
-        !ffi.ffiModel.isVirtualDisplayResolution) {
-      // Case 1: the monitor being viewed is PHYSICAL and can't be freely
-      // resized. "Fit" = make it dynamic: the server mirrors it onto a
-      // virtual that becomes the main one and does follow the window.
-      await _makePhysicalDynamicAndFit();
-      MonitorProfile.scheduleSave(widget.peerId, ffi);
-      return;
-    }
+    // A physical monitor is never resized from here (its configuration is the
+    // Mac's): on one of them Fit is just the adaptive view above. Only a
+    // virtual follows the window; the Mac's menu-bar app is where one is added
+    // or where the main screen is set to follow the remote.
     final mid = (current >= 0 && current < pi.macDisplayIds.length)
         ? pi.macDisplayIds[current]
         : -1;
     await ffi.ffiModel.applyDynamicResolution(
-        scalePercent: mid >= 0 ? MonitorProfile.scaleOf(widget.peerId, pi, mid) : 100,
+        scalePercent: mid >= 0 ? MonitorScale.of(widget.peerId, pi, mid) : 100,
         devicePixelRatio: _dpr);
-    MonitorProfile.scheduleSave(widget.peerId, ffi);
     // The monitor plugged into the iPad is a screen too.
     await _fitExternal();
   }
@@ -1144,7 +1009,7 @@ class _SessionToolbarState extends State<SessionToolbar> {
     if (!pi.macVirtualDisplays.contains(mid)) return;
     final px = await ext.externalPixelSize();
     if (px == null) return;
-    final scale = MonitorProfile.scaleOf(widget.peerId, pi, mid);
+    final scale = MonitorScale.of(widget.peerId, pi, mid);
     final w = (px.width * 100 / scale).round() & ~1; // even: hardware encoders
     final h = (px.height * 100 / scale).round() & ~1;
     final d = pi.displays[display];
@@ -1152,55 +1017,17 @@ class _SessionToolbarState extends State<SessionToolbar> {
     if (((d.width / sc).round() - w).abs() <= 1 &&
         ((d.height / sc).round() - h).abs() <= 1) return;
     await ffi.ffiModel.changeResolutionOfDisplay(display, w, h);
-    MonitorProfile.scheduleSave(widget.peerId, ffi);
   }
 
   /// devicePixelRatio of THIS window (physical pixels per logical pixel).
   double get _dpr =>
       mounted ? MediaQuery.of(context).devicePixelRatio : 1.0;
 
-  /// Default scale for new virtuals: the client's own (like Windows).
-  int get _defaultScale => snapScale(_dpr);
-
-  /// Dynamic main (engine index -2): the current physical display gets
-  /// mirrored onto a main virtual. When the display being viewed becomes
-  /// virtual, the window's size is applied to it. It's undone with the
-  /// physical one's switch (becomes main again) or the virtual's trash.
-  Future<void> _makePhysicalDynamicAndFit() async {
-    final ffi = _ffi;
-    bind.sessionToggleVirtualDisplay(
-        sessionId: ffi.sessionId, index: kMacDynamicMainIndex, on: true);
-    // Wait (up to ~6s) for the server to replace the physical display with
-    // the virtual one in the display list and for this window to show it.
-    for (var attempt = 0; attempt < 60; attempt++) {
-      await Future.delayed(const Duration(milliseconds: 100));
-      if (!mounted) return;
-      if (ffi.ffiModel.isVirtualDisplayResolution) break;
-    }
-    if (!mounted || !ffi.ffiModel.isVirtualDisplayResolution) return;
-    await Future.delayed(const Duration(milliseconds: 300));
-    // Client's default scale for the dynamic main virtual.
-    final pi = ffi.ffiModel.pi;
-    final mid = pi.macDynamicMainId;
-    final scale = _defaultScale;
-    if (mid != 0 && scale > 100 && !pi.macHiDPIDisplays.contains(mid)) {
-      bind.sessionToggleVirtualDisplay(
-          sessionId: ffi.sessionId, index: kMacHiDPIIndexBase + mid, on: true);
-      await MonitorProfile.waitFor(
-          () => ffi.ffiModel.pi.macHiDPIDisplays.contains(mid), 6000);
-      await Future.delayed(const Duration(milliseconds: 300));
-    }
-    if (mid != 0) MonitorProfile.rememberScale(widget.peerId, mid, scale);
-    if (!mounted) return;
-    await ffi.ffiModel
-        .applyDynamicResolution(scalePercent: scale, devicePixelRatio: _dpr);
-  }
-
   /// Scale selector for a virtual monitor (tap on its dimension).
   Future<void> _showScaleMenu(BuildContext anchor, int i, int mid) async {
     final ffi = _ffi;
     final pi = ffi.ffiModel.pi;
-    final current = MonitorProfile.scaleOf(widget.peerId, pi, mid);
+    final current = MonitorScale.of(widget.peerId, pi, mid);
     final items = <PopupMenuEntry<void>>[
       _header('SCALE · MONITOR ${i + 1}'),
       for (final s in kMonitorScales)
@@ -1221,11 +1048,9 @@ class _SessionToolbarState extends State<SessionToolbar> {
     final pi = ffi.ffiModel.pi;
     final idx = pi.macDisplayIds.indexOf(mid);
     if (idx < 0 || idx >= pi.displays.length) return;
-    final cur = MonitorProfile.scaleOf(widget.peerId, pi, mid);
-    final px = MonitorProfile.pixelSizeOf(pi, idx, cur);
-    await MonitorProfile.applySpec(widget.peerId, ffi, mid,
-        VirtualSpec(px.width.round(), px.height.round(), scale));
-    MonitorProfile.scheduleSave(widget.peerId, ffi);
+    final cur = MonitorScale.of(widget.peerId, pi, mid);
+    final px = MonitorScale.pixelSizeOf(pi, idx, cur);
+    await MonitorScale.apply(widget.peerId, ffi, mid, px, scale);
   }
 
   Future<void> _disconnect() async {

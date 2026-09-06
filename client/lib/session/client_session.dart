@@ -86,10 +86,10 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
           .setTitle(sessionWindowTitle(_peerId, params['display'] as int?));
     }
     rustDeskWinManager.setMethodHandler(_methodHandler);
-    // PER-CLIENT monitor profile: only the peer's main window (per-monitor
-    // windows carry `display`) applies the saved profile every time the
-    // server announces a PeerInfo (initial connection and reconnections,
-    // e.g. after a server restart that lost the virtual displays).
+    // Main window (per-monitor windows carry `display`): keep the title and the
+    // menu's current-display state in sync with what the engine shows. Nothing
+    // here touches the Mac's monitors: they are configured on the Mac and reset
+    // when its service stops.
     if (params['display'] == null) {
       _watch = Timer.periodic(const Duration(milliseconds: 500), (_) => _tick());
     } else {
@@ -125,7 +125,6 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
   }
 
   Timer? _watch;
-  int _seenEpoch = 0;
   int? _titledDisplay;
 
   Future<void> _tick() async {
@@ -145,16 +144,6 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
       final cur = CurrentDisplayState.find(_peerId);
       if (cur.value != pi.currentDisplay) cur.value = pi.currentDisplay;
     }
-    final epoch = ffi.ffiModel.peerInfoEpoch;
-    if (epoch == _seenEpoch) return;
-    if (!pi.isMacVirtualDisplaySupported || pi.displays.isEmpty) return;
-    _seenEpoch = epoch;
-    // let the first frame arrive before moving displays
-    await Future.delayed(const Duration(milliseconds: 1500));
-    if (!mounted || ffi.ffiModel.peerInfoEpoch != epoch) return;
-    // Virtual monitors now persist at the server across client disconnects, so
-    // the client no longer re-applies a saved profile on connect (that made the
-    // virtual toggle off/on every reconnect).
   }
 
   @override

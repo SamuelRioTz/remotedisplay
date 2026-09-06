@@ -903,26 +903,31 @@ async fn handle(data: Data, stream: &mut Connection) {
                     crate::audio_service::set_voice_call_input_device(Some(value), true);
                 } else if name == "unlock-pin" {
                     Config::set_unlock_pin(&value);
-                } else if name == "rd-virtual-monitor" {
-                    // remotedisplay: server-side virtual monitor toggle from the menu-bar app.
-                    // value "Y"=on, "N"=off, anything else = query. ACK with the new state.
+                } else if name == "rd-virtual-monitor" || name == "rd-dynamic-main" {
+                    // remotedisplay: server-side monitor toggles from the menu-bar app.
+                    // value "Y"=on, "N"=off, anything else = query. The work goes through
+                    // the display manager (this runtime never blocks) and the ACK carries
+                    // the resulting state, so the CLI/app reflect what really happened.
                     #[cfg(target_os = "macos")]
                     {
-                        let ack = match value.as_str() {
-                            "Y" => {
-                                let _ = crate::virtual_display_manager::menu_virtual_set(true);
-                                "Y"
-                            }
-                            "N" => {
-                                let _ = crate::virtual_display_manager::menu_virtual_set(false);
-                                "N"
-                            }
-                            _ => {
-                                if crate::virtual_display_manager::menu_virtual_is_on() { "Y" } else { "N" }
+                        use crate::server::display_manager::{self as dm, Op};
+                        let dynamic = name == "rd-dynamic-main";
+                        let op = match value.as_str() {
+                            "Y" => Some(if dynamic { Op::DynamicMain(true) } else { Op::PlugVirtual }),
+                            "N" => Some(if dynamic { Op::DynamicMain(false) } else { Op::UnplugVirtuals }),
+                            _ => None,
+                        };
+                        if let Some(op) = op {
+                            match hbb_common::tokio::time::timeout(std::time::Duration::from_secs(30), dm::run(op)).await {
+                                Ok(Ok(())) => {}
+                                Ok(Err(e)) => log::error!("{name}: {e}"),
+                                Err(_) => log::error!("{name}: timed out"),
                             }
                         }
-                        .to_owned();
-                        allow_err!(stream.send(&Data::Config((name.clone(), Some(ack))).clone()).await);
+                        let st = dm::state();
+                        let on = if dynamic { st.dynamic_main } else { st.virtual_monitor };
+                        let ack = if on { "Y" } else { "N" }.to_owned();
+                        allow_err!(stream.send(&Data::Config((name.clone(), Some(ack)))).await);
                     }
                     return;
                 } else {
@@ -1613,12 +1618,13 @@ pub fn get_fingerprint() -> String {
 /// remotedisplay: drive the server-side virtual monitor from the menu-bar app.
 /// cmd is "Y" (on), "N" (off) or "?" (query); returns "Y"/"N" from the daemon.
 #[tokio::main(flavor = "current_thread")]
-pub async fn set_virtual_monitor(cmd: String) -> ResultType<String> {
-    let ms_timeout = 2_000;
-    let mut c = connect(ms_timeout, "").await?;
-    c.send_config("rd-virtual-monitor", cmd).await?;
-    if let Some(Data::Config((name2, Some(v)))) = c.next_timeout(ms_timeout).await? {
-        if name2 == "rd-virtual-monitor" {
+pub async fn set_display_toggle(name: &str, cmd: String) -> ResultType<String> {
+    // The daemon answers once the operation has completed: a display change takes
+    // seconds (mode switches, mirror settling), so the reply wait is generous.
+    let mut c = connect(2_000, "").await?;
+    c.send_config(name, cmd).await?;
+    if let Some(Data::Config((name2, Some(v)))) = c.next_timeout(35_000).await? {
+        if name2 == name {
             return Ok(v);
         }
     }

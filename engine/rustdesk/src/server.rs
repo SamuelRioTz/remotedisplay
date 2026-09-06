@@ -69,6 +69,8 @@ pub mod input_service {
 mod connection;
 mod login_failure_check;
 pub mod display_service;
+#[cfg(target_os = "macos")]
+pub mod display_manager;
 #[cfg(windows)]
 pub mod portable_service;
 mod service;

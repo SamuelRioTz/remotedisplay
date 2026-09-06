@@ -553,13 +553,34 @@ impl Drop for LiveVideoLoop {
     fn drop(&mut self) {
         let live = LIVE_VIDEO_LOOPS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed) - 1;
         log::info!("video loop for display {} ended: {live} alive", self.0);
+        #[cfg(target_os = "macos")]
+        LOOP_TOPOLOGY.lock().unwrap().remove(&self.0);
     }
+}
+
+// remotedisplay (macOS): the topology hash each live capture loop started with, by
+// display index. connection.rs asks before refreshing on a display-list change: a loop
+// that already restarted for the current topology needs no second restart.
+#[cfg(target_os = "macos")]
+lazy_static::lazy_static! {
+    static ref LOOP_TOPOLOGY: Mutex<HashMap<usize, u64>> = Default::default();
+}
+
+#[cfg(target_os = "macos")]
+pub fn loop_predates_topology(display_idx: usize) -> bool {
+    let now = crate::platform::display_topology_hash();
+    LOOP_TOPOLOGY
+        .lock()
+        .unwrap()
+        .get(&display_idx)
+        .map(|h| *h != now)
+        .unwrap_or(true)
 }
 
 /// remotedisplay (macOS): blocks until the display topology hash has not changed
 /// for 1.2 s (checked every 300 ms), or 8 s at most.
 #[cfg(target_os = "macos")]
-fn wait_for_stable_topology() {
+pub fn wait_for_stable_topology() {
     let started = Instant::now();
     let mut last = crate::platform::display_topology_hash();
     let mut stable = 0;
@@ -719,9 +740,13 @@ fn run(vs: VideoService) -> ResultType<()> {
     let capture_width = c.width;
     let capture_height = c.height;
     let (mut second_instant, mut send_counter) = (Instant::now(), 0);
-    // remotedisplay: huella de la topologia de displays al arrancar el capturer.
+    // remotedisplay: display topology fingerprint when this capturer started.
     #[cfg(target_os = "macos")]
     let topology = crate::platform::display_topology_hash();
+    #[cfg(target_os = "macos")]
+    if vs.source.is_monitor() {
+        LOOP_TOPOLOGY.lock().unwrap().insert(display_idx, topology);
+    }
 
     while sp.ok() {
         #[cfg(windows)]
@@ -779,20 +804,26 @@ fn run(vs: VideoService) -> ResultType<()> {
         let now = time::Instant::now();
         if vs.source.is_monitor() && last_check_displays.elapsed().as_millis() > 1000 {
             last_check_displays = now;
-            // This check may be redundant, but it is better to be safe.
-            // The previous check in `sp.is_option_true(OPTION_REFRESH)` block may be enough.
-            try_broadcast_display_changed(&sp, display_idx, &c, false)?;
-            // remotedisplay: a reconfiguration that did not move the bounds (e.g. the
-            // mode of the mirrored physical) can leave the CGDisplayStream silent:
-            // recreate the capturer. But one user action (create/resize a virtual,
-            // mirror) is a burst of several configuration transactions over a few
-            // seconds; recreating on each one made 5-10 capturers+encoders per
-            // action (seen in the Mac Studio log). Wait until the topology has been
-            // stable for a moment, then recreate once.
+            // remotedisplay (macOS): while the display manager is mid-operation (a user
+            // action is several configuration transactions over a few seconds), leave
+            // the capturer alone; the checks below run once it is done and restart this
+            // loop once. Comparing during the operation restarted it every second.
             #[cfg(target_os = "macos")]
-            if crate::platform::display_topology_hash() != topology {
-                wait_for_stable_topology();
-                bail!("display topology changed");
+            let held = super::display_service::announcements_held();
+            #[cfg(not(target_os = "macos"))]
+            let held = false;
+            if !held {
+                // This check may be redundant, but it is better to be safe.
+                // The previous check in `sp.is_option_true(OPTION_REFRESH)` block may be enough.
+                try_broadcast_display_changed(&sp, display_idx, &c, false)?;
+                // remotedisplay: a reconfiguration that did not move the bounds (e.g. the
+                // mode of the mirrored physical) can leave the CGDisplayStream silent:
+                // recreate the capturer, once the topology has been stable for a moment.
+                #[cfg(target_os = "macos")]
+                if crate::platform::display_topology_hash() != topology {
+                    wait_for_stable_topology();
+                    bail!("display topology changed");
+                }
             }
         }
 

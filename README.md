@@ -25,12 +25,12 @@ letterboxing, no scrolling, no fixed resolutions.
 
 ## Features
 
-- **Dynamic virtual monitors on the Mac.** Create a virtual display from the client;
-  it is born at the size of your window. *Fit to screen* resizes it to the window at
-  any time. Delete it when you are done.
-- **Make the physical monitor dynamic.** *Fit to screen* on the Mac's real display
-  mirrors it onto a virtual main display that follows your window. Flip the switch to
-  get the physical display back.
+- **Virtual monitors, configured on the Mac.** The menu-bar app adds a virtual display,
+  or makes the main screen follow the remote (mirrored onto a resizable virtual). What
+  you set stays while the service runs and goes away when it stops, like SimpleDisplay.
+- **Fit to screen from the client.** A virtual display takes the exact size of your
+  window, any time; the display ID never changes, so the session never blinks. Physical
+  monitors are never touched from remote.
 - **Scale per monitor (100 / 125 / 150 / 200 %)**, like Windows display scaling.
   Retina (2×) when macOS allows it, 1× with fewer points otherwise.
 - **Per-client monitor profiles.** Each client (your PC, your iPad) remembers its own
@@ -61,14 +61,17 @@ notarized by Apple, so macOS opens them without Gatekeeper warnings.
    networks. Each computer lists its addresses (LAN, Tailscale) with whether they answer
    from where you are: tap a chip to pick the network, the card to connect; the gear
    renames the computer, adds an address or forgets a password.
-3. Open the display menu in the toolbar: create a virtual monitor, hit *Fit to screen*,
-   pick a scale.
+3. On the Mac, turn on *Virtual monitor* or *Main screen follows remote* in the menu bar
+   app. From the client, pick the monitor in the display menu, hit *Fit to screen*,
+   choose a scale.
 
 ## How it works
 
 - `server-mac/` — the macOS menu-bar server (SwiftUI) bundling the engine as
   `remotedisplayd`. Virtual displays are created with `CGVirtualDisplay` and resized in
-  place; the physical display is made "dynamic" by mirroring it onto a virtual main.
+  place; *Main screen follows remote* mirrors the physical display onto a virtual main.
+  One display-manager thread in the engine owns every change, announces it once when
+  macOS has settled, and resets everything when the service stops.
 - `engine/rustdesk/` — a vendored fork of RustDesk 1.4.9 with the changes listed in
   [`HOOKS.md`](HOOKS.md) and [`tools/patches/`](tools/patches/): serverless LAN
   discovery, macOS virtual display backend, per-display scale, and a fix for the

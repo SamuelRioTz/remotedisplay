@@ -17,6 +17,7 @@ struct MainWindowView: View {
             statusSection
             setupSection
             if c.serviceRunning { connectSection }
+            if c.serviceRunning { monitorsSection }
             sessionsSection
             settingsSection
             aboutSection
@@ -179,6 +180,41 @@ struct MainWindowView: View {
                 Image(systemName: copied == value ? "checkmark" : "doc.on.doc")
                     .foregroundStyle(copied == value ? .green : .secondary)
             }.buttonStyle(.plain).help("Copy")
+        }
+    }
+
+    // MARK: - Monitors
+
+    /// Monitors are configured HERE, on the Mac — the way SimpleDisplay worked: what you
+    /// set stays while the service runs and goes away when it stops. Remote clients only
+    /// view (and fit a virtual to their window); they never add, remove or save anything.
+    private var monitorsSection: some View {
+        Section {
+            Toggle(isOn: Binding(get: { c.virtualMonitorOn }, set: { c.setVirtualMonitor($0) })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Virtual monitor")
+                    Text("An extra display, resizable by the remote client to its window.")
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                }
+            }
+            .disabled(c.displayBusy)
+            Toggle(isOn: Binding(get: { c.dynamicMainOn }, set: { c.setDynamicMain($0) })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Main screen follows remote")
+                    Text("Mirrors this Mac's main screen onto a virtual display the remote client resizes to its window. Your monitor shows the same picture.")
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .disabled(c.displayBusy)
+        } header: {
+            HStack {
+                Text("Monitors")
+                Spacer()
+                if c.displayBusy { ProgressView().controlSize(.small) }
+            }
+        } footer: {
+            Text("Set here, on the Mac. Remote clients only view and fit. Everything returns to normal when the service stops.")
         }
     }
 

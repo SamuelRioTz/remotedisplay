@@ -221,20 +221,28 @@ fn check_get_displays_changed_msg() -> Option<Message> {
     get_displays_msg()
 }
 
-/// remotedisplay: after creating/deleting/resizing a virtual display (macOS) the
-/// automatic display-list announcement sometimes doesn't arrive (the video service
-/// restarts in the middle). Forcing a re-announcement (with platform_additions) a
-/// bit later, twice, is cheap and idempotent for the client.
-pub fn force_displays_resync() {
-    std::thread::spawn(|| {
-        for delay_ms in [600u64, 2000u64] {
-            std::thread::sleep(Duration::from_millis(delay_ms));
-            if let Ok(displays) = try_get_displays() {
-                check_update_displays(&displays);
-            }
-            SYNC_DISPLAYS.lock().unwrap().is_synced = false;
-        }
-    });
+// remotedisplay (macOS): while the display manager reconfigures displays, the automatic
+// "Displays changed" broadcast is held — one user action is a burst of reconfiguration
+// callbacks, and every broadcast costs the clients a video restart. The manager announces
+// once, when the topology has settled (announce_displays).
+static HOLD_ANNOUNCEMENTS: AtomicBool = AtomicBool::new(false);
+
+pub fn hold_announcements(on: bool) {
+    HOLD_ANNOUNCEMENTS.store(on, Ordering::Relaxed);
+}
+
+/// True while the display manager is mid-operation (the video loop leaves its
+/// capturer alone until then and restarts once afterwards).
+pub fn announcements_held() -> bool {
+    HOLD_ANNOUNCEMENTS.load(Ordering::Relaxed)
+}
+
+/// Re-read the displays and broadcast them (with platform_additions) on the next tick.
+pub fn announce_displays() {
+    if let Ok(displays) = try_get_displays() {
+        check_update_displays(&displays);
+    }
+    SYNC_DISPLAYS.lock().unwrap().is_synced = false;
 }
 
 pub fn check_displays_changed() -> ResultType<()> {
@@ -267,6 +275,15 @@ fn run(sp: EmptyExtraFieldService) -> ResultType<()> {
             Ok(())
         })?;
 
+        if HOLD_ANNOUNCEMENTS.load(Ordering::Relaxed) {
+            // Keep the display list current (marks it unsynced when it changes) but
+            // do not broadcast until the manager releases the hold: one broadcast then.
+            if let Ok(displays) = try_get_displays() {
+                check_update_displays(&displays);
+            }
+            std::thread::sleep(Duration::from_millis(300));
+            continue;
+        }
         if let Some(msg_out) = check_get_displays_changed_msg() {
             sp.send(msg_out);
             log::info!("Displays changed");
@@ -347,7 +364,7 @@ pub(super) fn check_update_displays(all: &Vec<Display>) {
     // (id/active/main/mirror/bounds/mode): if it did not change, the difference is spurious,
     // so leave is_synced alone. Any real change (resolution, mirror on/off, plug/unplug,
     // virtual create/destroy) flips the hash and is processed as before. Explicit resyncs
-    // (new subscriber, force_displays_resync, temp_ignore cleanup) set is_synced directly
+    // (new subscriber, announce_displays, temp_ignore cleanup) set is_synced directly
     // and are unaffected.
     #[cfg(target_os = "macos")]
     {

@@ -1,6 +1,8 @@
 #[cfg(windows)]
 use hbb_common::platform::windows::is_windows_version_or_greater;
-use hbb_common::{bail, ResultType};
+#[cfg(windows)]
+use hbb_common::bail;
+use hbb_common::ResultType;
 
 // This string is defined here.
 //  https://github.com/rustdesk-org/RustDeskIddDriver/blob/b370aad3f50028b039aad211df60c8051c4a64d6/RustDeskIddDriver/RustDeskIddDriver.inf#LL73C1-L73C40
@@ -228,37 +230,16 @@ pub fn reset_all() -> ResultType<()> {
     mac_vdisplay::reset_all()
 }
 
-/// remotedisplay/macOS: restore physical monitors but keep standalone virtuals
-/// (server-side persistence across client disconnects).
-#[cfg(target_os = "macos")]
-pub fn restore_physicals() -> ResultType<()> {
-    mac_vdisplay::restore_physicals()
-}
-
-/// remotedisplay/macOS: the server-side (menu-bar) virtual monitor toggle.
-#[cfg(target_os = "macos")]
-pub fn menu_virtual_is_on() -> bool {
-    mac_vdisplay::menu_virtual_is_on()
-}
-
-#[cfg(target_os = "macos")]
-pub fn menu_virtual_set(on: bool) -> ResultType<()> {
-    let r = mac_vdisplay::menu_virtual_set(on);
-    crate::display_service::force_displays_resync();
-    r
-}
-
 /// Called from macos.mm when the server process receives SIGTERM or SIGINT
 /// (service turned off in the app, `launchctl bootout`/`kickstart -k`, Ctrl-C):
 /// the Mac's displays go back the way the user had them before the process
-/// exits, exactly like closing SimpleDisplay did. Runs on a GCD queue, not in
+/// exits, exactly like closing SimpleDisplay did. Goes through the display
+/// manager so a running operation finishes first. Runs on a GCD queue, not in
 /// signal context.
 #[cfg(target_os = "macos")]
 #[no_mangle]
 pub extern "C" fn remotedisplay_reset_displays() {
-    if let Err(e) = mac_vdisplay::reset_all() {
-        hbb_common::log::error!("mac_vdisplay: reset on shutdown failed: {e}");
-    }
+    crate::server::display_manager::reset_for_shutdown();
 }
 
 // ==================== remotedisplay: macOS backend (CGVirtualDisplay) ====================
@@ -304,6 +285,7 @@ pub mod mac_vdisplay {
         fn MacDynamicMainActive() -> bool;
         fn MacDynamicMainVirtualID() -> u32;
         fn MacDynamicMainPhysicalID() -> u32;
+        fn MacDynamicMainReconcile() -> bool;
         fn MacSetPhysicalDisplayEnabled(display_id: u32, enabled: bool) -> bool;
         fn MacListActiveDisplays(ids: *mut u32, max: u32) -> u32;
         fn MacListInactivePhysicalDisplays(ids: *mut u32, max: u32) -> u32;
@@ -364,8 +346,8 @@ pub mod mac_vdisplay {
 
     /// The menu-bar toggle manages a standalone virtual monitor at the server,
     /// independent of any client. "On" adds one if none is present (the dynamic
-    /// main's virtual, if a client set it, does not count); "off" removes the
-    /// standalone virtuals but leaves the dynamic main alone.
+    /// main's virtual does not count); "off" removes the standalone virtuals but
+    /// leaves the dynamic main alone. Display-manager thread only.
     pub fn menu_virtual_is_on() -> bool {
         let dm = unsafe { MacDynamicMainVirtualID() };
         get_virtual_displays().into_iter().any(|id| id != dm)
@@ -447,6 +429,13 @@ pub mod mac_vdisplay {
         unsafe { MacDynamicMainPhysicalID() }
     }
 
+    /// Display-manager thread only: repair the dynamic main's mirror if macOS
+    /// dissolved it, or turn it off when it cannot be repaired. true if it
+    /// touched the display configuration.
+    pub fn dynamic_main_reconcile() -> bool {
+        unsafe { MacDynamicMainReconcile() }
+    }
+
     /// Case 1: turns the "dynamic main" (physical mirrored onto a virtual) on/off.
     /// With on=true and width/height at 0, uses the default size.
     pub fn dynamic_main(on: bool, width: u32, height: u32) -> ResultType<()> {
@@ -464,17 +453,10 @@ pub mod mac_vdisplay {
         Ok(())
     }
 
-    /// Puts the Mac's displays back the way the user left them: every physical
-    /// that a client turned off is turned back on, the dynamic main is undone
-    /// (the physical gets its mode and the main role back) and the virtual
-    /// monitors are destroyed. Runs when the last remote client leaves, so a
-    /// dropped connection never leaves the Mac stuck on a virtual monitor with
-    /// its real screen dark. Each step blocks until macOS settles (seconds), so
-    /// call it off the async runtime.
     /// Bring physical monitors back and undo the dynamic main, but KEEP any
-    /// standalone virtual monitors alive. Used when a client disconnects so the
-    /// virtual persists at the server (until the service stops), while the real
-    /// monitors return to normal and none is left black or mirrored.
+    /// standalone virtual monitors alive. First half of `reset_all`; each step
+    /// blocks until macOS settles (seconds), so it only runs on the display
+    /// manager thread.
     pub fn restore_physicals() -> ResultType<()> {
         let dyn_physical = dynamic_main_physical_id();
         // 1. Physicals first, while whatever they mirror (possibly a virtual that

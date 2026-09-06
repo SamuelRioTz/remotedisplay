@@ -1527,6 +1527,17 @@ extern "C" bool MacResizeVirtualDisplay(uint32_t displayID, uint32_t width, uint
         refreshRate = it->second.refreshRate;
         hidpi = it->second.hidpiRequested;
     }
+    // Already exactly there (same points, backing matching what was requested, bounds
+    // in place): a repeated Fit must not re-apply the mode and shake the displays.
+    {
+        std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+        auto it = g_rdVDisplays.find(displayID);
+        if (it != g_rdVDisplays.end() && it->second.width == width && it->second.height == height &&
+            it->second.hidpi == it->second.hidpiRequested) {
+            CGRect b = CGDisplayBounds(displayID);
+            if ((uint32_t)b.size.width == width && (uint32_t)b.size.height == height) return true;
+        }
+    }
     // Same heuristic as rdApplyVDisplayMode: below ~1920 px wide
     // WindowServer doesn't offer the Retina variant; don't wait for it.
     if (hidpi && 2 * width < 1920) {
@@ -1872,7 +1883,21 @@ static bool rdRepairDynMainMirror(void) {
 
 static bool rdSetDisplayEnabled(CGDirectDisplayID display, bool enabled); // defined further below
 
+// Pure read. Nothing is configured here: every display mutation belongs to the
+// display manager thread (src/server/display_manager.rs), which calls
+// MacDynamicMainReconcile below between operations.
 extern "C" bool MacDynamicMainActive() {
+    std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+    return g_rdDynMainActive;
+}
+
+// Display manager thread only. If the dynamic main is on but its mirror broke from
+// outside (macOS 26 dissolves it when another display changes mode; someone may also
+// unmirror the physical by hand), repair it; if it cannot be repaired, turn the
+// dynamic main off and hide its virtual so it does not linger as a stray monitor
+// (same path as MacDynamicMainOff: recycled, not destroyed). Returns true when the
+// display configuration was touched.
+extern "C" bool MacDynamicMainReconcile() {
     uint32_t vid = 0, physical = 0;
     bool active = false;
     {
@@ -1881,22 +1906,16 @@ extern "C" bool MacDynamicMainActive() {
         vid = g_rdDynMainVirtual;
         physical = g_rdDynMainPhysical;
     }
-    if (!active) return false;
-    // Self-correction: if the mirror broke from outside (e.g. the physical changed
-    // mode or someone unmirrored it), the dynamic main no longer effectively exists.
-    // Mark it off and hide its virtual so it doesn't stay around as a stray monitor
-    // (same path as MacDynamicMainOff: it's recycled, not destroyed).
-    if (physical != 0 && CGDisplayMirrorsDisplay(physical) != vid) {
-        if (rdRepairDynMainMirror()) return true;
-        NSLog(@"remotedisplay vdisplay: dynamic main broke from outside (physical %u no longer mirrors %u) and could not be repaired: turning off", physical, vid);
-        {
-            std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
-            g_rdDynMainActive = false;
-        }
-        if (CGMainDisplayID() == vid) rdSetMainDisplay(physical);
-        rdSetDisplayEnabled(vid, false);
-        return false;
+    if (!active || physical == 0 || vid == 0) return false;
+    if (CGDisplayMirrorsDisplay(physical) == vid) return false;
+    if (rdRepairDynMainMirror()) return true;
+    NSLog(@"remotedisplay vdisplay: dynamic main broke from outside (physical %u no longer mirrors %u) and could not be repaired: turning off", physical, vid);
+    {
+        std::lock_guard<std::mutex> lock(g_rdVDisplayMutex);
+        g_rdDynMainActive = false;
     }
+    if (CGMainDisplayID() == vid) rdSetMainDisplay(physical);
+    rdSetDisplayEnabled(vid, false);
     return true;
 }
 
