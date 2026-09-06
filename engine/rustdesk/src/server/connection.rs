@@ -6710,9 +6710,9 @@ mod raii {
                             log::info!("mac_vdisplay: a client is back, keeping the displays");
                             return;
                         }
-                        log::info!("mac_vdisplay: last client left, restoring the displays");
-                        if let Err(e) = virtual_display_manager::reset_all() {
-                            log::error!("mac_vdisplay: reset failed: {e}");
+                        log::info!("mac_vdisplay: last client left, restoring physicals (virtuals kept)");
+                        if let Err(e) = virtual_display_manager::restore_physicals() {
+                            log::error!("mac_vdisplay: restore physicals failed: {e}");
                         }
                     });
                 }

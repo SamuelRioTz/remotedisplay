@@ -14,7 +14,6 @@ import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:provider/provider.dart';
 
-import 'monitor_profile.dart';
 import 'session_toolbar.dart';
 import 'win_events.dart';
 
@@ -153,7 +152,9 @@ class _ClientSessionPageState extends State<ClientSessionPage> {
     // let the first frame arrive before moving displays
     await Future.delayed(const Duration(milliseconds: 1500));
     if (!mounted || ffi.ffiModel.peerInfoEpoch != epoch) return;
-    await MonitorProfile.applySaved(_peerId, ffi);
+    // Virtual monitors now persist at the server across client disconnects, so
+    // the client no longer re-applies a saved profile on connect (that made the
+    // virtual toggle off/on every reconnect).
   }
 
   @override

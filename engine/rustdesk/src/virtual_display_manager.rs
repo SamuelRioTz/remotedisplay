@@ -228,6 +228,13 @@ pub fn reset_all() -> ResultType<()> {
     mac_vdisplay::reset_all()
 }
 
+/// remotedisplay/macOS: restore physical monitors but keep standalone virtuals
+/// (server-side persistence across client disconnects).
+#[cfg(target_os = "macos")]
+pub fn restore_physicals() -> ResultType<()> {
+    mac_vdisplay::restore_physicals()
+}
+
 /// Called from macos.mm when the server process receives SIGTERM or SIGINT
 /// (service turned off in the app, `launchctl bootout`/`kickstart -k`, Ctrl-C):
 /// the Mac's displays go back the way the user had them before the process
@@ -426,7 +433,11 @@ pub mod mac_vdisplay {
     /// dropped connection never leaves the Mac stuck on a virtual monitor with
     /// its real screen dark. Each step blocks until macOS settles (seconds), so
     /// call it off the async runtime.
-    pub fn reset_all() -> ResultType<()> {
+    /// Bring physical monitors back and undo the dynamic main, but KEEP any
+    /// standalone virtual monitors alive. Used when a client disconnects so the
+    /// virtual persists at the server (until the service stops), while the real
+    /// monitors return to normal and none is left black or mirrored.
+    pub fn restore_physicals() -> ResultType<()> {
         let dyn_physical = dynamic_main_physical_id();
         // 1. Physicals first, while whatever they mirror (possibly a virtual that
         //    is about to go away) is still an active display.
@@ -435,16 +446,23 @@ pub mod mac_vdisplay {
                 continue; // handled by turning the dynamic main off
             }
             if unsafe { !MacSetPhysicalDisplayEnabled(id, true) } {
-                log::warn!("mac_vdisplay: reset could not turn physical display {id} back on");
+                log::warn!("mac_vdisplay: could not turn physical display {id} back on");
             }
         }
         // 2. Dynamic main off: unmirror the physical, restore its mode, give it
         //    the main role back; its virtual is hidden and recycled (destroying
         //    an ex-mirror master leaves a ghost display on macOS 26).
         if let Err(e) = dynamic_main(false, 0, 0) {
-            log::warn!("mac_vdisplay: reset could not turn the dynamic main off: {e}");
+            log::warn!("mac_vdisplay: could not turn the dynamic main off: {e}");
         }
-        // 3. The remaining virtuals.
+        log::info!("mac_vdisplay: physicals restored, virtual monitors kept");
+        Ok(())
+    }
+
+    /// Full reset: restore physicals AND destroy every virtual. Used when the
+    /// service stops (SIGTERM/quit); virtuals cannot outlive the process anyway.
+    pub fn reset_all() -> ResultType<()> {
+        restore_physicals()?;
         unsafe { MacDestroyAllVirtualDisplays() };
         log::info!("mac_vdisplay: displays reset");
         Ok(())
