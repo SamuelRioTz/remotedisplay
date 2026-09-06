@@ -378,6 +378,23 @@ Verified in the Windows VM (screenshots `to_remove/routes-*.png` during the run)
   `10.0.2.2:21119` on port 21118) and showed the route as unreachable; fixed by splitting the
   port off the id.
 
-Not verified yet: the real iPad (WebDriverAgent needs the device unlocked) — the engine-side
-probing of known Tailscale addresses is what makes the Mac show up from another network there.
+Real iPad (2026-09-06, WebDriverAgent over Wi-Fi, screenshots `to_remove/ipad-routes-*.png`),
+against the VM server through the same host bridges (`192.168.1.115:21119` as "LAN",
+`100.64.0.2:21120` as "Tailscale" — the iPad reaches the host's CGNAT address through its
+Tailscale app, so this exercises the real iOS path):
+- Home listed the two real Macs of the LAN with green dots; no Tailscale route existed for the
+  Mac Studio because the iPad had never connected through it — that is exactly the "only local
+  things" picture Sam saw away from home.
+- Manual connection with "remember" → card `manageds-virtual-machine` with the key icon;
+  settings → add `100.64.0.2:21120` → "Tailscale · Reachable · added by you".
+- Card tap with two networks and none chosen → chooser sheet (radio, "Password saved for this
+  address", "Connect via LAN"); picking Tailscale connected (pill `100.64.0.2:21120`) and the
+  card marked that chip.
+- Bridge 21120 dropped + refresh: chip struck through, hint "Tailscale does not answer here ·
+  tap to choose another network"; the card tap opened the sheet with the banner "…used last
+  time, does not answer from this network. Choose another one." and LAN preselected; connecting
+  via LAN made LAN the selected network. "Forget this computer" removed the test machine.
+- WDA gotchas: the on-screen keyboard shifts the layout (tap fields after hiding it or type with
+  a trailing "\n"); the session pill toggles with its "<"/">" button and the × only works once
+  the pill is expanded and idle; touches inside the session go to the remote trackpad.
 
