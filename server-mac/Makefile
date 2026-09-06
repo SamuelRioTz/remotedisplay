@@ -55,6 +55,7 @@ ifeq ($(strip $(SIGN_ID)),)
 	@codesign --sign - --options runtime --entitlements Entitlements.plist --force --deep "$(APP_BUNDLE)"
 else
 	@echo "Signing with stable identity: $(SIGN_ID)  (id=$(CODE_ID))"
+	@./unlock-signing-keychain.sh || true
 	@codesign $(SIGN_FLAGS) "$(MACOS_DIR)/remotedisplayd"
 	@codesign $(SIGN_FLAGS) "$(MACOS_DIR)/$(APP_NAME)"
 	@codesign $(SIGN_FLAGS) "$(APP_BUNDLE)"

@@ -11,6 +11,7 @@ APP=build/macos/Build/Products/Release/RemoteDisplay.app
 # Apple Development — see server-mac/sign-identity.sh), ad-hoc otherwise. Never an
 # identity of another organisation.
 SIGN_ID="${SIGN_ID:-$(../server-mac/sign-identity.sh)}"
+../server-mac/unlock-signing-keychain.sh || true
 if [ -n "$SIGN_ID" ]; then echo "Signing with: $SIGN_ID"; else echo "WARNING: no personal-team identity, ad-hoc signing"; SIGN_ID=-; fi
 # --timestamp: secure timestamp, required by notarization (ignored for ad-hoc signing).
 TS=--timestamp; [ "$SIGN_ID" = - ] && TS=

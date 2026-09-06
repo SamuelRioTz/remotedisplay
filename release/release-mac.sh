@@ -29,6 +29,7 @@ for a in "$@"; do case "$a" in --skip-android) SKIP_ANDROID=1;; --skip-ios) SKIP
 # Signing identity (personal team only) and notarization. ~/.config/remotedisplay/signing.env
 # may set RD_NOTARY_PROFILE; it is optional. Notarization is attempted only with a Developer ID.
 [ -f "$HOME/.config/remotedisplay/signing.env" ] && . "$HOME/.config/remotedisplay/signing.env"
+"$ROOT/server-mac/unlock-signing-keychain.sh"   # locked after a reboot → codesign would prompt
 NOTARY_PROFILE="${RD_NOTARY_PROFILE:-remotedisplay-notary}"
 SIGN_ID="$("$ROOT/server-mac/sign-identity.sh")" || SIGN_ID=""
 NOTARIZE=0

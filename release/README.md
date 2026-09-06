@@ -51,7 +51,10 @@ binaries in git (`release/out/` is in .gitignore).
   `~/Library/Keychains/remotedisplay-signing.keychain-db`, unlocked for `codesign` without
   prompts (`security set-key-partition-list`) and listed in the user search list. Its
   password and the notary profile name are in `~/.config/remotedisplay/signing.env`
-  (mode 600, outside the repo; `release-mac.sh` sources it if present). The identity was
+  (mode 600, outside the repo; `release-mac.sh` sources it if present). The keychain locks on
+  every reboot; `server-mac/unlock-signing-keychain.sh` (run by the release script, the client
+  build script and `make sign`) unlocks it, otherwise codesign shows a password dialog and the
+  build hangs. The identity was
   imported from Sam's private backup of the certificate and key; nothing of it is in this
   repository.
 - Notarization uses `xcrun notarytool --keychain-profile remotedisplay-notary`, an App
