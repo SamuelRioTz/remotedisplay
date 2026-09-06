@@ -26,6 +26,8 @@ final class ServerController {
     /// Local-network privacy access (macOS 15+): true = works, false = blocked or pending,
     /// nil = not checked yet. Only affects automatic discovery, not connections by address.
     var localNetworkOK: Bool?
+    /// A server-side (menu-bar) virtual monitor is currently present.
+    var virtualMonitorOn = false
     var lastError: String?
     /// Peers currently connected ("ip:port" remote), via the engine's lsof.
     var sessions: [String] = []
@@ -75,6 +77,7 @@ final class ServerController {
     @ObservationIgnored private let localNetProbe = LocalNetworkProbe()
     @ObservationIgnored private var lastLocalNetProbe = Date.distantPast
     @ObservationIgnored private var localNetProbing = false
+    @ObservationIgnored private var lastVirtualQuery = Date.distantPast
 
     private var enginePath: String { Bundle.main.bundlePath + "/Contents/MacOS/remotedisplayd" }
     private var agentPlistPath: String { NSHomeDirectory() + "/Library/LaunchAgents/\(Self.agentLabel).plist" }
@@ -178,6 +181,7 @@ final class ServerController {
             restartEngine()
         }
         checkLocalNetwork()
+        checkVirtualMonitor()
         ensureDesiredState()
         firstRefresh = false
     }
@@ -564,6 +568,43 @@ final class ServerController {
         } else {
             UserDefaults.standard.set(true, forKey: Self.screenPromptedKey)
             Permissions.requestScreenRecording()
+        }
+    }
+
+    /// Whether a server-side virtual monitor exists, asked of the running engine
+    /// (`remotedisplayd --plug-virtual status`), throttled and off the main thread.
+    private func checkVirtualMonitor() {
+        guard serviceRunning else {
+            if virtualMonitorOn { virtualMonitorOn = false }
+            return
+        }
+        guard Date().timeIntervalSince(lastVirtualQuery) > 4 else { return }
+        lastVirtualQuery = Date()
+        let path = enginePath
+        DispatchQueue.global().async { [weak self] in
+            let out = Self.runProcess(path, ["--plug-virtual", "status"], timeout: 3)
+                .output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let on = out == "on"
+            DispatchQueue.main.async {
+                if self?.virtualMonitorOn != on { self?.virtualMonitorOn = on }
+            }
+        }
+    }
+
+    /// Adds or removes a server-side virtual monitor (persists across client
+    /// connects). Optimistic update, reconciled with the engine's answer.
+    func setVirtualMonitor(_ on: Bool) {
+        guard serviceRunning else { return }
+        virtualMonitorOn = on
+        let path = enginePath
+        DispatchQueue.global().async { [weak self] in
+            let out = Self.runProcess(path, ["--plug-virtual", on ? "on" : "off"], timeout: 8)
+                .output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let actual = out == "on"
+            DispatchQueue.main.async {
+                self?.virtualMonitorOn = actual
+                self?.lastVirtualQuery = Date()
+            }
         }
     }
 

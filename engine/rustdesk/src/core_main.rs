@@ -526,6 +526,20 @@ pub fn core_main() -> Option<Vec<String>> {
                 println!("{{\"accessibility\":{},\"screen\":{}}}", acc, scr);
             }
             return None;
+        } else if args[0] == "--plug-virtual" {
+            // remotedisplay: server-side virtual monitor toggle for the menu-bar app.
+            //   --plug-virtual on|off|status  -> prints "on" or "off"
+            // Talks to the running --server over IPC (same user).
+            let cmd = match args.get(1).map(|s| s.as_str()) {
+                Some("on") => "Y",
+                Some("off") => "N",
+                _ => "?",
+            };
+            match crate::ipc::set_virtual_monitor(cmd.to_owned()) {
+                Ok(state) => println!("{}", if state == "Y" { "on" } else { "off" }),
+                Err(err) => println!("plug-virtual failed: {err}"),
+            }
+            return None;
         } else if args[0] == "--set-lan-password" {
             // remotedisplay: sets the permanent password WITHOUT the is_installed/root gate.
             // The serverless LAN-only server runs at the user level (not as an installed

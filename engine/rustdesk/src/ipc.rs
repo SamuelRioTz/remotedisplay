@@ -903,6 +903,28 @@ async fn handle(data: Data, stream: &mut Connection) {
                     crate::audio_service::set_voice_call_input_device(Some(value), true);
                 } else if name == "unlock-pin" {
                     Config::set_unlock_pin(&value);
+                } else if name == "rd-virtual-monitor" {
+                    // remotedisplay: server-side virtual monitor toggle from the menu-bar app.
+                    // value "Y"=on, "N"=off, anything else = query. ACK with the new state.
+                    #[cfg(target_os = "macos")]
+                    {
+                        let ack = match value.as_str() {
+                            "Y" => {
+                                let _ = crate::virtual_display_manager::menu_virtual_set(true);
+                                "Y"
+                            }
+                            "N" => {
+                                let _ = crate::virtual_display_manager::menu_virtual_set(false);
+                                "N"
+                            }
+                            _ => {
+                                if crate::virtual_display_manager::menu_virtual_is_on() { "Y" } else { "N" }
+                            }
+                        }
+                        .to_owned();
+                        allow_err!(stream.send(&Data::Config((name.clone(), Some(ack))).clone()).await);
+                    }
+                    return;
                 } else {
                     return;
                 }
@@ -1586,6 +1608,21 @@ pub fn get_fingerprint() -> String {
     get_config("fingerprint")
         .unwrap_or_default()
         .unwrap_or_default()
+}
+
+/// remotedisplay: drive the server-side virtual monitor from the menu-bar app.
+/// cmd is "Y" (on), "N" (off) or "?" (query); returns "Y"/"N" from the daemon.
+#[tokio::main(flavor = "current_thread")]
+pub async fn set_virtual_monitor(cmd: String) -> ResultType<String> {
+    let ms_timeout = 2_000;
+    let mut c = connect(ms_timeout, "").await?;
+    c.send_config("rd-virtual-monitor", cmd).await?;
+    if let Some(Data::Config((name2, Some(v)))) = c.next_timeout(ms_timeout).await? {
+        if name2 == "rd-virtual-monitor" {
+            return Ok(v);
+        }
+    }
+    bail!("no answer from the running service")
 }
 
 pub fn set_permanent_password(v: String) -> ResultType<()> {

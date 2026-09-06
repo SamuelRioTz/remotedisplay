@@ -235,6 +235,19 @@ pub fn restore_physicals() -> ResultType<()> {
     mac_vdisplay::restore_physicals()
 }
 
+/// remotedisplay/macOS: the server-side (menu-bar) virtual monitor toggle.
+#[cfg(target_os = "macos")]
+pub fn menu_virtual_is_on() -> bool {
+    mac_vdisplay::menu_virtual_is_on()
+}
+
+#[cfg(target_os = "macos")]
+pub fn menu_virtual_set(on: bool) -> ResultType<()> {
+    let r = mac_vdisplay::menu_virtual_set(on);
+    crate::display_service::force_displays_resync();
+    r
+}
+
 /// Called from macos.mm when the server process receives SIGTERM or SIGINT
 /// (service turned off in the app, `launchctl bootout`/`kickstart -k`, Ctrl-C):
 /// the Mac's displays go back the way the user had them before the process
@@ -346,6 +359,31 @@ pub mod mac_vdisplay {
             bail!("Failed to create CGVirtualDisplay");
         }
         log::info!("mac_vdisplay: plugged in virtual display {id}");
+        Ok(())
+    }
+
+    /// The menu-bar toggle manages a standalone virtual monitor at the server,
+    /// independent of any client. "On" adds one if none is present (the dynamic
+    /// main's virtual, if a client set it, does not count); "off" removes the
+    /// standalone virtuals but leaves the dynamic main alone.
+    pub fn menu_virtual_is_on() -> bool {
+        let dm = unsafe { MacDynamicMainVirtualID() };
+        get_virtual_displays().into_iter().any(|id| id != dm)
+    }
+
+    pub fn menu_virtual_set(on: bool) -> ResultType<()> {
+        let dm = unsafe { MacDynamicMainVirtualID() };
+        if on {
+            if !get_virtual_displays().into_iter().any(|id| id != dm) {
+                plug_in_monitor()?;
+            }
+        } else {
+            for id in get_virtual_displays() {
+                if id != dm {
+                    unsafe { MacDestroyVirtualDisplay(id); }
+                }
+            }
+        }
         Ok(())
     }
 

@@ -23,6 +23,10 @@ struct StatusMenu: View {
         Divider()
         Toggle("Service Active", isOn: Binding(
             get: { c.serviceRunning }, set: { c.setServiceEnabled($0) }))
+        if c.serviceRunning {
+            Toggle("Virtual monitor", isOn: Binding(
+                get: { c.virtualMonitorOn }, set: { c.setVirtualMonitor($0) }))
+        }
         Toggle("Open at Login", isOn: Binding(
             get: { c.launchAtLogin }, set: { c.setLaunchAtLogin($0) }))
         Divider()
