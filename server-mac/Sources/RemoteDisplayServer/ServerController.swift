@@ -440,7 +440,7 @@ final class ServerController {
             if rc != 0 { runLaunchctl(["load", "-w", agentPlistPath]) }
         } else {
             runLaunchctl(["bootout", "\(guiDomain)/\(Self.agentLabel)"])
-            pkillEngine()
+            pkillEngine() // engine (if launchd did not have it) and its helpers
             try? FileManager.default.removeItem(atPath: agentPlistPath)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.refresh() }
@@ -471,6 +471,7 @@ final class ServerController {
             waited = 0
             while processRunning() && waited < 40 { usleep(250_000); waited += 1 }
         }
+        pkillHelpers()
         trace("quit: engine \(processRunning() ? "STILL RUNNING" : "stopped") after \(waited / 4) s")
     }
 
@@ -532,9 +533,24 @@ final class ServerController {
     }
 
     private func pkillEngine() {
+        pkill(Self.enginePattern)
+        pkillHelpers()
+    }
+
+    /// The engine spawns helper processes from the same bundle (`remotedisplayd
+    /// --cm-no-ui`, the connection manager, once a client has connected) that outlive it
+    /// when the service is stopped or the app quits. Left behind, they keep the bundle
+    /// "in use" (Finder refuses to replace the app) and hold the old version's code.
+    private static let helperPattern = "/Contents/MacOS/remotedisplayd --(cm|cm-no-ui)"
+
+    private func pkillHelpers() {
+        pkill(Self.helperPattern)
+    }
+
+    private func pkill(_ pattern: String) {
         let k = Process()
         k.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        k.arguments = ["-f", Self.enginePattern]
+        k.arguments = ["-f", pattern]
         k.standardError = Pipe()
         try? k.run(); k.waitUntilExit()
     }
