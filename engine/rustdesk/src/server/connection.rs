@@ -74,6 +74,11 @@ use crate::virtual_display_manager;
 pub type Sender = mpsc::UnboundedSender<(Instant, Arc<Message>)>;
 
 lazy_static::lazy_static! {
+    // remotedisplay: last accepted video refresh per display (-1 = all), see refresh_video_display.
+    static ref REFRESH_LIMITER: Mutex<HashMap<i64, std::time::Instant>> = Default::default();
+}
+
+lazy_static::lazy_static! {
     static ref LOGIN_FAILURES: [Arc::<Mutex<HashMap<String, (i32, i32, i32)>>>; 2] = Default::default();
     static ref SESSIONS: Arc::<Mutex<HashMap<SessionKey, Session>>> = Default::default();
     static ref ALIVE_CONNS: Arc::<Mutex<Vec<i32>>> = Default::default();
@@ -1023,6 +1028,7 @@ impl Connection {
                             #[cfg(target_os = "macos")]
                             {
                                 if video_service::loop_predates_topology(conn.display_idx) {
+                                    log::info!("#{} refresh: display list announced, loop predates topology", id);
                                     conn.refresh_video_display(None);
                                 }
                                 conn.retina.set_displays(&_pi.displays);
@@ -3485,6 +3491,7 @@ impl Connection {
                             if r {
                                 // Refresh all videos.
                                 // Compatibility with old versions and sciter(remote).
+                                log::info!("#{} refresh: RefreshVideo from the client", self.inner.id());
                                 self.refresh_video_display(None);
                             }
                             self.update_auto_disconnect_timer();
@@ -3492,6 +3499,7 @@ impl Connection {
                     }
                     Some(misc::Union::RefreshVideoDisplay(display)) => {
                         if self.should_handle_render_broadcast_message() {
+                            log::info!("#{} refresh: RefreshVideoDisplay({display}) from the client", self.inner.id());
                             self.refresh_video_display(Some(display as usize));
                             self.update_auto_disconnect_timer();
                         }
@@ -4137,6 +4145,23 @@ impl Connection {
     }
 
     fn refresh_video_display(&self, display: Option<usize>) {
+        // remotedisplay: a refresh restarts the capturer and the encoder of the display.
+        // Seen on a real Mac: refresh requests arriving every ~0.2 s after each first
+        // frame kept the video restarting 35 times a minute for half an hour, and a
+        // hardware encoder never got to output a frame. Whatever asks, one refresh per
+        // display every 1.5 s is plenty for a lost keyframe; the rest is dropped.
+        {
+            let key = display.map(|d| d as i64).unwrap_or(-1);
+            let mut last = REFRESH_LIMITER.lock().unwrap();
+            let now = std::time::Instant::now();
+            if let Some(t) = last.get(&key) {
+                if now.duration_since(*t) < std::time::Duration::from_millis(1500) {
+                    log::info!("#{} refresh of display {key} dropped: another one {} ms ago", self.inner.id(), now.duration_since(*t).as_millis());
+                    return;
+                }
+            }
+            last.insert(key, now);
+        }
         video_service::refresh();
         self.server.upgrade().map(|s| {
             s.read().unwrap().set_video_service_opt(

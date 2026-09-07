@@ -656,7 +656,10 @@ class _SessionToolbarState extends State<SessionToolbar> {
               _setWindowTitleForDisplay(i);
             }
           },
+          // "virtual": the host reports a freely resizable display (SimpleDisplay or
+          // any other virtual monitor); Fit to screen resizes it to this window.
           detail: '${d.width.toInt()}×${d.height.toInt()}'
+              '${d.isVirtualDisplayResolution ? ' · virtual' : ''}'
               '${otherWin != null ? ' · open' : ''}'
               '${isExt ? ' · external' : ''}',
           trailingIcon: isDesktop

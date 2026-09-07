@@ -542,3 +542,13 @@ deferral and the launch-behaviour fix.
   pixel area: a 1284x700 window → 1600x670 px (verified end to end from the Windows client).
   Exact window sizes stay impossible for a display another app owns: only its creator can
   declare new modes.
+- **Refresh storm on Sam's Mac (1.0.9, 2026-09-06 23:47–00:04)**: with the Windows client
+  connected, "switch to refresh" every ~0.6–1.5 s for 17 minutes (35–39 video restarts per
+  minute), each cycle `encode fail: no valid frame, times: 1` → refresh 0.2 s later. The client
+  log showed only its 12 s "Refresh display 0 to reduce delay"; no display list changes were
+  broadcast. Restarting the engine ended it and it did not come back; viewing a SimpleDisplay
+  display and removing it in the VM did not reproduce it (one restart, client falls back to
+  display 1). Two safeguards shipped: every refresh source is now logged
+  (`#N refresh: RefreshVideoDisplay(d) from the client` / `RefreshVideo` / `display list
+  announced`), and `refresh_video_display` drops refreshes for the same display arriving less
+  than 1.5 s after the previous one (logged as `refresh of display d dropped`).
