@@ -160,6 +160,7 @@ final class ServerController {
         // unconditionally would bootout+bootstrap the LaunchAgent on every app
         // launch, killing any in-progress remote session.
         if !serviceRunning && serviceDesired {
+            lastAutoStart = Date() // so ensureDesiredState() does not bootstrap it again 2 s later
             setServiceEnabled(true)
         }
     }
@@ -488,7 +489,7 @@ final class ServerController {
 
     /// Plain-text trace for the quit/service paths: NSLog output is not reachable
     /// with `log show` over ssh, and the user can send this file with a bug report.
-    private func trace(_ line: String) {
+    func trace(_ line: String) {
         NSLog("[remotedisplay] %@", line)
         try? FileManager.default.createDirectory(atPath: logDir, withIntermediateDirectories: true)
         let path = logDir + "/app.log"

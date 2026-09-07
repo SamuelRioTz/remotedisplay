@@ -479,3 +479,11 @@ hosts; nothing is restored when the last client leaves (there is nothing of thei
   menu held open across several refresh ticks and a `--plug-virtual on` from ssh → app alive,
   `app.log` shows "menu opened: updates on hold" / "menu closed: 1 deferred update(s) resume", the
   toggle showed the new state only after the menu was reopened.
+- **Launch behaviour (1.0.8)**: opening the app yourself always shows the window; the automatic
+  launch at login stays in the menu bar unless the setup needs attention. On macOS 26 the launch
+  Apple event does NOT tell the two apart (both `aevt/oapp`, no `keyAELaunchedAsLogInItem`;
+  measured with the `launch:` trace in app.log), so the app uses Open at Login enabled + start
+  within 90 s of the console login (utmpx). VM: `open` → `loginItem=false sinceLogin=124s` and
+  the window; reboot with Open at Login → `loginItem=true sinceLogin=4s`, menu bar only. Also
+  fixed: `start()` now records the auto-start so `ensureDesiredState()` no longer bootstraps
+  the engine a second time 2 s later (two "service on requested" at login).

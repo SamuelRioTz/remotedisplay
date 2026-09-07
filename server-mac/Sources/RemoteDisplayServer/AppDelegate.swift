@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 @MainActor
@@ -17,10 +18,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Menu bar app: no Dock icon while there's no window.
         NSApp.setActivationPolicy(.accessory)
         controller.start()
-        // First run / setup incomplete → open the configuration window on its own.
-        if !controller.isReady || !controller.passwordSet {
+        // Launched by the user (Finder, Dock, Spotlight, `open`): show the window — that is
+        // what opening an app means. Launched as a login item: stay in the menu bar, unless
+        // the setup needs attention (no password, a permission missing, an engine that cannot
+        // run). "Service not running yet" is not attention: at login the app itself starts it.
+        let loginItem = Self.launchedAsLoginItem
+        let needsAttention = !controller.passwordSet || !controller.screenOK
+            || !controller.accessibilityOK || controller.engineProblem != nil
+        controller.trace("launch: loginItem=\(loginItem) needsAttention=\(needsAttention) sinceLogin=\(Self.secondsSinceConsoleLogin.map { Int($0) } ?? -1)s event=\(Self.launchEventDescription)")
+        if !loginItem || needsAttention {
             showMainWindow()
         }
+    }
+
+    /// Raw launch Apple event, for the log: class/id and the property-data enum, as four-char codes.
+    private static var launchEventDescription: String {
+        func fourcc(_ v: UInt32) -> String {
+            let b = [UInt8(v >> 24 & 0xff), UInt8(v >> 16 & 0xff), UInt8(v >> 8 & 0xff), UInt8(v & 0xff)]
+            return String(bytes: b, encoding: .macOSRoman) ?? String(v)
+        }
+        guard let e = NSAppleEventManager.shared().currentAppleEvent else { return "none" }
+        let prop = e.paramDescriptor(forKeyword: 0x70726474)?.enumCodeValue
+        return "\(fourcc(e.eventClass))/\(fourcc(e.eventID)) prop=\(prop.map(fourcc) ?? "-")"
+    }
+
+    /// Seconds since the current console (GUI) login, from the utmpx records; nil if unknown.
+    private static var secondsSinceConsoleLogin: TimeInterval? {
+        var latest = 0
+        setutxent()
+        defer { endutxent() }
+        while let p = getutxent() {
+            let e = p.pointee
+            guard Int32(e.ut_type) == USER_PROCESS else { continue }
+            let line = withUnsafePointer(to: e.ut_line) { ptr in
+                ptr.withMemoryRebound(to: CChar.self, capacity: 32) { String(cString: $0) }
+            }
+            if line == "console" { latest = max(latest, Int(e.ut_tv.tv_sec)) }
+        }
+        guard latest > 0 else { return nil }
+        return Date().timeIntervalSince1970 - TimeInterval(latest)
+    }
+
+    /// Was this launch the automatic one at login? The launch Apple event does not tell on
+    /// macOS 26 (a login item and a Finder/`open` launch both arrive as 'oapp' without
+    /// keyAELaunchedAsLogInItem — measured in the test VM), so use the clock: Open at Login
+    /// enabled and the app starting within 90 s of the console login.
+    private static var launchedAsLoginItem: Bool {
+        guard SMAppService.mainApp.status == .enabled else { return false }
+        guard let t = secondsSinceConsoleLogin else { return false }
+        return t < 90
     }
 
     // Double click on the app (Finder) or click on the Dock → main window.
