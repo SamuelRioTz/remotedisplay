@@ -515,3 +515,20 @@ deferral and the launch-behaviour fix.
   CGDisplayStream only delivers frames when the screen changes. Safety net in
   `video_service::run` (macOS): if no encoded frame reached a client 2 s after the capturer
   started, restart the loop (fresh stream = fresh initial frame), at most 3 times in a row.
+- **Fit to screen, virtual displays only (any app's)**: classifier `MacDisplayIsVirtual` in
+  macos.mm. Measured: Sam's two physical displays each have an `IOMobileFramebufferShim` with
+  `DisplayAttributes.ProductAttributes` (`LegacyManufacturerID`=2533/25001, `ProductID`=
+  10101/8193 = CGDisplayVendorNumber/ModelNumber 0x9e5/0x2775 and 0x61a9/0x2001; the "EDID
+  UUID" starts with the same numbers). In the VM a SimpleDisplay virtual (vendor 0x1234,
+  product 0x5678) adds NO IOMobileFramebuffer service (count stayed 1); the paravirtual display
+  has vendor/model 0 (treated as physical). Dead ends: `CGDisplayIOServicePort` is 0 for
+  everything on Apple silicon, and `kDisplayModeNativeFlag` is set on the CGVirtualDisplay's
+  declared mode too (`native_modes=1`, 10 modes generated from one declared 1600x1000).
+  SimpleDisplay's modes are macOS's scaled variants of the one it declares, so Fit picks the
+  largest mode that fits the window (nearest-mode fallback), not an exact size.
+- **Fit end to end (VM + Windows client 1.0.9)**: SimpleDisplay virtual 1600x1000 next to the
+  paravirtual display. The server announced display "1" with its real size and display "2"
+  with a virtual resolution (0x0). Fit on display 2 from a 1284x700 window → server log
+  `exact mode 1284x700 not available on '2' … nearest mode for 2: 1284x700 requested,
+  1024x640 chosen`, the display went to 1024x640 (probe). Fit on display 1 (physical) sent
+  nothing to the server. Menu shows DISPLAYS (two rows, open-in-new-window icon) and All displays.
