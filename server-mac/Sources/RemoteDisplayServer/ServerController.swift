@@ -39,6 +39,10 @@ final class ServerController {
     private static let releasesAPI = URL(string: "https://api.github.com/repos/SamuelRioTz/remotedisplay/releases/latest")!
     private var updateTimer: Timer?
     var appVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0" }
+    var appBuild: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "" }
+    /// "1.0.10 (11)": the app's own build, shown in the window and the menu so a screenshot
+    /// always tells which version is running (the engine's "1.4.9" is RustDesk's number).
+    var versionLabel: String { appBuild.isEmpty ? appVersion : "\(appVersion) (\(appBuild))" }
     /// Reason the engine CANNOT run on this Mac (architecture,
     /// file permissions, missing binary). While not nil, nothing works.
     var engineProblem: String?

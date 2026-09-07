@@ -38,7 +38,10 @@ struct MainWindowView: View {
                     .overlay(Image(systemName: "display")
                         .font(.system(size: 22, weight: .semibold)).foregroundStyle(.white))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Remote Display Server").font(.system(size: 17, weight: .semibold))
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("Remote Display Server").font(.system(size: 17, weight: .semibold))
+                        Text(c.versionLabel).font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
                     HStack(spacing: 6) {
                         Circle()
                             .fill(c.isReady ? .green : (c.serviceRunning ? .orange : .secondary))
@@ -236,7 +239,8 @@ struct MainWindowView: View {
 
     private var aboutSection: some View {
         Section("About") {
-            HStack { Text("Engine"); Spacer(); Text(c.engineVersion).foregroundStyle(.secondary) }
+            HStack { Text("Version"); Spacer(); Text("Remote Display Server \(c.versionLabel)").foregroundStyle(.secondary) }
+            HStack { Text("Engine"); Spacer(); Text("RustDesk \(c.engineVersion)").foregroundStyle(.secondary) }
             HStack {
                 Text("License")
                 Spacer()

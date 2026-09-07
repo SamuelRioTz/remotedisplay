@@ -28,5 +28,7 @@ struct StatusMenu: View {
         Divider()
         Button("Quit Remote Display Server") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
+        Divider()
+        Text("Remote Display Server \(c.versionLabel)")
     }
 }
