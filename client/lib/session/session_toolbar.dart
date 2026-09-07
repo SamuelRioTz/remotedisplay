@@ -12,7 +12,8 @@ import 'package:flutter_hbb/common.dart'
         isIOS,
         openMonitorInNewTabOrWindow,
         openMonitorInTheSameTab,
-        translate;
+        translate,
+        versionCmp;
 import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/common/widgets/toolbar.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -621,8 +622,10 @@ class _SessionToolbarState extends State<SessionToolbar> {
     final styles = await toolbarViewStyle(context, id, ffi);
     final quality = await toolbarImageQuality(context, id, ffi);
     final codec = await toolbarCodec(context, id, ffi);
-    final image =
-        (await toolbarDisplayToggle(context, id, ffi)).where(_isImageToggle);
+    final image = (await toolbarDisplayToggle(context, id, ffi))
+        .where(_isImageToggle)
+        .toList();
+    _addTrueColorSwitch(image, codec, ffi);
     // Which displays of this peer are already shown in OTHER windows (display → win).
     final others = isDesktop ? await _queryOtherOpenDisplays() : <int, int>{};
     if (!mounted) return;
@@ -730,6 +733,36 @@ class _SessionToolbarState extends State<SessionToolbar> {
           style: const TextStyle(color: _fgDim, fontSize: 11)),
     ));
     await _showItemsMenu(anchor, items);
+  }
+
+  /// The engine lists "True color (4:4:4)" only while the codec in use is VP9
+  /// or AV1: hardware H264/H265 is 4:2:0 only, and since the Mac encodes H265
+  /// in hardware by default the toggle had vanished from the menu. Keep it
+  /// visible: turning it on under H264/H265 switches the codec preference to
+  /// VP9 (software on the Mac, sharper text and colors) and enables 4:4:4 in
+  /// one step. Back to "Auto" in CODEC returns to hardware H265.
+  void _addTrueColorSwitch(
+      List<TToggleMenu> image, List<TRadioMenu<String>> codec, FFI ffi) {
+    final label = translate('True color (4:4:4)');
+    if (image.any((t) => _label(t) == label)) return;
+    if (versionCmp(ffi.ffiModel.pi.version, '1.2.4') < 0) return;
+    if (!codec.any((c) => c.value == 'vp9' && c.onChanged != null)) return;
+    final sessionId = ffi.sessionId;
+    image.add(TToggleMenu(
+        value: false,
+        onChanged: (v) async {
+          if (v != true) return;
+          await bind.sessionPeerOption(
+              sessionId: sessionId,
+              name: kOptionCodecPreference,
+              value: 'vp9');
+          if (!bind.sessionGetToggleOptionSync(
+              sessionId: sessionId, arg: 'i444')) {
+            await bind.sessionToggleOption(sessionId: sessionId, value: 'i444');
+          }
+          bind.sessionChangePreferCodec(sessionId: sessionId);
+        },
+        child: Text('$label · VP9')));
   }
 
   /// Goes back to viewing the full remote screen: "adaptive" style (fits
