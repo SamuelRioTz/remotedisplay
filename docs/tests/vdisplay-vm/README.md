@@ -532,3 +532,13 @@ deferral and the launch-behaviour fix.
   `exact mode 1284x700 not available on '2' … nearest mode for 2: 1284x700 requested,
   1024x640 chosen`, the display went to 1024x640 (probe). Fit on display 1 (physical) sent
   nothing to the server. Menu shows DISPLAYS (two rows, open-in-new-window icon) and All displays.
+- **Fit on Sam's Mac with a SimpleDisplay 3440x1440 HiDPI display (1.0.9 first cut)**: the
+  server did classify it as virtual and changed its mode, but chose by POINTS against the
+  client's PIXELS: a 1002x934 window got 800x600 pt = 1600x1200 px, a 3440x1368 window got
+  1600x1200 too (4:3 on an ultrawide). Mode list macOS generates for that display (VM,
+  `probe_modes`): declared 3440x1440 at 1x and 2x plus scaled copies of the same aspect
+  (1280x536, 1344x562, 1600x670, 1920x804, 1720x720@2x) and the generic 4:3 sizes
+  (800x600…1600x1200), 18 in all. `MacSetNearestMode` now scores by aspect ratio first, then
+  pixel area: a 1284x700 window → 1600x670 px (verified end to end from the Windows client).
+  Exact window sizes stay impossible for a display another app owns: only its creator can
+  declare new modes.
