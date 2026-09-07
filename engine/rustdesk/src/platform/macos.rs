@@ -81,6 +81,7 @@ extern "C" {
     fn MacGetMode(display: u32, width: *mut u32, height: *mut u32) -> BOOL;
     fn MacSetMode(display: u32, width: u32, height: u32, tryHiDPI: bool) -> BOOL;
     fn MacDisplayTopologyHash() -> u64;
+    fn MacDisplayIsVirtual(display: u32) -> bool;
     fn CGWarpMouseCursorPosition(newCursorPosition: CGPoint) -> CGError;
     fn CGAssociateMouseAndMouseCursorPosition(connected: BooleanT) -> CGError;
 }
@@ -92,6 +93,39 @@ pub fn major_version() -> u32 {
 // remotedisplay: fingerprint of the display topology (see MacDisplayTopologyHash in macos.mm).
 pub fn display_topology_hash() -> u64 {
     unsafe { MacDisplayTopologyHash() }
+}
+
+/// remotedisplay: is this display (name = CGDirectDisplayID) a virtual one created by some
+/// app (SimpleDisplay, ...) rather than a physical panel? Only virtual displays may be
+/// resized from remote (see MacDisplayIsVirtual in macos.mm for the criterion).
+pub fn display_is_virtual(name: &str) -> bool {
+    name.parse::<u32>()
+        .map(|id| unsafe { MacDisplayIsVirtual(id) })
+        .unwrap_or(false)
+}
+
+/// remotedisplay: the client's window rarely matches one of the modes a virtual display
+/// offers exactly. Pick the largest mode that fits inside `width` x `height` (points), or
+/// the smallest mode if none fits, and set it.
+pub fn change_resolution_nearest(name: &str, width: usize, height: usize) -> ResultType<()> {
+    let modes = resolutions(name);
+    if modes.is_empty() {
+        bail!("display {name} offers no modes");
+    }
+    let area = |r: &Resolution| (r.width as i64) * (r.height as i64);
+    let fitting = modes
+        .iter()
+        .filter(|r| r.width as usize <= width && r.height as usize <= height)
+        .max_by_key(|r| area(r));
+    let pick = match fitting {
+        Some(r) => r,
+        None => modes.iter().min_by_key(|r| area(r)).unwrap(),
+    };
+    log::info!(
+        "nearest mode for {name}: {}x{} requested, {}x{} chosen",
+        width, height, pick.width, pick.height
+    );
+    change_resolution_directly(name, pick.width as _, pick.height as _)
 }
 
 pub fn is_process_trusted(prompt: bool) -> bool {

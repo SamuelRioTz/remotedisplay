@@ -40,6 +40,23 @@ static TEMP_IGNORE_DISPLAYS_CHANGED: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 static LAST_TOPOLOGY_HASH: AtomicU64 = AtomicU64::new(0);
 
+// remotedisplay (macOS): virtual/physical per display id, answered from IOKit; cached until
+// the display topology changes (check_update_displays clears it).
+#[cfg(target_os = "macos")]
+lazy_static::lazy_static! {
+    static ref VIRTUAL_DISPLAY_CACHE: Mutex<HashMap<String, bool>> = Default::default();
+}
+
+#[cfg(target_os = "macos")]
+fn is_virtual_display_cached(name: &str) -> bool {
+    if let Some(v) = VIRTUAL_DISPLAY_CACHE.lock().unwrap().get(name) {
+        return *v;
+    }
+    let v = crate::platform::display_is_virtual(name);
+    VIRTUAL_DISPLAY_CACHE.lock().unwrap().insert(name.to_owned(), v);
+    v
+}
+
 #[derive(Default)]
 struct SyncDisplaysInfo {
     displays: Vec<DisplayInfo>,
@@ -264,7 +281,12 @@ pub(super) fn get_original_resolution(
     #[cfg(windows)]
     let is_rustdesk_virtual_display =
         crate::virtual_display_manager::rustdesk_idd::is_virtual_display(&display_name);
-    #[cfg(not(windows))]
+    // remotedisplay/macOS: a virtual display (SimpleDisplay or any other app's) reports
+    // a "virtual" resolution (original 0x0) so the client's Fit may resize it; physical
+    // panels keep their real size and are never resized.
+    #[cfg(target_os = "macos")]
+    let is_rustdesk_virtual_display = is_virtual_display_cached(&display_name);
+    #[cfg(not(any(windows, target_os = "macos")))]
     let is_rustdesk_virtual_display = false;
     Some(if is_rustdesk_virtual_display {
         Resolution {
@@ -335,6 +357,7 @@ pub(super) fn check_update_displays(all: &Vec<Display>) {
         if prev == h && prev != 0 {
             return;
         }
+        VIRTUAL_DISPLAY_CACHE.lock().unwrap().clear();
     }
     // For compatibility: if only one display, scale remains 1.0 and we use the physical size for `uinput`.
     // If there are multiple displays, we use the logical size for `uinput` by setting scale to d.scale().

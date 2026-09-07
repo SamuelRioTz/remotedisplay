@@ -719,20 +719,56 @@ class _SessionToolbarState extends State<SessionToolbar> {
 
   /// Goes back to viewing the full remote screen: "adaptive" style (fits
   /// the window) and canvas reset (undoes the pinch zoom/pan on mobile or
-  /// the scroll on desktop). The remote display itself is never resized.
+  /// the scroll on desktop).
+  ///
+  /// On a VIRTUAL remote display (one the host reports as freely resizable:
+  /// no native panel mode, e.g. a SimpleDisplay or other virtual monitor) this
+  /// also asks the host to resize it to this window's pixel size, picking the
+  /// nearest mode the display offers. Physical displays are never resized.
   Future<void> _fitScreen() async {
     final ffi = _ffi;
     await bind.sessionSetViewStyle(
         sessionId: ffi.sessionId, value: kRemoteViewStyleAdaptive);
     await ffi.canvasModel.updateViewStyle();
     ffi.canvasModel.reset();
+    // give it a frame so the canvas measures the new size before applying
+    await Future.delayed(const Duration(milliseconds: 120));
+    if (!mounted) return;
+    if (ffi.ffiModel.isVirtualDisplayResolution) {
+      await ffi.ffiModel.applyDynamicResolution(
+          scalePercent: 100,
+          devicePixelRatio: MediaQuery.of(context).devicePixelRatio);
+    }
+    await _fitExternal();
   }
 
-  /// iPad: show remote display [i] on the external monitor.
+  /// iPad: show remote display [i] on the external monitor and, if it is a
+  /// virtual display, size it to the monitor (a fixed screen: "fit" there means
+  /// the virtual follows it).
   Future<void> _showOnExternal(int i) async {
     final ext = widget.externalScreen;
     if (ext == null) return;
     await ext.attachDisplay(i);
+    await _fitExternal();
+  }
+
+  /// "Fit" for the external monitor: a virtual display shown out there takes
+  /// the monitor's pixel size. Physical displays are only scaled to fill it.
+  Future<void> _fitExternal() async {
+    final ext = widget.externalScreen;
+    final ffi = _ffi;
+    if (ext == null || ext.extDisplay.value < 0) return;
+    final display = ext.extDisplay.value;
+    final pi = ffi.ffiModel.pi;
+    if (display >= pi.displays.length) return;
+    final d = pi.displays[display];
+    if (!d.isVirtualDisplayResolution) return;
+    final px = await ext.externalPixelSize();
+    if (px == null) return;
+    final w = px.width.round() & ~1; // even: hardware encoders
+    final h = px.height.round() & ~1;
+    if ((d.width - w).abs() <= 1 && (d.height - h).abs() <= 1) return;
+    await ffi.ffiModel.changeResolutionOfDisplay(display, w, h);
   }
 
   Future<void> _disconnect() async {

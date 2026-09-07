@@ -1,6 +1,8 @@
 #import <AVFoundation/AVFoundation.h>
 #import <AppKit/AppKit.h>
 #import <IOKit/hidsystem/IOHIDLib.h>
+#import <IOKit/IOKitLib.h>
+#import <IOKit/graphics/IOGraphicsLib.h>
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
 
@@ -962,4 +964,74 @@ extern "C" uint64_t MacDisplayTopologyHash() {
         }
     }
     return h;
+}
+
+// ==================== remotedisplay: virtual vs physical display ====================
+//
+// "Virtual" = a display created with CGVirtualDisplay by some app (SimpleDisplay,
+// BetterDisplay, ...): it may be given whatever size that app offers, while a physical
+// panel must keep its own modes. macOS has no public API for the distinction. What is
+// reliable (measured on macOS 26, Apple silicon — a real Mac and the test VM): every
+// physical display has an IOMobileFramebuffer service whose DisplayAttributes carry the
+// panel's EDID identity (ProductAttributes.LegacyManufacturerID / ProductID), equal to
+// CGDisplayVendorNumber / CGDisplayModelNumber; a CGVirtualDisplay has no such service.
+// On Intel Macs IODisplayConnect + IODisplayCreateInfoDictionary play the same role.
+// Anything that cannot be classified is treated as physical: it is never resized.
+static bool rdDictNumber(CFDictionaryRef d, CFStringRef key, uint32_t *out) {
+    CFTypeRef v = CFDictionaryGetValue(d, key);
+    if (!v || CFGetTypeID(v) != CFNumberGetTypeID()) return false;
+    int64_t n = 0;
+    if (!CFNumberGetValue((CFNumberRef)v, kCFNumberSInt64Type, &n)) return false;
+    *out = (uint32_t)n;
+    return true;
+}
+
+extern "C" bool MacDisplayIsVirtual(uint32_t displayID) {
+    if (CGDisplayIsBuiltin(displayID)) return false;
+    uint32_t vendor = CGDisplayVendorNumber(displayID);
+    uint32_t product = CGDisplayModelNumber(displayID);
+    // No EDID identity at all (e.g. the paravirtual display of a VM): not something an
+    // app created with an identity of its own; leave it alone.
+    if (vendor == 0 && product == 0) return false;
+    bool anyService = false, matched = false;
+    io_iterator_t it = IO_OBJECT_NULL;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOMobileFramebuffer"), &it) == KERN_SUCCESS) {
+        io_service_t s;
+        while ((s = IOIteratorNext(it))) {
+            CFTypeRef attrs = IORegistryEntryCreateCFProperty(s, CFSTR("DisplayAttributes"), kCFAllocatorDefault, 0);
+            if (attrs) {
+                if (CFGetTypeID(attrs) == CFDictionaryGetTypeID()) {
+                    anyService = true;
+                    CFTypeRef pa = CFDictionaryGetValue((CFDictionaryRef)attrs, CFSTR("ProductAttributes"));
+                    if (pa && CFGetTypeID(pa) == CFDictionaryGetTypeID()) {
+                        uint32_t v = 0, p = 0;
+                        rdDictNumber((CFDictionaryRef)pa, CFSTR("LegacyManufacturerID"), &v);
+                        rdDictNumber((CFDictionaryRef)pa, CFSTR("ProductID"), &p);
+                        if (v == vendor && p == product) matched = true;
+                    }
+                }
+                CFRelease(attrs);
+            }
+            IOObjectRelease(s);
+        }
+        IOObjectRelease(it);
+    }
+    if (!matched && IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IODisplayConnect"), &it) == KERN_SUCCESS) {
+        io_service_t s;
+        while ((s = IOIteratorNext(it))) {
+            CFDictionaryRef info = IODisplayCreateInfoDictionary(s, kIODisplayOnlyPreferredName);
+            if (info) {
+                anyService = true;
+                uint32_t v = 0, p = 0;
+                rdDictNumber(info, CFSTR(kDisplayVendorID), &v);
+                rdDictNumber(info, CFSTR(kDisplayProductID), &p);
+                if (v == vendor && p == product) matched = true;
+                CFRelease(info);
+            }
+            IOObjectRelease(s);
+        }
+        IOObjectRelease(it);
+    }
+    if (!anyService) return false;
+    return !matched;
 }

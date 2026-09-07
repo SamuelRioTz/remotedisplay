@@ -4347,6 +4347,31 @@ impl Connection {
                     if virtual_display_manager::amyuni_idd::is_my_display(&name) {
                         record_changed = false;
                     }
+                    // remotedisplay/macOS: only a virtual display (SimpleDisplay or another
+                    // app's) is resized from remote — Fit to screen on it. A physical
+                    // panel is never touched. The size is a live adjustment: nothing is
+                    // recorded or restored when the client leaves, and if the display does
+                    // not offer the exact size the nearest fitting mode is used.
+                    #[cfg(target_os = "macos")]
+                    {
+                        if !crate::platform::display_is_virtual(&name) {
+                            log::info!(
+                                "ignoring resolution change of physical display '{}' to {}x{}",
+                                name, r.width, r.height
+                            );
+                            return;
+                        }
+                        record_changed = false;
+                        if let Err(e) =
+                            crate::platform::change_resolution(&name, r.width as _, r.height as _)
+                        {
+                            log::info!("exact mode {}x{} not available on '{}' ({e}); trying the nearest", r.width, r.height, name);
+                            if let Err(e) = crate::platform::change_resolution_nearest(&name, r.width as _, r.height as _) {
+                                log::error!("Failed to change resolution '{}' to ({},{}): {:?}", &name, r.width, r.height, e);
+                            }
+                        }
+                        return;
+                    }
                     #[cfg(not(target_os = "macos"))]
                     let scale = 1.0;
                     #[cfg(target_os = "macos")]
