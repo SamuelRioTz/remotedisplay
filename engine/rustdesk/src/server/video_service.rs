@@ -902,7 +902,7 @@ fn run(vs: VideoService) -> ResultType<()> {
                     }
 
                     let frame = frame.to(encoder.yuvfmt(), &mut yuv, &mut mid_data)?;
-                    let mut send_conn_ids = handle_one_frame(
+                    let send_conn_ids = handle_one_frame(
                         display_idx,
                         &sp,
                         frame,
@@ -914,28 +914,6 @@ fn run(vs: VideoService) -> ResultType<()> {
                         capture_width,
                         capture_height,
                     )?;
-                    // remotedisplay: an asynchronous encoder (VideoToolbox) keeps its
-                    // first picture and returns nothing for it ("no valid frame");
-                    // encode it again at once so the keyframe leaves now, not with the
-                    // next capture, which on a static screen may take a while.
-                    if send_conn_ids.is_empty()
-                        && encode_fail_counter == 1
-                        && !encoder.latency_free()
-                        && yuv.len() > 0
-                    {
-                        send_conn_ids = handle_one_frame(
-                            display_idx,
-                            &sp,
-                            EncodeInput::YUV(&yuv),
-                            ms + 1,
-                            &mut encoder,
-                            recorder.clone(),
-                            &mut encode_fail_counter,
-                            &mut first_frame,
-                            capture_width,
-                            capture_height,
-                        )?;
-                    }
                     if !send_conn_ids.is_empty() {
                         sent_any = true;
                     }
