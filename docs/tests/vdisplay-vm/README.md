@@ -617,6 +617,13 @@ Verification (VM rig, Windows 11 ARM64 QEMU client under x64 emulation, no GPU):
   Neither is the WPP deadlock itself reproducible on demand; the fix removes the code path.
 - A `--connect …` launch (the test rig's way) skips `start_server`, so only the video-thread
   fallback applies there; the normal launch from the home screen runs the check at startup.
+- Real hardware, same day (Sam's PC, RTX 5070 laptop): 1.0.11 installed at 05:36, the
+  client wrote `RemoteDisplay_hwcodec.toml` (843 bytes, signature 18014402815439437) one
+  second after launch, and every session since creates
+  `CodecInfo { name: "hevc", hwdevice: AV_HWDEVICE_TYPE_D3D11VA }` (GPU decode). Mac server
+  1.0.11 (12): from 05:36 to 08:37, 11 video loop starts — three codec changes made by hand
+  (H265 → VP8 → VP9 → H265) and the "display list announced" refresh at each connection —
+  zero refreshes from the client, no restart since 06:15 with the session up.
 
 ### "True color (4:4:4)" gone from the Screen menu (2026-09-07, after 1.0.11)
 
