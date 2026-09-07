@@ -5,7 +5,7 @@
 <h1 align="center">Remote Display</h1>
 
 <p align="center">
-  Remote desktop for your Mac from Windows, iPad or another Mac — with <b>virtual monitors that fit your window</b>.
+  Remote desktop for your Mac from Windows, iPad or another Mac — <b>direct, discovered, no accounts</b>.
 </p>
 
 <p align="center">
@@ -17,29 +17,30 @@
 
 ---
 
-Remote Display is a self-hosted remote desktop for macOS hosts. It is built on the
-[RustDesk](https://github.com/rustdesk/rustdesk) engine (AGPL-3.0) and adds the thing
-that made me want it in the first place: **the remote screen adapts to the window you
-are looking at**, the way a virtual machine does in [Tart](https://tart.run) — no
-letterboxing, no scrolling, no fixed resolutions.
+Remote Display is a self-hosted remote desktop for macOS hosts, built on the
+[RustDesk](https://github.com/rustdesk/rustdesk) engine (AGPL-3.0). It started as a
+fork to control a Mac Studio from a Windows PC over Tailscale without signing up
+anywhere: a direct connection with a password, machines discovered on the LAN, and the
+same Mac reachable from outside. It shows the Mac's displays as they are; the monitors
+themselves are the Mac's business (add virtual ones with
+[SimpleDisplay](https://github.com/SamuelRioTz/SimpleDisplay) if you want them).
 
 ## Features
 
-- **Virtual monitors, configured on the Mac.** The menu-bar app adds a virtual display,
-  or makes the main screen follow the remote (mirrored onto a resizable virtual). What
-  you set stays while the service runs and goes away when it stops, like SimpleDisplay.
-- **Fit to screen from the client.** A virtual display takes the exact size of your
-  window, any time; the display ID never changes, so the session never blinks. Physical
-  monitors are never touched from remote.
-- **Scale per monitor (100 / 125 / 150 / 200 %)**, like Windows display scaling.
-  Retina (2×) when macOS allows it, 1× with fewer points otherwise.
-- **Per-client monitor profiles.** Each client (your PC, your iPad) remembers its own
-  layout and applies it when it connects, also after the Mac restarts the server.
-- **Multi-window.** Open any monitor in its own window; "All monitors" shows them all.
+- **Any display, any window.** Pick which of the Mac's displays you see, open each one
+  in its own window, or show them all at once (desktop clients).
+- **Works with SimpleDisplay.** Want a monitor the size of your window? Add a virtual
+  display on the Mac with SimpleDisplay or macOS itself; Remote Display shows it like any
+  other display and never changes the Mac's configuration.
+- **Finds your Mac, at home and away.** Computers on your LAN show up by themselves, and
+  the Mac tells clients its Tailscale address, so it stays reachable from other networks.
+  Pick the network per computer; passwords are remembered per address.
+- **iPad with an external monitor.** Put one of the Mac's displays on the connected
+  monitor and keep another on the iPad. Trackpad-style touch input.
 - **No accounts, no cloud, no IDs.** Direct connection over your LAN or VPN
   (Tailscale works well), with a password you set. Nothing leaves your network.
 - Clients for **Windows, macOS, Android and iOS** (Flutter); server for **macOS 14+**
-  on Apple silicon (menu-bar app).
+  on Apple silicon (menu-bar app, notarized).
 
 ## Downloads
 
@@ -61,24 +62,26 @@ notarized by Apple, so macOS opens them without Gatekeeper warnings.
    networks. Each computer lists its addresses (LAN, Tailscale) with whether they answer
    from where you are: tap a chip to pick the network, the card to connect; the gear
    renames the computer, adds an address or forgets a password.
-3. On the Mac, turn on *Virtual monitor* or *Main screen follows remote* in the menu bar
-   app. From the client, pick the monitor in the display menu, hit *Fit to screen*,
-   choose a scale.
+3. Open the display menu in the toolbar: pick a display, open it in a new window, or
+   show all of them. Want a virtual monitor? Add it on the Mac with SimpleDisplay; it
+   shows up as one more display.
 
 ## How it works
 
 - `server-mac/` — the macOS menu-bar server (SwiftUI) bundling the engine as
-  `remotedisplayd`. Virtual displays are created with `CGVirtualDisplay` and resized in
-  place; *Main screen follows remote* mirrors the physical display onto a virtual main.
-  One display-manager thread in the engine owns every change, announces it once when
-  macOS has settled, and resets everything when the service stops.
+  `remotedisplayd`, a per-user service. It shows the Mac's displays as macOS reports
+  them (physical ones and any virtual display added with SimpleDisplay) and ignores the
+  reconfiguration noise a hardware mirror produces, so a mirrored display no longer
+  restarts the video every second.
 - `engine/rustdesk/` — a vendored fork of RustDesk 1.4.9 with the changes listed in
   [`HOOKS.md`](HOOKS.md) and [`tools/patches/`](tools/patches/): serverless LAN
-  discovery, macOS virtual display backend, per-display scale, and a fix for the
-  ColorSync profile leak that virtual displays cause on macOS.
+  discovery with the Tailscale address advertised, and stability work around macOS
+  display reconfiguration (mirrored displays, Retina capture with several clients).
 - `client/` — the Flutter client (new UI on top of the engine's `flutter_hbb` package).
-- `docs/tests/` — measurements and harnesses behind the macOS 26 quirks we hit
-  (HiDPI behaviour, mirror sets, per-process display lists). Mostly in Spanish.
+- `docs/tests/` — measurements, VM harnesses and verification notes behind the macOS 26
+  quirks we hit (mirror sets, per-process display lists, capture streams going silent),
+  including the virtual display backend this project shipped up to 1.0.8 and then
+  handed back to SimpleDisplay.
 - `website/` — the landing page for [remotedisplay.app](https://remotedisplay.app):
   static HTML with EN/ES/DE strings in `website/l10n/`.
 
@@ -87,10 +90,10 @@ Build recipes: [`tools/README.md`](tools/README.md) (Windows and Mac),
 
 ## Known limitations
 
-- Retina (2× backing) virtual displays only when the requested pixel width is ≥ 1920;
-  below that macOS 26 flattens the mode to 1× and the scale is emulated with fewer points.
-- `CGVirtualDisplay` is a private Apple API: this cannot ship on the Mac App Store and
-  may change between macOS versions.
+- Remote Display does not create virtual monitors or change the Mac's display
+  configuration; use SimpleDisplay or macOS for that.
+- "All displays" is available on the desktop clients (Windows, macOS); the iPad shows one
+  display at a time, plus one on an external monitor.
 - Connections are direct (no relay yet). Use a LAN or a VPN.
 
 ## Contact

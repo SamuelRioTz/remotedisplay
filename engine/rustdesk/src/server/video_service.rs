@@ -804,26 +804,17 @@ fn run(vs: VideoService) -> ResultType<()> {
         let now = time::Instant::now();
         if vs.source.is_monitor() && last_check_displays.elapsed().as_millis() > 1000 {
             last_check_displays = now;
-            // remotedisplay (macOS): while the display manager is mid-operation (a user
-            // action is several configuration transactions over a few seconds), leave
-            // the capturer alone; the checks below run once it is done and restart this
-            // loop once. Comparing during the operation restarted it every second.
+            // This check may be redundant, but it is better to be safe.
+            // The previous check in `sp.is_option_true(OPTION_REFRESH)` block may be enough.
+            try_broadcast_display_changed(&sp, display_idx, &c, false)?;
+            // remotedisplay: a reconfiguration that did not move the bounds (e.g. the
+            // mode of a physical display mirroring another one) can leave the
+            // CGDisplayStream silent: recreate the capturer, once the topology has been
+            // stable for a moment (one user action is a burst of transactions).
             #[cfg(target_os = "macos")]
-            let held = super::display_service::announcements_held();
-            #[cfg(not(target_os = "macos"))]
-            let held = false;
-            if !held {
-                // This check may be redundant, but it is better to be safe.
-                // The previous check in `sp.is_option_true(OPTION_REFRESH)` block may be enough.
-                try_broadcast_display_changed(&sp, display_idx, &c, false)?;
-                // remotedisplay: a reconfiguration that did not move the bounds (e.g. the
-                // mode of the mirrored physical) can leave the CGDisplayStream silent:
-                // recreate the capturer, once the topology has been stable for a moment.
-                #[cfg(target_os = "macos")]
-                if crate::platform::display_topology_hash() != topology {
-                    wait_for_stable_topology();
-                    bail!("display topology changed");
-                }
+            if crate::platform::display_topology_hash() != topology {
+                wait_for_stable_topology();
+                bail!("display topology changed");
             }
         }
 

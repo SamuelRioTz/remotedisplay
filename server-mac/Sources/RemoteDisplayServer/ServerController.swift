@@ -26,14 +26,6 @@ final class ServerController {
     /// Local-network privacy access (macOS 15+): true = works, false = blocked or pending,
     /// nil = not checked yet. Only affects automatic discovery, not connections by address.
     var localNetworkOK: Bool?
-    /// Monitors, as configured on this Mac. The engine's display manager publishes them
-    /// to a state file on every change; nothing here survives a service stop.
-    /// An extra virtual monitor is present.
-    var virtualMonitorOn = false
-    /// The main screen is mirrored onto a virtual display that remote clients resize.
-    var dynamicMainOn = false
-    /// A display change is in progress (engine busy, or a toggle we launched still running).
-    var displayBusy = false
     var lastError: String?
     /// Peers currently connected ("ip:port" remote), via the engine's lsof.
     var sessions: [String] = []
@@ -83,7 +75,6 @@ final class ServerController {
     @ObservationIgnored private let localNetProbe = LocalNetworkProbe()
     @ObservationIgnored private var lastLocalNetProbe = Date.distantPast
     @ObservationIgnored private var localNetProbing = false
-    @ObservationIgnored private var displayToggleRunning = false
     /// A menu (the menu-bar one) is being tracked. SwiftUI's MenuBarExtra rebuilds its NSMenu
     /// when observable state it shows changes; doing that while the menu is open made AppKit
     /// throw from -[NSWindow _postWindowNeedsLayout] during a display cycle and abort the app
@@ -106,7 +97,6 @@ final class ServerController {
     private var configDir: String { NSHomeDirectory() + "/Library/Preferences/RemoteDisplay" }
     private var configPath: String { configDir + "/RemoteDisplay2.toml" }
     private var permsPath: String { NSHomeDirectory() + "/Library/Application Support/remotedisplay-perms.json" }
-    private var displayStatePath: String { NSHomeDirectory() + "/Library/Application Support/remotedisplay-displays.json" }
     private var mainConfigPath: String { configDir + "/RemoteDisplay.toml" }
     private var guiDomain: String { "gui/\(getuid())" }
 
@@ -220,7 +210,6 @@ final class ServerController {
             restartEngine()
         }
         checkLocalNetwork()
-        readDisplayState()
         ensureDesiredState()
         firstRefresh = false
     }
@@ -610,60 +599,6 @@ final class ServerController {
         } else {
             UserDefaults.standard.set(true, forKey: Self.screenPromptedKey)
             Permissions.requestScreenRecording()
-        }
-    }
-
-    /// Monitor state from the engine's state file, written by its display manager at start
-    /// and on every change (no process is spawned to ask). Stale while the engine is not
-    /// running, so it is ignored then.
-    private func readDisplayState() {
-        guard serviceRunning else {
-            if virtualMonitorOn { virtualMonitorOn = false }
-            if dynamicMainOn { dynamicMainOn = false }
-            if displayBusy { displayBusy = false }
-            return
-        }
-        guard let data = FileManager.default.contents(atPath: displayStatePath),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return }
-        let v = obj["virtual_monitor"] as? Bool ?? false
-        let d = obj["dynamic_main"] as? Bool ?? false
-        let b = (obj["busy"] as? Bool ?? false) || displayToggleRunning
-        if virtualMonitorOn != v { virtualMonitorOn = v }
-        if dynamicMainOn != d { dynamicMainOn = d }
-        if displayBusy != b { displayBusy = b }
-    }
-
-    /// Adds or removes the extra virtual monitor. The engine answers once the change has
-    /// settled (seconds): the toggle shows "working" meanwhile, then the real state.
-    func setVirtualMonitor(_ on: Bool) {
-        runDisplayToggle("--plug-virtual", on) { [weak self] in self?.virtualMonitorOn = $0 }
-    }
-
-    /// Mirrors the main screen onto a resizable virtual display, or undoes it.
-    func setDynamicMain(_ on: Bool) {
-        runDisplayToggle("--dynamic-main", on) { [weak self] in self?.dynamicMainOn = $0 }
-    }
-
-    private func runDisplayToggle(_ flag: String, _ on: Bool, apply: @escaping (Bool) -> Void) {
-        guard serviceRunning, !displayToggleRunning else { return }
-        displayToggleRunning = true
-        displayBusy = true
-        trace("\(flag) \(on ? "on" : "off") requested")
-        let path = enginePath
-        DispatchQueue.global().async { [weak self] in
-            let r = Self.runProcess(path, [flag, on ? "on" : "off"], timeout: 40)
-            let out = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.trace("\(flag) -> \(out.isEmpty ? (r.failure ?? "no output") : out)")
-                self.whenMenuClosed { [weak self] in
-                    guard let self else { return }
-                    apply(out == "on")
-                    self.displayToggleRunning = false
-                    self.readDisplayState()
-                }
-            }
         }
     }
 

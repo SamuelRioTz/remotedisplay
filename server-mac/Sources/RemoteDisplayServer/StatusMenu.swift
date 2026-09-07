@@ -23,17 +23,6 @@ struct StatusMenu: View {
         Divider()
         Toggle("Service Active", isOn: Binding(
             get: { c.serviceRunning }, set: { c.setServiceEnabled($0) }))
-        if c.serviceRunning {
-            // Monitors are configured here, on the Mac, and reset when the service stops.
-            // Fixed labels: the controller never changes state while this menu is open
-            // (see ServerController.menuOpenSince), so nothing here has to animate.
-            Toggle("Virtual monitor", isOn: Binding(
-                get: { c.virtualMonitorOn }, set: { c.setVirtualMonitor($0) }))
-                .disabled(c.displayBusy)
-            Toggle("Main screen follows remote", isOn: Binding(
-                get: { c.dynamicMainOn }, set: { c.setDynamicMain($0) }))
-                .disabled(c.displayBusy)
-        }
         Toggle("Open at Login", isOn: Binding(
             get: { c.launchAtLogin }, set: { c.setLaunchAtLogin($0) }))
         Divider()

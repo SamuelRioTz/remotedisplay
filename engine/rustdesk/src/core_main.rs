@@ -423,10 +423,6 @@ pub fn core_main() -> Option<Vec<String>> {
                 // remotedisplay: the ENGINE writes its REAL permission state to a
                 // file, so the UI shows what the engine actually has
                 // (not what the app assumes based on its own identity). Source of truth.
-                //
-                // remotedisplay: start the display manager now, so its state file exists
-                // (everything off) and the dynamic-main reconcile ticker runs.
-                crate::server::display_manager::init();
                 std::thread::spawn(|| loop {
                     let acc = crate::platform::is_process_trusted(false);
                     let scr = crate::platform::is_can_screen_recording(false);
@@ -528,24 +524,6 @@ pub fn core_main() -> Option<Vec<String>> {
                 let acc = crate::platform::is_process_trusted(false);
                 let scr = crate::platform::is_can_screen_recording(false);
                 println!("{{\"accessibility\":{},\"screen\":{}}}", acc, scr);
-            }
-            return None;
-        } else if args[0] == "--plug-virtual" || args[0] == "--dynamic-main" {
-            // remotedisplay: server-side monitor toggles for the menu-bar app. Both print
-            // "on" or "off" (the state AFTER the operation) and talk to the running
-            // --server over IPC (same user); the operation itself runs on the engine's
-            // display manager and may take a few seconds.
-            //   --plug-virtual on|off|status   extra virtual monitor
-            //   --dynamic-main on|off|status   main screen follows remote (mirror onto a virtual)
-            let name = if args[0] == "--plug-virtual" { "rd-virtual-monitor" } else { "rd-dynamic-main" };
-            let cmd = match args.get(1).map(|s| s.as_str()) {
-                Some("on") => "Y",
-                Some("off") => "N",
-                _ => "?",
-            };
-            match crate::ipc::set_display_toggle(name, cmd.to_owned()) {
-                Ok(state) => println!("{}", if state == "Y" { "on" } else { "off" }),
-                Err(err) => println!("{} failed: {err}", &args[0][2..]),
             }
             return None;
         } else if args[0] == "--set-lan-password" {

@@ -487,3 +487,22 @@ hosts; nothing is restored when the last client leaves (there is nothing of thei
   the window; reboot with Open at Login → `loginItem=true sinceLogin=4s`, menu bar only. Also
   fixed: `start()` now records the auto-start so `ensureDesiredState()` no longer bootstraps
   the engine a second time 2 s later (two "service on requested" at login).
+
+## 2026-09-07 — 1.0.9: virtual displays removed (SimpleDisplay owns them), Retina gate fix
+
+Sam's call after a day of 1.0.7/1.0.8 surprises: Remote Display no longer creates, resizes,
+mirrors or removes displays on the Mac. SimpleDisplay does that; the client only picks a
+display, opens it in a new window and shows all of them (desktop). Removed: the whole
+`CGVirtualDisplay` backend in macos.mm, `mac_vdisplay`, the display manager, the IPC/CLI
+toggles, the menu-bar toggles and Monitors section, the client's MONITORS section, Fit resize,
+scale menu and the iPad external-monitor resize. Kept: the topology hash (anti-storm gate and
+capturer restart for mirrored displays), the headless NSApplication loop, the menu-open
+deferral and the launch-behaviour fix.
+
+- **Restart storm on Sam's Mac (1.0.8, 2026-09-06 21:12)**: iPad on display 0 plus a Windows
+  client connecting → two video services → RustDesk sets `ENABLE_RETINA=false`
+  (`server.rs`) → every display size halves (4096x2560 → 2048x1280) while the topology hash
+  does not change → my gate kept SYNC_DISPLAYS stale → capturer/list mismatch → SWITCH every
+  1.4 s for 20+ minutes (the Windows client logged `width/height mismatch (4096,2560) !=
+  (2048,1280)`; the iPad looked "crazy"). Fix: the Retina flag is part of the gate key. Broke
+  the storm on the spot with `launchctl kickstart -k`.

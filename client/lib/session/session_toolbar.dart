@@ -24,7 +24,6 @@ import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 
 import 'external_screen.dart';
-import 'monitor_scale.dart';
 import 'trackpad_screen.dart';
 import 'win_events.dart';
 
@@ -468,16 +467,6 @@ class _SessionToolbarState extends State<SessionToolbar> {
         .setTitle(sessionWindowTitle(widget.peerId, display));
   }
 
-  /// Disabled, dimmed one-liner (a hint at the end of a section).
-  PopupMenuEntry<void> _note(String text) => PopupMenuItem<void>(
-        enabled: false,
-        height: 30,
-        child: Text(text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: _fgDim, fontSize: 11)),
-      );
-
   PopupMenuEntry<void> _check(bool value, Widget label, VoidCallback onTap,
           {String? detail}) =>
       PopupMenuItem<void>(
@@ -487,144 +476,6 @@ class _SessionToolbarState extends State<SessionToolbar> {
             detail: detail,
             onIcon: Icons.check_box_rounded,
             offIcon: Icons.check_box_outline_blank_rounded),
-      );
-
-  /// Unified monitor row (macOS): selection (which one is shown), physical or
-  /// virtual badge, resolution (tap = scale, on virtuals) and open/close in
-  /// another window. Monitors themselves are added or removed on the Mac
-  /// (menu-bar app), never from here.
-  PopupMenuEntry<void> _monitorRow({
-    required String label,
-    required bool isVirtual,
-    String? detail,
-    bool isCurrent = false,
-    VoidCallback? onSelect,
-    bool openSlot = false,
-    IconData? openIcon,
-    String? openTooltip,
-    VoidCallback? onOpen,
-    VoidCallback? onDetailTap,
-  }) =>
-      PopupMenuItem<void>(
-        height: 44,
-        onTap: onSelect,
-        // Fixed-width columns so all rows align (symmetrical).
-        child: Row(
-          children: [
-            // "Viewing this monitor" indicator (filled if it's the current one).
-            Icon(
-              isCurrent
-                  ? Icons.radio_button_checked_rounded
-                  : Icons.radio_button_off_rounded,
-              size: 16,
-              color: isCurrent ? const Color(0xFF6FC0FF) : _fgDim,
-            ),
-            const SizedBox(width: 10),
-            Icon(
-              isVirtual
-                  ? Icons.cast_connected_rounded
-                  : Icons.desktop_windows_rounded,
-              size: 16,
-              color: Colors.white,
-            ),
-            const SizedBox(width: 8),
-            // Name — fixed width.
-            SizedBox(
-              width: 74,
-              child: Text(label,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontSize: 13)),
-            ),
-            // Physical/virtual badge — fixed width, left-aligned.
-            SizedBox(
-              width: 62,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: isVirtual
-                        ? const Color(0x2233AAFF)
-                        : const Color(0x22FFFFFF),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(isVirtual ? 'virtual' : 'physical',
-                      style: TextStyle(
-                          color:
-                              isVirtual ? const Color(0xFF6FC0FF) : _fgDim,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600)),
-                ),
-              ),
-            ),
-            // Resolution — right-aligned. On virtuals it's clickable: opens
-            // the scale selector (100/125/150/200%).
-            Expanded(
-              child: onDetailTap == null
-                  ? Text(detail ?? '',
-                      textAlign: TextAlign.right,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: _fgDim, fontSize: 11))
-                  : Align(
-                      alignment: Alignment.centerRight,
-                      child: Builder(
-                        builder: (itemCtx) => Tooltip(
-                          message: 'Scale',
-                          waitDuration: const Duration(milliseconds: 400),
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.pop(itemCtx);
-                              onDetailTap();
-                            },
-                            borderRadius: BorderRadius.circular(6),
-                            hoverColor: const Color(0x14FFFFFF),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 4),
-                              child: Text('${detail ?? ''} ▾',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: Color(0xFF6FC0FF), fontSize: 11)),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-            ),
-            const SizedBox(width: 8),
-            // Open in new window / close that window. Fixed column so rows
-            // with no action (the one currently being viewed) align the same.
-            if (openSlot)
-              SizedBox(
-                width: 40,
-                child: openIcon == null
-                    ? null
-                    : Builder(
-                        builder: (itemCtx) => Tooltip(
-                          message: openTooltip ?? '',
-                          waitDuration: const Duration(milliseconds: 400),
-                          child: InkWell(
-                            onTap: onOpen == null
-                                ? null
-                                : () {
-                                    Navigator.pop(itemCtx);
-                                    onOpen();
-                                  },
-                            borderRadius: BorderRadius.circular(8),
-                            hoverColor: const Color(0x14FFFFFF),
-                            child: Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: Icon(openIcon, size: 18, color: _fg),
-                            ),
-                          ),
-                        ),
-                      ),
-              ),
-          ],
-        ),
       );
 
   Iterable<PopupMenuEntry<void>> _radios(List<TRadioMenu<String>> items) =>
@@ -778,101 +629,16 @@ class _SessionToolbarState extends State<SessionToolbar> {
     final items = <PopupMenuEntry<void>>[];
 
     final pi = ffi.ffiModel.pi;
-    final macMonitors =
-        pi.platform == kPeerPlatformMacOS && pi.isMacVirtualDisplaySupported;
     final current = CurrentDisplayState.find(id).value;
     // iPad external monitor (mobile only): which remote display is out there.
     final ext = widget.externalScreen;
     final extConnected = ext?.screenConnected.value ?? false;
     final extDisplay = ext?.extDisplay.value ?? -1;
-    if (macMonitors) {
-      // remotedisplay: A SINGLE section for macOS — "monitor" and "display"
-      // are the same thing, so each row combines selection (which one is
-      // shown), physical/virtual badge and resolution. Monitors are configured
-      // on the Mac itself (menu-bar app) and reset when its service stops: from
-      // here you only choose what to view, fit a virtual to the window and pick
-      // its scale.
-      final dispIds = pi.macDisplayIds; // aligned with pi.displays
-      final virtuals = pi.macVirtualDisplays.toSet();
-      items.add(_header('MONITORS'));
-      for (var i = 0; i < pi.displays.length && i < dispIds.length; i++) {
-        final mid = dispIds[i];
-        final d = pi.displays[i];
-        final isVirtual = virtuals.contains(mid);
-        final isCurrent = current == i;
-        final otherWin = others[i];
-        final isExt = extDisplay == i;
-        // Virtual: show pixels equivalent to 100% (= window size) and its
-        // scale; tapping the detail opens the scale selector.
-        final scale = isVirtual ? MonitorScale.of(id, pi, mid) : 100;
-        final px = isVirtual
-            ? MonitorScale.pixelSizeOf(pi, i, scale)
-            : Size(d.width.toDouble(), d.height.toDouble());
-        items.add(_monitorRow(
-          // Sequential numbering by position: macOS's internal display ID
-          // (mid) isn't consecutive and is confusing ("Monitor 8").
-          label: 'Monitor ${i + 1}',
-          isVirtual: isVirtual,
-          isCurrent: isCurrent,
-          detail: '${px.width.toInt()}×${px.height.toInt()}'
-              '${isVirtual ? ' · $scale%' : ''}'
-              '${otherWin != null && !isVirtual ? ' · open' : ''}'
-              '${isExt ? ' · external' : ''}',
-          onDetailTap: isVirtual ? () => _showScaleMenu(anchor, i, mid) : null,
-          // Tap: view it here; if it's already in another window, bring
-          // that window forward (the ⧉ icon is there to open it in a new window).
-          onSelect: otherWin != null
-              ? () => openMonitorInNewTabOrWindow(i, id, pi)
-              : isCurrent
-                  ? null
-                  : () {
-                      openMonitorInTheSameTab(i, ffi, pi);
-                      _setWindowTitleForDisplay(i);
-                    },
-          // Desktop: open this monitor in a new window (or close the one
-          // already showing it). iPad with an external monitor: show it out
-          // there (or stop showing it). Fixed column: the current row leaves
-          // it empty.
-          openSlot: isDesktop || extConnected,
-          openIcon: isDesktop
-              ? (isCurrent
-                  ? null
-                  : (otherWin != null
-                      ? Icons.close_rounded
-                      : Icons.open_in_new_rounded))
-              : (extConnected
-                  ? (isExt
-                      ? Icons.close_rounded
-                      : (!isCurrent ? Icons.open_in_new_rounded : null))
-                  : null),
-          openTooltip: isDesktop
-              ? (otherWin != null ? 'Close its window' : 'Open in new window')
-              : (isExt ? 'Stop external display' : 'Show on external display'),
-          onOpen: isDesktop
-              ? (otherWin != null
-                  ? () => DesktopMultiWindow.invokeMethod(
-                      kMainWindowId, kClientEventCloseWindow, otherWin)
-                  : () => openMonitorInNewTabOrWindow(i, id, pi))
-              : (isExt ? () => ext?.detach() : () => _showOnExternal(i)),
-        ));
-      }
-      if (pi.isSupportMultiDisplay && pi.displays.length > 1) {
-        items.add(_radio(
-          current == kAllDisplayValue,
-          const Text('All monitors'),
-          () {
-            openMonitorInTheSameTab(kAllDisplayValue, ffi, pi);
-            _setWindowTitleForDisplay(kAllDisplayValue);
-          },
-          onIcon: Icons.grid_view_rounded,
-          offIcon: Icons.grid_view_outlined,
-        ));
-      }
-      items.add(_note(
-          'Add or remove monitors on the Mac: Remote Display Server menu bar.'));
-    } else if (pi.displays.length > 1) {
-      // Other peers (Windows/Linux/etc.): the classic DISPLAYS section, just
-      // to choose which monitor is shown.
+    if (pi.displays.length > 1) {
+      // Which display is shown; open one in its own window (desktop) or on the
+      // iPad's external monitor; "All displays" shows them all (desktop). The Mac's
+      // displays themselves are not touched from here — SimpleDisplay or the
+      // Mac's own settings own that.
       items.add(_header('DISPLAYS'));
       for (var i = 0; i < pi.displays.length; i++) {
         final d = pi.displays[i];
@@ -953,104 +719,20 @@ class _SessionToolbarState extends State<SessionToolbar> {
 
   /// Goes back to viewing the full remote screen: "adaptive" style (fits
   /// the window) and canvas reset (undoes the pinch zoom/pan on mobile or
-  /// the scroll on desktop).
-  ///
-  /// remotedisplay: this is also THE trigger for dynamic resolution — if the
-  /// current display is virtual (macOS/IDD), its resolution is fit to this
-  /// window's size. It's not automatic on every resize: the user decides
-  /// when via this button. On "All displays" nothing is touched (the guard
-  /// lives in applyDynamicResolution).
+  /// the scroll on desktop). The remote display itself is never resized.
   Future<void> _fitScreen() async {
     final ffi = _ffi;
     await bind.sessionSetViewStyle(
         sessionId: ffi.sessionId, value: kRemoteViewStyleAdaptive);
     await ffi.canvasModel.updateViewStyle();
     ffi.canvasModel.reset();
-    // give it a frame so the canvas measures the new size before applying
-    await Future.delayed(const Duration(milliseconds: 120));
-    if (!mounted) return;
-    final pi = ffi.ffiModel.pi;
-    final current = CurrentDisplayState.find(widget.peerId).value;
-    // A physical monitor is never resized from here (its configuration is the
-    // Mac's): on one of them Fit is just the adaptive view above. Only a
-    // virtual follows the window; the Mac's menu-bar app is where one is added
-    // or where the main screen is set to follow the remote.
-    final mid = (current >= 0 && current < pi.macDisplayIds.length)
-        ? pi.macDisplayIds[current]
-        : -1;
-    await ffi.ffiModel.applyDynamicResolution(
-        scalePercent: mid >= 0 ? MonitorScale.of(widget.peerId, pi, mid) : 100,
-        devicePixelRatio: _dpr);
-    // The monitor plugged into the iPad is a screen too.
-    await _fitExternal();
   }
 
-  /// iPad: show remote display [i] on the external monitor and, if it is one
-  /// of the Mac's virtual displays, size it to the monitor (1:1, sharp) —
-  /// the monitor is a fixed screen, so "fit" there means the virtual follows it.
+  /// iPad: show remote display [i] on the external monitor.
   Future<void> _showOnExternal(int i) async {
     final ext = widget.externalScreen;
     if (ext == null) return;
     await ext.attachDisplay(i);
-    await _fitExternal();
-  }
-
-  /// "Fit to screen" for the external monitor: the virtual shown out there
-  /// takes the monitor's pixel size (at that virtual's scale). Physicals
-  /// can't be resized freely: they are only scaled to fill the monitor.
-  Future<void> _fitExternal() async {
-    final ext = widget.externalScreen;
-    final ffi = _ffi;
-    if (ext == null || ext.extDisplay.value < 0) return;
-    final display = ext.extDisplay.value;
-    final pi = ffi.ffiModel.pi;
-    if (display >= pi.macDisplayIds.length) return;
-    final mid = pi.macDisplayIds[display];
-    if (!pi.macVirtualDisplays.contains(mid)) return;
-    final px = await ext.externalPixelSize();
-    if (px == null) return;
-    final scale = MonitorScale.of(widget.peerId, pi, mid);
-    final w = (px.width * 100 / scale).round() & ~1; // even: hardware encoders
-    final h = (px.height * 100 / scale).round() & ~1;
-    final d = pi.displays[display];
-    final sc = d.scale <= 0 ? 1.0 : d.scale;
-    if (((d.width / sc).round() - w).abs() <= 1 &&
-        ((d.height / sc).round() - h).abs() <= 1) return;
-    await ffi.ffiModel.changeResolutionOfDisplay(display, w, h);
-  }
-
-  /// devicePixelRatio of THIS window (physical pixels per logical pixel).
-  double get _dpr =>
-      mounted ? MediaQuery.of(context).devicePixelRatio : 1.0;
-
-  /// Scale selector for a virtual monitor (tap on its dimension).
-  Future<void> _showScaleMenu(BuildContext anchor, int i, int mid) async {
-    final ffi = _ffi;
-    final pi = ffi.ffiModel.pi;
-    final current = MonitorScale.of(widget.peerId, pi, mid);
-    final items = <PopupMenuEntry<void>>[
-      _header('SCALE · MONITOR ${i + 1}'),
-      for (final s in kMonitorScales)
-        _radio(
-          s == current,
-          Text(s == 200 ? '$s%  (Retina · HiDPI)' : '$s%'),
-          () => _setScale(mid, s),
-        ),
-    ];
-    if (!mounted) return;
-    await _showItemsMenu(anchor, items);
-  }
-
-  /// Changes the scale while keeping the pixel size (the window): points =
-  /// pixels / scale, HiDPI if scale > 100.
-  Future<void> _setScale(int mid, int scale) async {
-    final ffi = _ffi;
-    final pi = ffi.ffiModel.pi;
-    final idx = pi.macDisplayIds.indexOf(mid);
-    if (idx < 0 || idx >= pi.displays.length) return;
-    final cur = MonitorScale.of(widget.peerId, pi, mid);
-    final px = MonitorScale.pixelSizeOf(pi, idx, cur);
-    await MonitorScale.apply(widget.peerId, ffi, mid, px, scale);
   }
 
   Future<void> _disconnect() async {

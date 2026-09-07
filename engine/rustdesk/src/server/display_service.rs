@@ -194,13 +194,6 @@ fn displays_to_msg(displays: Vec<DisplayInfo>) -> Message {
         let m = crate::virtual_display_manager::get_platform_additions();
         pi.platform_additions = serde_json::to_string(&m).unwrap_or_default();
     }
-    #[cfg(target_os = "macos")]
-    {
-        let m = crate::virtual_display_manager::get_platform_additions();
-        if !m.is_empty() {
-            pi.platform_additions = serde_json::to_string(&m).unwrap_or_default();
-        }
-    }
 
     // current_display should not be used in server.
     // It is set to 0 for compatibility with old clients.
@@ -221,29 +214,6 @@ fn check_get_displays_changed_msg() -> Option<Message> {
     get_displays_msg()
 }
 
-// remotedisplay (macOS): while the display manager reconfigures displays, the automatic
-// "Displays changed" broadcast is held — one user action is a burst of reconfiguration
-// callbacks, and every broadcast costs the clients a video restart. The manager announces
-// once, when the topology has settled (announce_displays).
-static HOLD_ANNOUNCEMENTS: AtomicBool = AtomicBool::new(false);
-
-pub fn hold_announcements(on: bool) {
-    HOLD_ANNOUNCEMENTS.store(on, Ordering::Relaxed);
-}
-
-/// True while the display manager is mid-operation (the video loop leaves its
-/// capturer alone until then and restarts once afterwards).
-pub fn announcements_held() -> bool {
-    HOLD_ANNOUNCEMENTS.load(Ordering::Relaxed)
-}
-
-/// Re-read the displays and broadcast them (with platform_additions) on the next tick.
-pub fn announce_displays() {
-    if let Ok(displays) = try_get_displays() {
-        check_update_displays(&displays);
-    }
-    SYNC_DISPLAYS.lock().unwrap().is_synced = false;
-}
 
 pub fn check_displays_changed() -> ResultType<()> {
     #[cfg(target_os = "linux")]
@@ -275,15 +245,6 @@ fn run(sp: EmptyExtraFieldService) -> ResultType<()> {
             Ok(())
         })?;
 
-        if HOLD_ANNOUNCEMENTS.load(Ordering::Relaxed) {
-            // Keep the display list current (marks it unsynced when it changes) but
-            // do not broadcast until the manager releases the hold: one broadcast then.
-            if let Ok(displays) = try_get_displays() {
-                check_update_displays(&displays);
-            }
-            std::thread::sleep(Duration::from_millis(300));
-            continue;
-        }
         if let Some(msg_out) = check_get_displays_changed_msg() {
             sp.send(msg_out);
             log::info!("Displays changed");
@@ -303,12 +264,7 @@ pub(super) fn get_original_resolution(
     #[cfg(windows)]
     let is_rustdesk_virtual_display =
         crate::virtual_display_manager::rustdesk_idd::is_virtual_display(&display_name);
-    // remotedisplay: our CGVirtualDisplay also reports a "virtual" resolution
-    // (original 0x0) so the client enables arbitrary resolutions.
-    #[cfg(target_os = "macos")]
-    let is_rustdesk_virtual_display =
-        crate::virtual_display_manager::mac_vdisplay::is_virtual_display(&display_name);
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(windows))]
     let is_rustdesk_virtual_display = false;
     Some(if is_rustdesk_virtual_display {
         Resolution {
@@ -364,11 +320,17 @@ pub(super) fn check_update_displays(all: &Vec<Display>) {
     // (id/active/main/mirror/bounds/mode): if it did not change, the difference is spurious,
     // so leave is_synced alone. Any real change (resolution, mirror on/off, plug/unplug,
     // virtual create/destroy) flips the hash and is processed as before. Explicit resyncs
-    // (new subscriber, announce_displays, temp_ignore cleanup) set is_synced directly
-    // and are unaffected.
+    // (new subscriber, temp_ignore cleanup) set is_synced directly and are unaffected.
+    //
+    // The Retina capture flag is part of the key: RustDesk turns it off while two video
+    // services run (two clients on different displays, "all displays"), which changes
+    // every reported size (2x -> 1x pixels) without changing the topology. Gating on the
+    // topology alone left the list stale and the capturer/list mismatch restarted the
+    // video every second until the service was restarted.
     #[cfg(target_os = "macos")]
     {
-        let h = crate::platform::display_topology_hash();
+        let retina = *scrap::quartz::ENABLE_RETINA.lock().unwrap() as u64;
+        let h = crate::platform::display_topology_hash().wrapping_add(retina);
         let prev = LAST_TOPOLOGY_HASH.swap(h, Ordering::Relaxed);
         if prev == h && prev != 0 {
             return;
