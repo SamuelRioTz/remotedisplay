@@ -552,3 +552,68 @@ deferral and the launch-behaviour fix.
   (`#N refresh: RefreshVideoDisplay(d) from the client` / `RefreshVideo` / `display list
   announced`), and `refresh_video_display` drops refreshes for the same display arriving less
   than 1.5 s after the previous one (logged as `refresh of display d dropped`).
+
+## 2026-09-07 — 1.0.11: frozen picture on the Windows client (FFmpeg WPP deadlock), refresh storm
+
+Symptom on Sam's Mac Studio + Windows PC (RTX 5070 laptop, 24 CPUs), client 1.0.10: the
+picture froze (quality monitor: 224 kB/s in, FPS 0) while keyboard and mouse kept working.
+Server log: `#1432 refresh: RefreshVideoDisplay(0) from the client` about 10 times a second,
+the 1.5 s limiter dropping all but one, each accepted one → `switch to refresh` → new
+capturer + `hevc_videotoolbox` encoder → `encode fail: no valid frame, times: 1`; 633 video
+loop restarts and 7353 refresh requests in one minute before the engine was restarted.
+Restarting the engine did not help: the client reconnected and froze again within a minute.
+
+Diagnosis with two minidumps of the client process (`MiniDumpWriteDump` from PowerShell,
+symbolized on the Mac with `dump_syms` + `minidump-stackwalk` against `librustdesk.pdb`,
+scratch notes in the session's scratchpad):
+- Thread 160 sat inside `scrap::common::codec::Decoder::handle_video_frame` →
+  `hwcodec::ffmpeg_ram::decode::Decoder::decode` → `avcodec_send_packet` →
+  `hevc_receive_frame` → `hls_slice_data_wpp` in both dumps, 15 minutes apart; three more
+  threads (older sessions) were parked in `ff_thread_await_progress2` (pthread_slice.c:235)
+  under `hls_decode_entry_wpp`. No thread of the process used 30 ms of CPU over 3 s: a
+  deadlock, not slowness.
+- Why software decoding at all: the client log said `Failed to get hwcodec config: The system
+  cannot find the file specified` and `gpu signature changed, 0 -> …`, then
+  `try create CodecInfo { name: "hevc", hwdevice: AV_HWDEVICE_TYPE_NONE }`. The check that
+  finds the GPU decoders is run by the local server process and handed over IPC; the
+  client-only Windows install has no server, the one-shot IPC attempt (50 ms) failed, and no
+  `RemoteDisplay_hwcodec.toml` was ever written. `codec_thread_num(16)` gave 8 slice threads
+  and the VideoToolbox HEVC stream carries WPP entry points → FFmpeg's WPP path.
+- The chain: decoder deadlocks → the 120-frame queue fills → `io_loop.rs` asks for a refresh
+  on every evicted frame (unlogged path) → the server recreates capturer and encoder once per
+  1.5 s → the client never decodes anything anyway.
+
+Changes (1.0.11):
+- Software HEVC decoding uses one thread (`HwRamDecoder::new`): no WPP slice threading.
+- `ipc::hwcodec_process` stores the result with `HwCodecConfig::set` (config file) besides
+  sending it over IPC; the client-only process starts the check at launch
+  (`start_server` no_server branch) and `client::get_hwcodec_config` runs it itself when IPC
+  fails, waiting up to 10 s for the file on the first launch (`scrap::hwcodec::config_ready`).
+- A full video queue asks for a refresh at most once a second (logged `video queue of
+  display N full: asking for a refresh`); the server logs dropped refreshes at debug level.
+- Tried and dropped: encoding the first picture again immediately when VideoToolbox returns
+  nothing for it — the second call fails too (`times: 2`, the encoder has not finished) and a
+  third miss would disable the hardware encoder. The repeat-on-WouldBlock path already sends
+  the keyframe within a frame period; the old "no keyframe" theory was wrong, the client was
+  simply deadlocked.
+
+Verification (VM rig, Windows 11 ARM64 QEMU client under x64 emulation, no GPU):
+- 1.0.9 Windows client against the 1.0.11 server VM: connected and showed the picture with a
+  single video loop start (`encode fail … times: 1` once, no restart, no refresh).
+- 1.0.11 client (`C:\RemoteDisplayTest5`, task `rdtest5` = `--connect 10.0.2.2:21119`): picture
+  from the first seconds, software `hevc` decoder (`hwdevice: AV_HWDEVICE_TYPE_NONE`, one
+  thread), fps control moving between 12 and 25 with clicks driven on the remote screen for
+  four minutes; server side: 2 video loop starts in total (one per session), 0 switches, no
+  refresh from the client; client log: no `video queue … full` and no `Refresh display … to
+  reduce delay`.
+- `remotedisplay.exe --check-hwcodec-config` by hand: exits 0 after 6 s and writes
+  `RemoteDisplay_hwcodec.toml` (323 bytes: signature 0, software h264/hevc decoders; the MFX
+  errors in its log are the Intel QSV probe failing on a VM). Plain launch of the home screen
+  (no arguments, file deleted first): `server not started … no_server: true`, the file is
+  written 3 s after launch, `Check hwcodec config, exit with: exit code: 0`.
+- Not reproducible here: the GPU path. This VM's GPU signature is 0, so the cached default
+  matches and `config_ready()` is true at once; on Sam's PC (signature 18014402815439437, no
+  file) the client will run the check itself and wait for it, then pick the NVDEC decoder.
+  Neither is the WPP deadlock itself reproducible on demand; the fix removes the code path.
+- A `--connect …` launch (the test rig's way) skips `start_server`, so only the video-thread
+  fallback applies there; the normal launch from the home screen runs the check at startup.
