@@ -141,12 +141,14 @@ final class ServerController {
         }
         NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
             self?.menuOpenSince = Date()
+            self?.trace("menu opened: updates on hold")
         }
         NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.menuOpenSince = nil
             let blocks = self.deferredWhileMenuOpen
             self.deferredWhileMenuOpen.removeAll()
+            self.trace("menu closed: \(blocks.count) deferred update(s) resume")
             // Let the menu window finish closing before the state (and the menu) changes.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { blocks.forEach { $0() } }
         }
