@@ -84,6 +84,21 @@ final class ServerController {
     @ObservationIgnored private var lastLocalNetProbe = Date.distantPast
     @ObservationIgnored private var localNetProbing = false
     @ObservationIgnored private var displayToggleRunning = false
+    /// A menu (the menu-bar one) is being tracked. SwiftUI's MenuBarExtra rebuilds its NSMenu
+    /// when observable state it shows changes; doing that while the menu is open made AppKit
+    /// throw from -[NSWindow _postWindowNeedsLayout] during a display cycle and abort the app
+    /// (1.0.7 crash: the icon vanished while the engine kept running). While a menu is open no
+    /// observable state is touched; updates are deferred until it closes.
+    @ObservationIgnored private var menuOpenSince: Date?
+    @ObservationIgnored private var deferredWhileMenuOpen: [() -> Void] = []
+    private var menuOpen: Bool {
+        guard let t = menuOpenSince else { return false }
+        return Date().timeIntervalSince(t) < 120 // safety net: never stall updates for good
+    }
+    /// Runs `block` now, or right after the open menu closes.
+    private func whenMenuClosed(_ block: @escaping () -> Void) {
+        if menuOpen { deferredWhileMenuOpen.append(block) } else { block() }
+    }
 
     private var enginePath: String { Bundle.main.bundlePath + "/Contents/MacOS/remotedisplayd" }
     private var agentPlistPath: String { NSHomeDirectory() + "/Library/LaunchAgents/\(Self.agentLabel).plist" }
@@ -124,6 +139,17 @@ final class ServerController {
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.refresh()
         }
+        NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.menuOpenSince = Date()
+        }
+        NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.menuOpenSince = nil
+            let blocks = self.deferredWhileMenuOpen
+            self.deferredWhileMenuOpen.removeAll()
+            // Let the menu window finish closing before the state (and the menu) changes.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { blocks.forEach { $0() } }
+        }
         checkForUpdate()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
             self?.checkForUpdate()
@@ -147,6 +173,9 @@ final class ServerController {
     }
 
     func refresh() {
+        // Nothing changes while the menu-bar menu is open (see menuOpenSince); the next
+        // tick, 2 s later, catches up.
+        if menuOpen { return }
         // Use pgrep (passive) to detect the engine. Do NOT probe the port with a
         // real connect(): on macOS every accepted connection spawns `caffeinate`,
         // so a 2s connect-probe kept the Mac awake forever and churned the engine's
@@ -209,7 +238,10 @@ final class ServerController {
         localNetProbe.check { [weak self] allowed in
             guard let self else { return }
             self.localNetProbing = false
-            if self.localNetworkOK != allowed { self.localNetworkOK = allowed }
+            self.whenMenuClosed { [weak self] in
+                guard let self else { return }
+                if self.localNetworkOK != allowed { self.localNetworkOK = allowed }
+            }
         }
     }
 
@@ -622,9 +654,12 @@ final class ServerController {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.trace("\(flag) -> \(out.isEmpty ? (r.failure ?? "no output") : out)")
-                apply(out == "on")
-                self.displayToggleRunning = false
-                self.readDisplayState()
+                self.whenMenuClosed { [weak self] in
+                    guard let self else { return }
+                    apply(out == "on")
+                    self.displayToggleRunning = false
+                    self.readDisplayState()
+                }
             }
         }
     }

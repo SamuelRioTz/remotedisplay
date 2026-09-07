@@ -467,3 +467,11 @@ hosts; nothing is restored when the last client leaves (there is nothing of thei
   kept in the registry) and the next create re-enables it, so a brand-new display is only made
   when nothing is disabled (at most two per process). This also removes the ghost-display risk of
   destroying an ex mirror master.
+- **Menu-bar app crash (1.0.7, seen on Sam's Mac 2026-09-06 20:24 local, fixed in 1.0.8)**:
+  `RemoteDisplayServer-…ips` shows SIGABRT from an uncaught AppKit exception thrown by
+  `-[NSWindow _postWindowNeedsLayout]` during the display cycle while `NSMenuTrackingSession`
+  was running — the SwiftUI `MenuBarExtra` menu was open and the 2 s refresh changed the
+  observable state it shows. The engine kept running (LaunchAgent); only the icon vanished.
+  Fix: the controller does not touch observable state while a menu is tracking
+  (`NSMenu.didBeginTracking`/`didEndTracking`; updates are deferred until 0.3 s after it
+  closes, with a 120 s safety net) and the menu labels are fixed.
