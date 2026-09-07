@@ -1969,6 +1969,7 @@ pub async fn hwcodec_process() {
     // remotedisplay: the client-only process (Windows) runs no IPC server, so the
     // result would be lost; store it in the config directory as well, where
     // HwCodecConfig::get() picks it up (same GPU signature).
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     scrap::hwcodec::HwCodecConfig::set(s.clone());
     for _ in 0..5 {
         match crate::ipc::connect(1000, "").await {
