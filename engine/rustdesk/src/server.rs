@@ -643,6 +643,10 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                     log::info!("server not started: {err:?}, no_server: {no_server}");
                 }
                 if no_server {
+                    // remotedisplay: nobody else runs the hardware codec check for a
+                    // client-only process (once; the function is guarded).
+                    #[cfg(all(windows, feature = "hwcodec"))]
+                    scrap::hwcodec::start_check_process();
                     hbb_common::sleep(1.0).await;
                     std::thread::spawn(|| start_server(false, true));
                 } else {

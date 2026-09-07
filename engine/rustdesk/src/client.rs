@@ -3077,6 +3077,26 @@ fn get_hwcodec_config() {
                     "Failed to get hwcodec config: {e:?}, elapsed: {:?}",
                     start.elapsed()
                 );
+                // remotedisplay: a client-only install runs no local server, so the
+                // config never arrived over IPC and every session decoded in software
+                // (an RTX 5070 sat idle). Run the check ourselves (it stores its
+                // result, see ipc::hwcodec_process) and give it a few seconds before
+                // the first decoder is created; later launches find the cached file.
+                #[cfg(windows)]
+                if scrap::codec::enable_hwcodec_option() && !scrap::hwcodec::config_ready() {
+                    scrap::hwcodec::start_check_process();
+                    for _ in 0..40 {
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                        if scrap::hwcodec::config_ready() {
+                            break;
+                        }
+                    }
+                    log::info!(
+                        "hwcodec config ready: {}, {:?} after the check was started",
+                        scrap::hwcodec::config_ready(),
+                        start.elapsed()
+                    );
+                }
             } else {
                 log::info!("{:?} used to get hwcodec config", start.elapsed());
             }

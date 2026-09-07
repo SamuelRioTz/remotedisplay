@@ -1966,6 +1966,10 @@ pub fn client_get_hwcodec_config_thread(wait_sec: u64) {
 #[tokio::main(flavor = "current_thread")]
 pub async fn hwcodec_process() {
     let s = scrap::hwcodec::check_available_hwcodec();
+    // remotedisplay: the client-only process (Windows) runs no IPC server, so the
+    // result would be lost; store it in the config directory as well, where
+    // HwCodecConfig::get() picks it up (same GPU signature).
+    scrap::hwcodec::HwCodecConfig::set(s.clone());
     for _ in 0..5 {
         match crate::ipc::connect(1000, "").await {
             Ok(mut conn) => {

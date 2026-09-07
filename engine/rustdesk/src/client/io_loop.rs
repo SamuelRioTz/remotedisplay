@@ -1346,7 +1346,20 @@ impl<T: InvokeUiSession> Remote<T> {
                         let video_queue = thread.video_queue.read().unwrap();
                         if video_queue.force_push(vf).is_some() {
                             drop(video_queue);
-                            self.handler.refresh_video(display as _);
+                            // remotedisplay: a stalled decoder fills the queue and every
+                            // later frame would ask the server for a new stream (seen at
+                            // 10 a second for half an hour); once a second is enough.
+                            let due = thread
+                                .last_overflow_refresh
+                                .map(|t| t.elapsed() >= Duration::from_secs(1))
+                                .unwrap_or(true);
+                            if due {
+                                thread.last_overflow_refresh = Some(Instant::now());
+                                log::info!(
+                                    "video queue of display {display} full: asking for a refresh"
+                                );
+                                self.handler.refresh_video(display as _);
+                            }
                         } else {
                             thread.video_sender.send(MediaData::VideoQueue).ok();
                         }
@@ -2435,6 +2448,7 @@ impl<T: InvokeUiSession> Remote<T> {
             frame_count: frame_count.clone(),
             fps_control: Default::default(),
             discard_queue: discard_queue.clone(),
+            last_overflow_refresh: None,
         };
         let handler = self.handler.ui_handler.clone();
         crate::client::start_video_thread(
@@ -2538,6 +2552,8 @@ struct VideoThread {
     decode_fps: Arc<RwLock<Option<usize>>>,
     frame_count: Arc<RwLock<usize>>,
     discard_queue: Arc<RwLock<bool>>,
+    // remotedisplay: last refresh asked because the queue overflowed.
+    last_overflow_refresh: Option<Instant>,
     fps_control: FpsControl,
 }
 

@@ -4156,7 +4156,7 @@ impl Connection {
             let now = std::time::Instant::now();
             if let Some(t) = last.get(&key) {
                 if now.duration_since(*t) < std::time::Duration::from_millis(1500) {
-                    log::info!("#{} refresh of display {key} dropped: another one {} ms ago", self.inner.id(), now.duration_since(*t).as_millis());
+                    log::debug!("#{} refresh of display {key} dropped: another one {} ms ago", self.inner.id(), now.duration_since(*t).as_millis());
                     return;
                 }
             }
