@@ -617,3 +617,18 @@ Verification (VM rig, Windows 11 ARM64 QEMU client under x64 emulation, no GPU):
   Neither is the WPP deadlock itself reproducible on demand; the fix removes the code path.
 - A `--connect …` launch (the test rig's way) skips `start_server`, so only the video-thread
   fallback applies there; the normal launch from the home screen runs the check at startup.
+
+### "True color (4:4:4)" gone from the Screen menu (2026-09-07, after 1.0.11)
+
+The engine lists the `i444` toggle only while the codec in use is VP9 or AV1
+(`toolbarDisplayToggle`, `codec_format == "AV1" || "VP9"`): hardware H264/H265 encode 4:2:0
+only. Since `5049873` (hwcodec on the Mac) the automatic codec is H265 by VideoToolbox, so the
+switch vanished; CODEC → VP9 brought it back. The Screen menu now always shows "True color
+(4:4:4) · VP9" under IMAGE when the engine does not offer its own: turning it on sets the codec
+preference to VP9, enables `i444` and calls `sessionChangePreferCodec` (the Mac then encodes VP9
+in software: sharper text and colours, more CPU on the Mac). CODEC → Auto returns to H265.
+Verified in the VM rig (Windows client rebuilt from `dc493d0`, server VM 1.0.11): with CODEC on
+Auto (H265) the Screen menu lists "True color (4:4:4) · VP9"; one click → server log `switch due
+to codec changed, H265 -> VP9`, `new encoder: VPX(… VP9 …), i444: true`; the reopened menu shows
+CODEC = VP9 and the engine's own "True color (4:4:4)" checked; quality monitor: Codec VP9,
+Chroma 4:4:4. Screenshots in to_remove/capturas-1.0.11/.
