@@ -475,3 +475,7 @@ hosts; nothing is restored when the last client leaves (there is nothing of thei
   Fix: the controller does not touch observable state while a menu is tracking
   (`NSMenu.didBeginTracking`/`didEndTracking`; updates are deferred until 0.3 s after it
   closes, with a 120 s safety net) and the menu labels are fixed.
+  Verified over VNC (`tart run --vnc-experimental`, vncdotool; status icon at 1672,15 on 1920x1080):
+  menu held open across several refresh ticks and a `--plug-virtual on` from ssh → app alive,
+  `app.log` shows "menu opened: updates on hold" / "menu closed: 1 deferred update(s) resume", the
+  toggle showed the new state only after the menu was reopened.
