@@ -4362,13 +4362,12 @@ impl Connection {
                             return;
                         }
                         record_changed = false;
-                        if let Err(e) =
-                            crate::platform::change_resolution(&name, r.width as _, r.height as _)
-                        {
-                            log::info!("exact mode {}x{} not available on '{}' ({e}); trying the nearest", r.width, r.height, name);
-                            if let Err(e) = crate::platform::change_resolution_nearest(&name, r.width as _, r.height as _) {
-                                log::error!("Failed to change resolution '{}' to ({},{}): {:?}", &name, r.width, r.height, e);
-                            }
+                        if let Err(e) = crate::platform::change_resolution_nearest(
+                            &name,
+                            r.width as _,
+                            r.height as _,
+                        ) {
+                            log::error!("Fit failed on '{}' for {}x{}: {:?}", &name, r.width, r.height, e);
                         }
                         return;
                     }

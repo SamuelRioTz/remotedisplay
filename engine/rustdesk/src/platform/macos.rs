@@ -82,6 +82,7 @@ extern "C" {
     fn MacSetMode(display: u32, width: u32, height: u32, tryHiDPI: bool) -> BOOL;
     fn MacDisplayTopologyHash() -> u64;
     fn MacDisplayIsVirtual(display: u32) -> bool;
+    fn MacSetNearestMode(display: u32, want_w: u32, want_h: u32, chosen_w: *mut u32, chosen_h: *mut u32) -> bool;
     fn CGWarpMouseCursorPosition(newCursorPosition: CGPoint) -> CGError;
     fn CGAssociateMouseAndMouseCursorPosition(connected: BooleanT) -> CGError;
 }
@@ -104,28 +105,19 @@ pub fn display_is_virtual(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// remotedisplay: the client's window rarely matches one of the modes a virtual display
-/// offers exactly. Pick the largest mode that fits inside `width` x `height` (points), or
-/// the smallest mode if none fits, and set it.
-pub fn change_resolution_nearest(name: &str, width: usize, height: usize) -> ResultType<()> {
-    let modes = resolutions(name);
-    if modes.is_empty() {
-        bail!("display {name} offers no modes");
+/// remotedisplay: Fit for a virtual display. `width` x `height` are the client window's
+/// PIXELS; the mode whose pixel size best fills that window (aspect ratio first, then
+/// size) is chosen from what the display offers — an exact match when there is one. Returns
+/// the chosen pixel size.
+pub fn change_resolution_nearest(name: &str, width: usize, height: usize) -> ResultType<(u32, u32)> {
+    let display = name.parse::<u32>().map_err(|e| anyhow!(e))?;
+    let (mut w, mut h) = (0u32, 0u32);
+    let ok = unsafe { MacSetNearestMode(display, width as _, height as _, &mut w, &mut h) };
+    if !ok {
+        bail!("no usable mode on display {name} for {width}x{height}");
     }
-    let area = |r: &Resolution| (r.width as i64) * (r.height as i64);
-    let fitting = modes
-        .iter()
-        .filter(|r| r.width as usize <= width && r.height as usize <= height)
-        .max_by_key(|r| area(r));
-    let pick = match fitting {
-        Some(r) => r,
-        None => modes.iter().min_by_key(|r| area(r)).unwrap(),
-    };
-    log::info!(
-        "nearest mode for {name}: {}x{} requested, {}x{} chosen",
-        width, height, pick.width, pick.height
-    );
-    change_resolution_directly(name, pick.width as _, pick.height as _)
+    log::info!("fit on {name}: {width}x{height} px requested, {w}x{h} px chosen");
+    Ok((w, h))
 }
 
 pub fn is_process_trusted(prompt: bool) -> bool {

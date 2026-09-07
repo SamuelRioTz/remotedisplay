@@ -1035,3 +1035,54 @@ extern "C" bool MacDisplayIsVirtual(uint32_t displayID) {
     if (!anyService) return false;
     return !matched;
 }
+
+// ==================== remotedisplay: nearest mode for a virtual display ====================
+//
+// The client's Fit asks for its window's size in PIXELS. A virtual display only offers the
+// modes its creator declared plus the generic ones macOS adds (800x600, 1024x768, 1600x1200,
+// each at 1x and 2x), so an exact match is rare. Choose the mode whose pixel size best fills
+// the window: aspect ratio first (a 4:3 mode on an ultrawide window is useless however big),
+// then size. Returns the chosen pixel size; a no-op when the display is already in that mode.
+extern "C" bool MacSetNearestMode(CGDirectDisplayID display, uint32_t wantW, uint32_t wantH,
+                                  uint32_t *chosenW, uint32_t *chosenH) {
+    if (wantW == 0 || wantH == 0) return false;
+    CGDisplayModeRef current = CGDisplayCopyDisplayMode(display);
+    if (!current) return false;
+    const void *keys[] = { kCGDisplayShowDuplicateLowResolutionModes };
+    const void *vals[] = { kCFBooleanTrue };
+    CFDictionaryRef opts = CFDictionaryCreate(NULL, keys, vals, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFArrayRef modes = CGDisplayCopyAllDisplayModes(display, opts);
+    CFRelease(opts);
+    if (!modes) { CGDisplayModeRelease(current); return false; }
+    double wantAspect = (double)wantW / (double)wantH;
+    double wantArea = (double)wantW * (double)wantH;
+    CGDisplayModeRef best = NULL; double bestScore = 1e30;
+    long n = CFArrayGetCount(modes);
+    for (long i = 0; i < n; i++) {
+        CGDisplayModeRef m = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, i);
+        if (!CGDisplayModeIsUsableForDesktopGUI(m)) continue;
+        double pw = (double)CGDisplayModeGetPixelWidth(m), ph = (double)CGDisplayModeGetPixelHeight(m);
+        if (pw < 1 || ph < 1) continue;
+        double score = 3.0 * fabs(log((pw / ph) / wantAspect)) + fabs(log((pw * ph) / wantArea));
+        // Prefer the current refresh rate among equals (avoids a needless rate change).
+        if (CGDisplayModeGetRefreshRate(m) != CGDisplayModeGetRefreshRate(current)) score += 0.01;
+        // Prefer the 2x variant among equal pixel sizes (sharper text on the client).
+        if (CGDisplayModeGetPixelWidth(m) == CGDisplayModeGetWidth(m)) score += 0.001;
+        if (score < bestScore) { bestScore = score; best = m; }
+    }
+    bool ok = false;
+    if (best) {
+        *chosenW = (uint32_t)CGDisplayModeGetPixelWidth(best);
+        *chosenH = (uint32_t)CGDisplayModeGetPixelHeight(best);
+        if (CGDisplayModeGetPixelWidth(best) == CGDisplayModeGetPixelWidth(current) &&
+            CGDisplayModeGetPixelHeight(best) == CGDisplayModeGetPixelHeight(current) &&
+            CGDisplayModeGetWidth(best) == CGDisplayModeGetWidth(current)) {
+            ok = true; // already there
+        } else {
+            ok = setDisplayToMode(display, best);
+        }
+    }
+    CFRelease(modes);
+    CGDisplayModeRelease(current);
+    return ok;
+}
