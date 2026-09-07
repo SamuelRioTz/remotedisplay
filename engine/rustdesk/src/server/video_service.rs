@@ -535,6 +535,9 @@ fn get_capturer(
 
 // remotedisplay: how many capture loops are alive, and how many were ever started.
 static LIVE_VIDEO_LOOPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+// remotedisplay (macOS): consecutive capturer restarts because no frame was sent (see run()).
+#[cfg(target_os = "macos")]
+static NO_FIRST_FRAME_RESTARTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static STARTED_VIDEO_LOOPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 struct LiveVideoLoop(usize);
@@ -737,6 +740,14 @@ fn run(vs: VideoService) -> ResultType<()> {
     let repeat_encode_max = 10;
     let mut encode_fail_counter = 0;
     let mut first_frame = true;
+    // remotedisplay (macOS): whether any encoded frame reached a client from this loop.
+    // A session that starts on a static screen sometimes never shows a picture (the
+    // first capture is invalid or the hardware encoder swallows it, and a
+    // CGDisplayStream only delivers frames when something changes): the client stays
+    // black until the remote screen moves. A fresh capturer emits a fresh initial
+    // frame, so when nothing has been sent 2 s after the start the loop is restarted,
+    // a few times at most (see the check at the top of the loop).
+    let mut sent_any = false;
     let capture_width = c.width;
     let capture_height = c.height;
     let (mut second_instant, mut send_counter) = (Instant::now(), 0);
@@ -749,6 +760,23 @@ fn run(vs: VideoService) -> ResultType<()> {
     }
 
     while sp.ok() {
+        #[cfg(target_os = "macos")]
+        {
+            use std::sync::atomic::Ordering::Relaxed;
+            if sent_any {
+                NO_FIRST_FRAME_RESTARTS.store(0, Relaxed);
+            } else if start.elapsed() > Duration::from_millis(2000) {
+                let n = NO_FIRST_FRAME_RESTARTS.fetch_add(1, Relaxed);
+                if n < 3 {
+                    log::info!(
+                        "no frame sent {} ms after the capturer started: recreating it (attempt {})",
+                        start.elapsed().as_millis(),
+                        n + 1
+                    );
+                    bail!("SWITCH");
+                }
+            }
+        }
         #[cfg(windows)]
         check_uac_switch(c.privacy_mode_id, c._capturer_privacy_mode_id)?;
         check_qos(
@@ -886,6 +914,9 @@ fn run(vs: VideoService) -> ResultType<()> {
                         capture_width,
                         capture_height,
                     )?;
+                    if !send_conn_ids.is_empty() {
+                        sent_any = true;
+                    }
                     frame_controller.set_send(now, send_conn_ids);
                     send_counter += 1;
                 }
@@ -945,6 +976,9 @@ fn run(vs: VideoService) -> ResultType<()> {
                             capture_width,
                             capture_height,
                         )?;
+                        if !send_conn_ids.is_empty() {
+                            sent_any = true;
+                        }
                         frame_controller.set_send(now, send_conn_ids);
                         send_counter += 1;
                     }

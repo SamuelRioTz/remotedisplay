@@ -506,3 +506,12 @@ deferral and the launch-behaviour fix.
   1.4 s for 20+ minutes (the Windows client logged `width/height mismatch (4096,2560) !=
   (2048,1280)`; the iPad looked "crazy"). Fix: the Retina flag is part of the gate key. Broke
   the storm on the spot with `launchctl kickstart -k`.
+- **Black picture at connect, intermittent (VM, 1.0.9 server, 1.0.8 and 1.0.9 clients)**: about
+  1 in 4 fresh sessions stayed black at 15 s although the server logged the usual
+  `encode fail: no valid frame, times: 1` and nothing else; as soon as anything changed on the
+  VM's screen (the remote cursor over the Dock, Spotlight open/close) the picture appeared.
+  Client-side-only interactions (title bar, taskbar) do not help, so it is the server not
+  sending a frame: the first capture is invalid or the hardware encoder swallows it, and a
+  CGDisplayStream only delivers frames when the screen changes. Safety net in
+  `video_service::run` (macOS): if no encoded frame reached a client 2 s after the capturer
+  started, restart the loop (fresh stream = fresh initial frame), at most 3 times in a row.
