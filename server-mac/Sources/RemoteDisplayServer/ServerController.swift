@@ -544,13 +544,15 @@ final class ServerController {
     private static let helperPattern = "/Contents/MacOS/remotedisplayd --(cm|cm-no-ui)"
 
     private func pkillHelpers() {
-        pkill(Self.helperPattern)
+        // The connection manager ignores SIGTERM (a 1.0.7 one survived two of them on
+        // Sam's Mac); it has nothing to clean up, so SIGKILL it.
+        pkill(Self.helperPattern, signal: "-KILL")
     }
 
-    private func pkill(_ pattern: String) {
+    private func pkill(_ pattern: String, signal: String? = nil) {
         let k = Process()
         k.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        k.arguments = ["-f", pattern]
+        k.arguments = (signal.map { [$0] } ?? []) + ["-f", pattern]
         k.standardError = Pipe()
         try? k.run(); k.waitUntilExit()
     }
