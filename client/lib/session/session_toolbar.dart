@@ -23,6 +23,7 @@ import 'package:flutter_hbb/models/platform_model.dart' show bind;
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 
+import '../app_version.dart';
 import 'external_screen.dart';
 import 'trackpad_screen.dart';
 import 'win_events.dart';
@@ -717,6 +718,17 @@ class _SessionToolbarState extends State<SessionToolbar> {
       items.add(_header('IMAGE'));
       items.addAll(_checks(image.toList()));
     }
+    // Which build this is, at the end of the menu (support screenshots).
+    items.add(_sep());
+    items.add(PopupMenuItem<void>(
+      enabled: false,
+      height: 28,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+      child: Text(
+          'Remote Display ${AppVersion.label.value.isEmpty ? '' : AppVersion.label.value}'
+              .trim(),
+          style: const TextStyle(color: _fgDim, fontSize: 11)),
+    ));
     await _showItemsMenu(anchor, items);
   }
 

@@ -12,6 +12,7 @@ import 'package:uni_links/uni_links.dart' show getInitialLink, uriLinkStream;
 import 'package:url_launcher/url_launcher.dart' show LaunchMode, launchUrl;
 import 'package:window_manager/window_manager.dart';
 
+import 'app_version.dart';
 import 'connect_sheet.dart';
 import 'home_ui.dart';
 import 'machines.dart';
@@ -101,6 +102,7 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
     _aliases = _loadMap(_aliasKey);
     bind.mainLoadLanPeers(); // the cached ones, instantly
     UpdateCheck.run();
+    AppVersion.load();
     bind.mainLoadRecentPeers(); // identity (real hostname) of already-connected IPs
     _refresh();
     _probeTimer = Timer.periodic(_probeEvery, (_) {
@@ -721,49 +723,46 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
                 top: -140, right: -100, child: _glow(ui.accent, 380, dark)),
             Positioned(
                 bottom: -160, left: -120, child: _glow(ui.violet, 420, dark)),
-            Center(
-              child: SingleChildScrollView(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 30, horizontal: 24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 440),
-                  child: ListenableBuilder(
-                    listenable: Listenable.merge(
-                        [gFFI.lanPeersModel, gFFI.recentPeersModel, _rev]),
-                    builder: (context, _) {
-                      final machines = _machines();
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _header(ui),
-                          const SizedBox(height: 26),
-                          _sectionTitle(ui, 'YOUR COMPUTERS',
-                              trailing: _scanIndicator(ui)),
-                          const SizedBox(height: 10),
-                          _machineCards(ui, machines),
-                          const SizedBox(height: 16),
-                          _manualCard(ui, forceOpen: machines.isEmpty),
-                          const SizedBox(height: 18),
-                          Center(
-                            child: Row(
+            // Content scrolls; the footer (version, links, credits) stays at
+            // the bottom of the window, out of the way of the computers.
+            Column(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(28, 34, 28, 16),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 600),
+                        child: ListenableBuilder(
+                          listenable: Listenable.merge([
+                            gFFI.lanPeersModel,
+                            gFFI.recentPeersModel,
+                            _rev
+                          ]),
+                          builder: (context, _) {
+                            final machines = _machines();
+                            return Column(
                               mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(Icons.lock_outline,
-                                    size: 12, color: ui.muted),
-                                const SizedBox(width: 6),
-                                Text('Direct connection · no relay servers',
-                                    style: TextStyle(
-                                        color: ui.muted, fontSize: 12)),
+                                _header(ui),
+                                const SizedBox(height: 28),
+                                _sectionTitle(ui, 'YOUR COMPUTERS',
+                                    trailing: _scanIndicator(ui)),
+                                const SizedBox(height: 10),
+                                _machineCards(ui, machines),
+                                const SizedBox(height: 16),
+                                _manualCard(ui, forceOpen: machines.isEmpty),
                               ],
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                            );
+                          },
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                _footer(ui),
+              ],
             ),
             if (isDesktop) ...[
               // The window has no native title bar: a draggable top strip
@@ -834,28 +833,29 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
         ),
       );
 
-  Widget _header(HomeUi ui) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _header(HomeUi ui) => Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            children: [
-              // Brand mark: gradient tile + monitor (the same glyph as the app
-              // icon, see tools/branding/make-icons.ps1).
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [ui.accent, ui.violet],
-                  ),
-                ),
-                child: const Icon(Icons.desktop_windows_rounded,
-                    size: 21, color: Colors.white),
+          // Brand mark: gradient tile + monitor (the same glyph as the app
+          // icon, see tools/branding/make-icons.ps1).
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [ui.accent, ui.violet],
               ),
-              const SizedBox(width: 12),
+            ),
+            child: const Icon(Icons.desktop_windows_rounded,
+                size: 24, color: Colors.white),
+          ),
+          const SizedBox(width: 14),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               ShaderMask(
                 shaderCallback: (b) =>
                     LinearGradient(colors: [ui.accent, ui.violet])
@@ -863,53 +863,98 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
                 child: const Text('Remote Display',
                     style: TextStyle(
                         color: Colors.white,
-                        fontSize: 30,
+                        fontSize: 28,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: -0.8)),
+                        letterSpacing: -0.8,
+                        height: 1.1)),
               ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text('Connect to your computer',
-              style: TextStyle(color: ui.muted, fontSize: 14)),
-          const SizedBox(height: 8),
-          // About row: website, source (AGPL §13: users interacting over the
-          // network must be offered the source), contact, and attribution.
-          Wrap(
-            spacing: 14,
-            runSpacing: 4,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              _aboutLink(ui, 'remotedisplay.app', 'https://remotedisplay.app'),
-              _aboutLink(ui, 'GitHub',
-                  'https://github.com/SamuelRioTz/remotedisplay'),
-              _aboutLink(ui, 'info@remotedisplay.app',
-                  'mailto:info@remotedisplay.app'),
-              Text('Built on RustDesk · AGPL-3.0',
-                  style: TextStyle(color: ui.muted, fontSize: 12)),
-              // Newer release on GitHub (checked once per launch).
-              ValueListenableBuilder<String?>(
-                valueListenable: UpdateCheck.available,
-                builder: (_, v, __) => v == null
-                    ? const SizedBox.shrink()
-                    : _aboutLink(ui, 'Version $v available',
-                        UpdateCheck.releasesPage),
-              ),
+              const SizedBox(height: 2),
+              Text('Connect to your Mac',
+                  style: TextStyle(color: ui.muted, fontSize: 13.5)),
             ],
           ),
         ],
       );
 
-  Widget _aboutLink(HomeUi ui, String label, String url) => GestureDetector(
+  /// Bottom strip: version (so a screenshot always tells which build), the
+  /// links (website, source — AGPL §13: users interacting over the network
+  /// must be offered the source —, contact), attribution and the
+  /// direct-connection note. A newer release shows up here as a link.
+  Widget _footer(HomeUi ui) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: ui.border)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 14,
+              runSpacing: 4,
+              children: [
+                ValueListenableBuilder<String>(
+                  valueListenable: AppVersion.label,
+                  builder: (_, v, __) => Text(
+                      v.isEmpty ? 'Remote Display' : 'Remote Display $v',
+                      style: TextStyle(
+                          color: ui.fgSoft,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600)),
+                ),
+                ValueListenableBuilder<String?>(
+                  valueListenable: UpdateCheck.available,
+                  builder: (_, v, __) => v == null
+                      ? const SizedBox.shrink()
+                      : _aboutLink(ui, 'Version $v available',
+                          UpdateCheck.releasesPage,
+                          color: ui.accentSoft),
+                ),
+                Text('Built on RustDesk · AGPL-3.0',
+                    style: TextStyle(color: ui.muted, fontSize: 12)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 14,
+              runSpacing: 4,
+              children: [
+                _aboutLink(ui, 'remotedisplay.app', 'https://remotedisplay.app'),
+                _aboutLink(ui, 'GitHub',
+                    'https://github.com/SamuelRioTz/remotedisplay'),
+                _aboutLink(ui, 'info@remotedisplay.app',
+                    'mailto:info@remotedisplay.app'),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_outline, size: 12, color: ui.muted),
+                    const SizedBox(width: 5),
+                    Text('Direct connection · no relay servers',
+                        style: TextStyle(color: ui.muted, fontSize: 12)),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+  Widget _aboutLink(HomeUi ui, String label, String url, {Color? color}) =>
+      GestureDetector(
         onTap: () =>
             launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
           child: Text(label,
               style: TextStyle(
-                  color: ui.muted,
+                  color: color ?? ui.muted,
                   fontSize: 12,
-                  decoration: TextDecoration.underline)),
+                  decoration: TextDecoration.underline,
+                  decorationColor: color ?? ui.muted)),
         ),
       );
 
