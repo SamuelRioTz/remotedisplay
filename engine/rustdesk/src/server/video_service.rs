@@ -842,6 +842,18 @@ fn run(vs: VideoService) -> ResultType<()> {
             #[cfg(target_os = "macos")]
             if crate::platform::display_topology_hash() != topology {
                 wait_for_stable_topology();
+                // The display this loop captures may have changed size or position
+                // in the process (SimpleDisplay replacing the physical display with
+                // a virtual one, a mode change). Announce the new geometry before
+                // restarting, exactly like the refresh path does: it compares the
+                // old capturer with the fresh display list and sends SwitchDisplay,
+                // which makes the client recreate its decoder. Without it a hardware
+                // decoder keeps producing pictures of the old size and the client's
+                // renderer drops every frame ("width/height mismatch") until
+                // something else recreates the decoder. The refresh that
+                // connection.rs asks for on the display-list announcement cannot be
+                // relied on: it is cleared when the next loop starts.
+                let _ = try_broadcast_display_changed(&sp, display_idx, &c, true);
                 bail!("display topology changed");
             }
         }

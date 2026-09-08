@@ -2877,6 +2877,17 @@ pub fn start_video_thread<F, T>(
         let mut count = 0;
         let mut duration = std::time::Duration::ZERO;
         let mut skip_beginning = 0;
+        // remotedisplay: recovery from a decoder stuck on an old picture size. When the
+        // captured display changes size without the decoder being recreated, a
+        // hardware decoder (D3D11VA, VideoToolbox) keeps handing out pictures of the
+        // old size and the renderer refuses every one of them ("width/height
+        // mismatch"): the picture freezes while input keeps working. After a second
+        // of consecutive refusals we ask the server for a fresh keyframe and recreate
+        // the decoder when it arrives (never before: a P-frame on a new decoder would
+        // count as a failed first frame and mark the codec unsupported).
+        let mut size_mismatch_since: Option<std::time::Instant> = None;
+        let mut reset_on_next_key_frame = false;
+        let mut last_size_mismatch_refresh: Option<std::time::Instant> = None;
         loop {
             if let Ok(data) = video_receiver.recv() {
                 match data {
@@ -2918,6 +2929,18 @@ pub fn start_video_thread<F, T>(
                             let mut pixelbuffer = true;
                             let mut tmp_chroma = None;
                             let format_changed = handler.decoder.format() != format;
+                            if format_changed {
+                                // handle_frame recreates the decoder for the new format.
+                                reset_on_next_key_frame = false;
+                                size_mismatch_since = None;
+                            } else if reset_on_next_key_frame && has_key_frame(&vf) {
+                                log::info!(
+                                    "display {display}: keyframe arrived, recreating the decoder stuck on the old picture size"
+                                );
+                                handler.reset(None);
+                                reset_on_next_key_frame = false;
+                                size_mismatch_since = None;
+                            }
                             match handler.handle_frame(vf, &mut pixelbuffer, &mut tmp_chroma) {
                                 Ok(true) => {
                                     video_callback(
@@ -2926,6 +2949,30 @@ pub fn start_video_thread<F, T>(
                                         handler.texture.texture,
                                         pixelbuffer,
                                     );
+                                    if pixelbuffer {
+                                        let rejected =
+                                            session.ui_handler.rgba_size_mismatches(display);
+                                        if rejected == 0 {
+                                            size_mismatch_since = None;
+                                        } else if !reset_on_next_key_frame {
+                                            let since = *size_mismatch_since
+                                                .get_or_insert_with(std::time::Instant::now);
+                                            let cooled = last_size_mismatch_refresh
+                                                .map_or(true, |t| t.elapsed().as_secs() >= 5);
+                                            if rejected >= 5 && since.elapsed().as_secs() >= 1 && cooled {
+                                                log::warn!(
+                                                    "display {display}: {rejected} decoded frames of {}x{} refused for their size over {} ms: asking for a keyframe to recreate the decoder",
+                                                    handler.rgb.w,
+                                                    handler.rgb.h,
+                                                    since.elapsed().as_millis()
+                                                );
+                                                session.refresh_video(display as _);
+                                                reset_on_next_key_frame = true;
+                                                last_size_mismatch_refresh =
+                                                    Some(std::time::Instant::now());
+                                            }
+                                        }
+                                    }
 
                                     // chroma
                                     if tmp_chroma.is_some() && last_chroma != tmp_chroma {
@@ -2987,6 +3034,8 @@ pub fn start_video_thread<F, T>(
                         if let Some(handler) = video_handler.as_mut() {
                             handler.reset(None);
                         }
+                        reset_on_next_key_frame = false;
+                        size_mismatch_since = None;
                     }
                     MediaData::RecordScreen(start) => {
                         let id = session.lc.read().unwrap().id.clone();
@@ -3029,6 +3078,20 @@ pub fn start_audio_thread() -> MediaSender {
         log::info!("Audio decoder loop exits");
     });
     audio_sender
+}
+
+/// remotedisplay: whether any encoded frame of this message is a keyframe (the point at
+/// which a decoder can be recreated without losing the picture).
+fn has_key_frame(vf: &VideoFrame) -> bool {
+    use hbb_common::message_proto::video_frame::Union;
+    match &vf.union {
+        Some(Union::Vp8s(f))
+        | Some(Union::Vp9s(f))
+        | Some(Union::Av1s(f))
+        | Some(Union::H264s(f))
+        | Some(Union::H265s(f)) => f.frames.iter().any(|f| f.key),
+        _ => false,
+    }
 }
 
 #[inline]

@@ -279,6 +279,9 @@ struct DisplaySessionInfo {
 struct VideoRenderer {
     is_support_multi_ui_session: bool,
     map_display_sessions: Arc<RwLock<HashMap<usize, DisplaySessionInfo>>>,
+    // remotedisplay: consecutive frames per display refused because their size did not
+    // match the announced display size (see on_rgba); cleared when a frame is drawn.
+    size_mismatches: Arc<RwLock<HashMap<usize, usize>>>,
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     on_rgba_func: Option<Symbol<'static, FlutterRgbaRendererPluginOnRgba>>,
     #[cfg(feature = "vram")]
@@ -330,6 +333,7 @@ impl Default for VideoRenderer {
 
         Self {
             map_display_sessions: Default::default(),
+            size_mismatches: Default::default(),
             is_support_multi_ui_session: false,
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             on_rgba_func,
@@ -340,6 +344,16 @@ impl Default for VideoRenderer {
 }
 
 impl VideoRenderer {
+    // remotedisplay: see InvokeUiSession::rgba_size_mismatches.
+    fn size_mismatches(&self, display: usize) -> usize {
+        self.size_mismatches
+            .read()
+            .unwrap()
+            .get(&display)
+            .copied()
+            .unwrap_or(0)
+    }
+
     #[inline]
     fn set_size(&mut self, display: usize, width: usize, height: usize) {
         let mut sessions_lock = self.map_display_sessions.write().unwrap();
@@ -469,9 +483,18 @@ impl VideoRenderer {
             // Peer info's handling is async and may be late than video frame's handling
             // Allow peer info not set, but not allow wrong width/height for correct local cursor position
             if info.size != (0, 0) {
+                // remotedisplay: counted so the video thread can tell a decoder stuck
+                // on an old picture size from the transient case above.
+                *self
+                    .size_mismatches
+                    .write()
+                    .unwrap()
+                    .entry(display)
+                    .or_default() += 1;
                 return false;
             }
         }
+        self.size_mismatches.write().unwrap().remove(&display);
         if let Some(func) = &self.on_rgba_func {
             unsafe {
                 func(
@@ -858,6 +881,17 @@ impl InvokeUiSession for FlutterHandler {
 
     // unused in flutter
     fn adapt_size(&self) {}
+
+    // remotedisplay: see InvokeUiSession::rgba_size_mismatches.
+    fn rgba_size_mismatches(&self, display: usize) -> usize {
+        self.session_handlers
+            .read()
+            .unwrap()
+            .values()
+            .map(|s| s.renderer.size_mismatches(display))
+            .max()
+            .unwrap_or(0)
+    }
 
     #[inline]
     #[cfg(not(any(target_os = "android", target_os = "ios")))]

@@ -1723,6 +1723,12 @@ pub trait InvokeUiSession: Send + Sync + Clone + 'static + Sized + Default {
     fn job_progress(&self, id: i32, file_num: i32, speed: f64, finished_size: f64);
     fn adapt_size(&self);
     fn on_rgba(&self, display: usize, rgba: &mut scrap::ImageRgb);
+    /// remotedisplay: how many decoded frames of `display` in a row the renderer refused
+    /// because their size did not match the announced display size (0 once one is drawn).
+    /// The video thread uses it to recover a decoder stuck on an old picture size.
+    fn rgba_size_mismatches(&self, _display: usize) -> usize {
+        0
+    }
     fn msgbox(&self, msgtype: &str, title: &str, text: &str, link: &str, retry: bool);
     #[cfg(any(target_os = "android", target_os = "ios"))]
     fn clipboard(&self, content: String);
