@@ -149,7 +149,13 @@ Future<void> main(List<String> args) async {
   gFFI.ffiModel.updateEventListener(gFFI.sessionId, '');
   listenUniLinks();
 
-  final windowOptions = hbb.getHiddenTitleBarWindowOptions(isMainWindow: true);
+  // Native window chrome only: macOS keeps its traffic lights over a hidden
+  // title bar (home.dart draws a drag strip there), Windows shows its regular
+  // title bar. No window controls of our own, and the home is not maximizable
+  // (fixed layout, 600 px wide; see setMaximizable below).
+  final windowOptions = isWindows
+      ? WindowOptions(titleBarStyle: TitleBarStyle.normal, skipTaskbar: false)
+      : hbb.getHiddenTitleBarWindowOptions(isMainWindow: true);
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     await restoreWindowPosition(WindowType.Main);
     // Direct launch (`remotedisplay --connect <ip> [--password <pw>]`,
@@ -167,6 +173,7 @@ Future<void> main(List<String> args) async {
     await windowManager.setOpacity(1);
     await windowManager.setTitle('Remote Display');
     setResizable(true);
+    await windowManager.setMaximizable(false);
   });
 }
 

@@ -78,6 +78,12 @@ class MainFlutterWindow: NSWindow {
         }
 
         super.awakeFromNib()
+        // remotedisplay: the home window keeps the native traffic lights and
+        // nothing else; it is not maximizable (fixed layout), so the zoom
+        // button is disabled and full screen is off. Session windows are
+        // separate NSWindows (desktop_multi_window) and are not affected.
+        self.standardWindowButton(.zoomButton)?.isEnabled = false
+        self.collectionBehavior.insert(.fullScreenNone)
     }
 
     override public func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {

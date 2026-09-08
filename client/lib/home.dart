@@ -8,6 +8,8 @@ import 'package:flutter_hbb/common.dart' hide Dialog;
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
+import 'package:flutter_hbb/utils/multi_window_manager.dart';
+import 'package:flutter_hbb/utils/platform_channel.dart';
 import 'package:uni_links/uni_links.dart' show getInitialLink, uriLinkStream;
 import 'package:url_launcher/url_launcher.dart' show LaunchMode, launchUrl;
 import 'package:window_manager/window_manager.dart';
@@ -41,7 +43,8 @@ class ClientHome extends StatefulWidget {
   State<ClientHome> createState() => _ClientHomeState();
 }
 
-class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
+class _ClientHomeState extends State<ClientHome>
+    with WidgetsBindingObserver, WindowListener {
   static const _manualKey = 'rd-manual-routes';
   static const _preferredKey = 'rd-preferred-routes';
   static const _aliasKey = 'rd-aliases';
@@ -84,6 +87,7 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (isDesktop) windowManager.addListener(this);
     // Reinforce showing the main window once the first frame is mounted
     // (see note in main.dart / RESULT of the handoff about standalone visibility).
     if (isDesktop) {
@@ -147,6 +151,7 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (isDesktop) windowManager.removeListener(this);
     gFFI.lanPeersModel.removeListener(_onPeersChanged);
     gFFI.recentPeersModel.removeListener(_onPeersChanged);
     _linkSub?.cancel();
@@ -156,6 +161,25 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
     _ip.dispose();
     _pw.dispose();
     super.dispose();
+  }
+
+  /// The native close button quits the app (main.dart keeps preventClose on
+  /// so the window is not torn down under the sessions): save the window
+  /// position, close the session windows gracefully, then let the window go.
+  /// macOS keeps the process alive after its last window, so it is
+  /// terminated explicitly there.
+  @override
+  void onWindowClose() async {
+    if (!await windowManager.isPreventClose()) return;
+    try {
+      await saveWindowPosition(WindowType.Main);
+      await rustDeskWinManager.closeAllSubWindows();
+    } catch (e) {
+      debugPrint('[client home] closing the session windows failed: $e');
+    }
+    await windowManager.setPreventClose(false);
+    await windowManager.close();
+    if (isMacOS) RdPlatformChannel.instance.terminate();
   }
 
   /// Back from another app / the network may have changed (iPad leaving home):
@@ -764,9 +788,11 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
                 _footer(ui),
               ],
             ),
-            if (isDesktop) ...[
-              // The window has no native title bar: a draggable top strip
-              // + our own window controls.
+            if (isMacOS)
+              // The window keeps the native controls only: on macOS the
+              // traffic lights sit over a hidden title bar, so this strip is
+              // where the bar would be and lets the window be dragged; on
+              // Windows the regular title bar does all of that (main.dart).
               Positioned(
                 top: 0,
                 left: 0,
@@ -775,48 +801,10 @@ class _ClientHomeState extends State<ClientHome> with WidgetsBindingObserver {
                 child: DragToMoveArea(
                     child: Container(color: Colors.transparent)),
               ),
-              Positioned(
-                top: 10,
-                right: 10,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _winBtn(ui, Icons.minimize_rounded, 'Minimize',
-                        () => windowManager.minimize()),
-                    const SizedBox(width: 4),
-                    _winBtn(ui, Icons.close_rounded, 'Close', _closeApp,
-                        danger: true),
-                  ],
-                ),
-              ),
-            ],
           ],
         ),
       ),
     );
-  }
-
-  Widget _winBtn(
-          HomeUi ui, IconData icon, String tooltip, VoidCallback onTap,
-          {bool danger = false}) =>
-      Tooltip(
-        message: tooltip,
-        waitDuration: const Duration(milliseconds: 400),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: onTap,
-          hoverColor:
-              danger ? const Color(0x33E5484D) : ui.border,
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(icon, size: 16, color: ui.muted),
-          ),
-        ),
-      );
-
-  Future<void> _closeApp() async {
-    await windowManager.setPreventClose(false);
-    await windowManager.close();
   }
 
   Widget _glow(Color color, double size, bool dark) => IgnorePointer(
