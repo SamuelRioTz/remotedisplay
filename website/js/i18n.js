@@ -5,6 +5,11 @@
   let currentLang = 'en';
 
   function detectLanguage() {
+    // ?lang=es|de|en wins: shareable links to a language, and headless renders.
+    try {
+      const fromUrl = new URLSearchParams(location.search).get('lang');
+      if (fromUrl && SUPPORTED.includes(fromUrl)) return fromUrl;
+    } catch (e) { /* no URL API */ }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved && SUPPORTED.includes(saved)) return saved;

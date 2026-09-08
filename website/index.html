@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Remote Display — Remote desktop for your Mac with monitors that fit your window</title>
-    <meta name="description" content="Self-hosted remote desktop for macOS from Windows, iPad or another Mac, built on the RustDesk engine. Virtual monitors that resize to your window, per-monitor scale, no accounts, no cloud. Free software (AGPL-3.0).">
+    <title>Remote Display — Remote desktop for your Mac, no accounts, no cloud</title>
+    <meta name="description" content="Self-hosted remote desktop for macOS from Windows, iPad or another Mac, built on the RustDesk engine. Direct connection on your LAN or Tailscale, no accounts, no relay. Pairs with SimpleDisplay for virtual displays the size of your window. Free software (AGPL-3.0).">
     <meta name="theme-color" content="#0A0A0F">
     <link rel="canonical" href="https://remotedisplay.app/">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://remotedisplay.app/">
     <meta property="og:site_name" content="Remote Display">
-    <meta property="og:title" content="Remote Display — Remote desktop for your Mac with monitors that fit your window">
-    <meta property="og:description" content="Self-hosted remote desktop for macOS from Windows, iPad or another Mac, built on the RustDesk engine. Virtual monitors that resize to your window, per-monitor scale, no accounts, no cloud. Free software (AGPL-3.0).">
+    <meta property="og:title" content="Remote Display — Remote desktop for your Mac, no accounts, no cloud">
+    <meta property="og:description" content="Self-hosted remote desktop for macOS from Windows, iPad or another Mac, built on the RustDesk engine. Direct connection on your LAN or Tailscale, no accounts, no relay. Pairs with SimpleDisplay for virtual displays the size of your window. Free software (AGPL-3.0).">
     <meta property="og:image" content="https://remotedisplay.app/assets/og.jpg">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="Two Remote Display windows, each showing one monitor of a Mac">
+    <meta property="og:image:alt" content="Two Remote Display windows, each showing one display of a Mac">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Remote Display — Remote desktop for your Mac with monitors that fit your window">
-    <meta name="twitter:description" content="Self-hosted remote desktop for macOS, built on RustDesk. Virtual monitors that resize to your window. No accounts, no cloud. AGPL-3.0.">
+    <meta name="twitter:title" content="Remote Display — Remote desktop for your Mac, no accounts, no cloud">
+    <meta name="twitter:description" content="Self-hosted remote desktop for macOS, built on RustDesk. Direct connection, no accounts, no relay. Pairs with SimpleDisplay for displays that fit your window. AGPL-3.0.">
     <meta name="twitter:image" content="https://remotedisplay.app/assets/og.jpg">
     <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -139,7 +139,33 @@
         .feature-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
         .feature-card p { font-size: 13px; color: var(--muted); line-height: 1.6; }
 
-        /* Why: two-column with before/after illustration */
+        /* Perfect fit: Remote Display + SimpleDisplay */
+        .pair { padding: 80px 0; }
+        .pair-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
+        .pair-head { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+        .pair-head img { width: 56px; height: 56px; border-radius: 14px; flex-shrink: 0; box-shadow: 0 8px 24px rgba(59,130,246,0.25); }
+        .pair-head h2 { font-size: 32px; font-weight: 700; line-height: 1.2; letter-spacing: -0.5px; }
+        .pair-content > p { color: var(--muted); font-size: 15px; margin-bottom: 16px; line-height: 1.7; }
+        .pair-cta { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+        .pair-link { color: var(--muted); text-decoration: none; font-size: 14px; }
+        .pair-link:hover { color: var(--text); }
+
+        /* Why: the path between you and your Mac */
+        .paths { display: grid; gap: 16px; }
+        .path {
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            padding: 18px; background: #0D0D14; border: 1px solid var(--border); border-radius: 12px;
+        }
+        .node {
+            padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+            background: var(--card); font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap;
+        }
+        .node.dim { color: var(--muted); border-style: dashed; }
+        .node.hi { border-color: transparent; background: var(--gradient); color: white; }
+        .arrow { color: var(--muted); font-size: 14px; }
+        .arrow.direct { color: var(--green); }
+
+        /* Before/after illustration (used in the SimpleDisplay section) */
         .why { padding: 80px 0; }
         .why-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
         .why-content h2 { font-size: 32px; font-weight: 700; margin-bottom: 16px; line-height: 1.2; letter-spacing: -0.5px; }
@@ -280,7 +306,7 @@
 
         .icon { width: 18px; height: 18px; flex-shrink: 0; }
         /* grid children must be allowed to shrink below their content (the <pre>-like terminal) */
-        .feature-grid > *, .why-grid > *, .how-grid > *, .get-started-grid > *, .limitations-grid > *, .compare > * { min-width: 0; }
+        .feature-grid > *, .why-grid > *, .how-grid > *, .pair-grid > *, .paths > *, .get-started-grid > *, .limitations-grid > *, .compare > * { min-width: 0; }
 
         @media (max-width: 860px) {
             .feature-grid { grid-template-columns: 1fr 1fr; }
@@ -306,7 +332,7 @@
             .hero-shot { margin-top: 40px; border-radius: 12px; }
 
             .stats { padding: 40px 0 48px; }
-            .features, .why, .how, .get-started, .download { padding: 56px 0; }
+            .features, .why, .how, .pair, .get-started, .download { padding: 56px 0; }
             .dl-host { flex-direction: column; align-items: stretch; padding: 24px; border-radius: 16px; }
             .dl-host .btn { justify-content: center; }
             .limitations { padding: 48px 0; }
@@ -317,6 +343,9 @@
             .feature-grid { grid-template-columns: 1fr; }
             .why-grid { grid-template-columns: 1fr; gap: 40px; }
             .how-grid { grid-template-columns: 1fr; gap: 40px; }
+            .pair-grid { grid-template-columns: 1fr; gap: 40px; }
+            .pair-head h2 { font-size: 24px; }
+            .pair-head img { width: 44px; height: 44px; border-radius: 11px; }
             .get-started-grid { grid-template-columns: 1fr; }
             .limitations-grid { grid-template-columns: 1fr; }
 
@@ -359,6 +388,7 @@
         <div class="nav-links">
             <a href="#features" data-i18n="nav_features">Features</a>
             <a href="#how-it-works" data-i18n="nav_how">How it works</a>
+            <a href="#simpledisplay" data-i18n="nav_pair">SimpleDisplay</a>
             <a href="#get-started" data-i18n="nav_start">Get started</a>
             <a href="#download" data-i18n="nav_download">Download</a>
             <a href="https://github.com/SamuelRioTz/remotedisplay" class="btn btn-ghost nav-github">
@@ -377,8 +407,8 @@
 <section class="hero">
     <div class="container">
         <div class="hero-badge" data-i18n="hero_badge">Open source &middot; Built on RustDesk &middot; AGPL-3.0</div>
-        <h1><span data-i18n="hero_title_1">A remote Mac that</span><br><span class="grad" data-i18n="hero_title_2">fits your window.</span></h1>
-        <p data-i18n-html="hero_subtitle">Remote desktop for your Mac from Windows, iPad or another Mac, built on the open-source RustDesk engine, with <strong>virtual monitors that resize to the window you are looking at</strong>. Self-hosted: no accounts, no cloud.</p>
+        <h1><span data-i18n="hero_title_1">Your Mac,</span><br><span class="grad" data-i18n="hero_title_2">on whatever screen you have.</span></h1>
+        <p data-i18n-html="hero_subtitle">Remote desktop for your Mac from Windows, iPad or another Mac, built on the open-source RustDesk engine. <strong>Direct connection on your LAN or Tailscale, no accounts, no cloud.</strong> The Mac's displays, as they are, in one window or several.</p>
         <div class="hero-cta">
             <a href="#download" class="btn btn-primary">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
@@ -391,7 +421,7 @@
         </div>
         <figure class="hero-shot">
             <img src="assets/two-windows.webp" width="1630" height="785" alt="Two Remote Display windows on Windows 11, each showing one monitor of the same Mac">
-            <figcaption data-i18n="hero_caption">Two monitors of one Mac, each in its own window. The Mac's desktop is exactly the size of each window.</figcaption>
+            <figcaption data-i18n="hero_caption">Two displays of one Mac, each in its own window — or all of them at once.</figcaption>
         </figure>
     </div>
 </section>
@@ -404,8 +434,8 @@
                 <div class="stat-label" data-i18n="stat_clients_label">Windows &middot; macOS &middot; Android &middot; iOS</div>
             </div>
             <div class="stat">
-                <div class="stat-value" data-i18n="stat_scale">200 %</div>
-                <div class="stat-label" data-i18n="stat_scale_label">Retina scale per monitor</div>
+                <div class="stat-value" data-i18n="stat_scale">2&times;</div>
+                <div class="stat-label" data-i18n="stat_scale_label">Retina capture, hardware H.265</div>
             </div>
             <div class="stat">
                 <div class="stat-value" data-i18n="stat_accounts">0</div>
@@ -422,43 +452,43 @@
 <section class="features" id="features">
     <div class="container">
         <div class="section-label" data-i18n="features_label">Features</div>
-        <h2 class="section-title" data-i18n="features_title">The screen adapts to you, not the other way around</h2>
-        <p class="section-desc" data-i18n="features_desc">Everything a remote desktop should do, plus the one thing none of them did: monitors the size of your window.</p>
+        <h2 class="section-title" data-i18n="features_title">Everything a remote desktop should do, without the account</h2>
+        <p class="section-desc" data-i18n="features_desc">Direct, discovered, notarized and open source. The Mac's monitors stay the Mac's business.</p>
         <div class="feature-grid">
             <div class="feature-card">
                 <div class="feature-icon">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><path d="M7 8h3M7 8v3M17 12h-3M17 12V9"/></svg>
                 </div>
-                <h3 data-i18n="feat_fit_title">Monitors that fit</h3>
-                <p data-i18n="feat_fit_desc">Create a virtual monitor from the client: it is born at your window's size. Fit to screen resizes it in place at any time; the display ID never changes, so the session never blinks.</p>
+                <h3 data-i18n="feat_fit_title">Any display, any window</h3>
+                <p data-i18n="feat_fit_desc">Pick which of the Mac's displays you see, open each one in its own window, or show them all at once on the desktop clients.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon purple">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="13" height="10" rx="2"/><rect x="9" y="9" width="13" height="10" rx="2"/></svg>
                 </div>
-                <h3 data-i18n="feat_dyn_title">Dynamic physical monitor</h3>
-                <p data-i18n="feat_dyn_desc">Fit to screen on the Mac's real display mirrors it onto a virtual main that follows your window. Flip the switch on the physical monitor to get it back.</p>
+                <h3 data-i18n="feat_dyn_title">Perfect fit with SimpleDisplay</h3>
+                <p data-i18n-html="feat_dyn_desc">Want a display the size of your window? Add a virtual display on the Mac with <a href="https://simpledisplay.app">SimpleDisplay</a>, our free, open-source display manager, and hit Fit in the client. Remote Display shows it like any other display and never changes your Mac's configuration on its own. <a href="#simpledisplay">How they fit together &rarr;</a></p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5M11 8v6M8 11h6"/></svg>
                 </div>
-                <h3 data-i18n="feat_scale_title">Scale per monitor</h3>
-                <p data-i18n="feat_scale_desc">100, 125, 150 or 200 %, like Windows display scaling. Retina (2× backing) when macOS allows it, otherwise the same scale with fewer points.</p>
+                <h3 data-i18n="feat_scale_title">Finds your Mac, at home and away</h3>
+                <p data-i18n="feat_scale_desc">Computers on your LAN show up by themselves, and the Mac tells clients its Tailscale address, so it stays reachable from other networks. Pick the network per computer; passwords are remembered per address.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon green">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="12" height="16" rx="2"/><path d="M8 17h.01"/><rect x="16" y="7" width="6" height="9" rx="1"/><path d="M17 19h4"/></svg>
                 </div>
-                <h3 data-i18n="feat_profile_title">Profiles per client</h3>
-                <p data-i18n="feat_profile_desc">Your PC and your iPad each remember their own monitor layout and apply it when they connect, even after the server restarts.</p>
+                <h3 data-i18n="feat_profile_title">iPad with an external monitor</h3>
+                <p data-i18n="feat_profile_desc">On an iPad, put one of the Mac's displays on the connected monitor and keep another one on the iPad, with trackpad-style touch input.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon purple">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 2.4 3.4-.4.4 3.4L21 9.6 18.6 12 21 14.4l-2.8 2.2-.4 3.4-3.4-.4L12 22l-2.4-2.4-3.4.4-.4-3.4L3 14.4 5.4 12 3 9.6l2.8-2.2.4-3.4 3.4.4z"/><path d="M9 12l2 2 4-4"/></svg>
                 </div>
-                <h3 data-i18n="feat_multi_title">Multi-window</h3>
-                <p data-i18n="feat_multi_desc">Open any monitor in its own window, or show them all at once. Monitors are numbered in order; the trash icon removes a virtual one.</p>
+                <h3 data-i18n="feat_multi_title">Notarized and open source</h3>
+                <p data-i18n="feat_multi_desc">The server and the Mac client are signed with a Developer ID and notarized by Apple. Everything is AGPL-3.0 on GitHub, built on RustDesk 1.4.9.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon green">
@@ -471,30 +501,84 @@
     </div>
 </section>
 
+<section class="pair" id="simpledisplay">
+    <div class="container">
+        <div class="pair-grid">
+            <div class="pair-content">
+                <div class="section-label" style="text-align:left;" data-i18n="pair_label">Perfect fit</div>
+                <div class="pair-head">
+                    <img src="assets/simpledisplay-logo.png" width="56" height="56" alt="SimpleDisplay">
+                    <h2><span data-i18n="pair_title_1">Remote Display shows the Mac. </span><span class="grad" data-i18n="pair_title_2">SimpleDisplay shapes it.</span></h2>
+                </div>
+                <p data-i18n="pair_desc">SimpleDisplay is our other app: a free, open-source menu-bar tool that creates virtual displays on the Mac at any resolution, mirrors the physical monitor onto them or turns it off. Remote Display streams whatever displays the Mac has. Together they do what a remote desktop alone cannot: a Mac display that is exactly the size of the window you are looking at.</p>
+                <div class="how-detail">
+                    <h4 data-i18n="pair_1_title">A display the size of your window</h4>
+                    <p data-i18n="pair_1_desc">Create a virtual display in SimpleDisplay, Retina or not. In the Remote Display client, Fit picks the mode of that display closest to your window, so the Mac's desktop fills it: no black bars, no scrolling.</p>
+                </div>
+                <div class="how-detail">
+                    <h4 data-i18n="pair_2_title">One display: the one you see</h4>
+                    <p data-i18n="pair_2_desc">Mirror the Mac's physical monitor onto the virtual one, or turn it off for real, from SimpleDisplay's menu or its CLI over SSH. Remote Display follows every change and tells the clients right away.</p>
+                </div>
+                <div class="how-detail">
+                    <h4 data-i18n="pair_3_title">Same author, same principles</h4>
+                    <p data-i18n="pair_3_desc">Both apps are free software, signed with a Developer ID and notarized by Apple, and neither needs an account or a server. SimpleDisplay is under 2 MB and lives in the menu bar.</p>
+                </div>
+                <div class="pair-cta">
+                    <a href="https://simpledisplay.app" class="btn btn-primary">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                        <span data-i18n="pair_btn">Get SimpleDisplay (free)</span>
+                    </a>
+                    <a href="https://simpledisplay.app" class="pair-link" data-i18n="pair_link">simpledisplay.app &rarr;</a>
+                </div>
+            </div>
+            <div class="compare" aria-hidden="true">
+                <div class="cmp">
+                    <div class="cmp-label" data-i18n="pair_before">Any remote desktop</div>
+                    <div class="win">
+                        <div class="win-bar"><i></i><i></i><i></i></div>
+                        <div class="win-body"><div class="screen fixed"></div></div>
+                    </div>
+                    <p data-i18n="pair_before_desc">A fixed desktop squeezed into your window: black bars, scrolling, or tiny text.</p>
+                </div>
+                <div class="cmp">
+                    <div class="cmp-label grad" data-i18n="pair_after">Remote Display + SimpleDisplay</div>
+                    <div class="win">
+                        <div class="win-bar"><i></i><i></i><i></i></div>
+                        <div class="win-body"><div class="screen fit"></div></div>
+                    </div>
+                    <p data-i18n="pair_after_desc">The Mac gets a virtual display your window's size, and Fit keeps it that way.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
 <section class="why" id="why">
     <div class="container">
         <div class="why-grid">
             <div class="why-content">
                 <div class="section-label" style="text-align:left;" data-i18n="why_label">Why</div>
-                <h2><span data-i18n="why_title_1">Every remote desktop shows a screen </span><span class="grad" data-i18n="why_title_2">that is never the right shape.</span></h2>
-                <p data-i18n="why_desc">Black bars, scrolling, or a tiny picture of a 4K display. Virtual machines solved this years ago: in Tart the guest display simply becomes the size of your window. Remote Display started as a fork of RustDesk to control a Mac Studio from a Windows PC over Tailscale, and does that for a real Mac: it creates virtual monitors on the host and keeps them the size of the window you are looking at. It can make the Mac's physical monitor dynamic too.</p>
+                <h2><span data-i18n="why_title_1">Remote desktops want an account, an ID </span><span class="grad" data-i18n="why_title_2">and a relay in the middle.</span></h2>
+                <p data-i18n="why_desc">Remote Display started as a fork of RustDesk to control a Mac Studio from a Windows PC over Tailscale without signing up anywhere: a direct connection with a password, machines discovered on the LAN, and the same Mac reachable from outside. It shows the Mac's displays as they are; the monitors themselves are configured on the Mac — with SimpleDisplay if you want virtual ones.</p>
             </div>
-            <div class="compare" aria-hidden="true">
+            <div class="paths" aria-hidden="true">
                 <div class="cmp">
                     <div class="cmp-label" data-i18n="why_before">Other tools</div>
-                    <div class="win">
-                        <div class="win-bar"><i></i><i></i><i></i></div>
-                        <div class="win-body"><div class="screen fixed"></div></div>
+                    <div class="path">
+                        <span class="node" data-i18n="why_you">You</span><span class="arrow">&rarr;</span>
+                        <span class="node dim" data-i18n="why_account">Account</span><span class="arrow">&rarr;</span>
+                        <span class="node dim" data-i18n="why_relay">Relay</span><span class="arrow">&rarr;</span>
+                        <span class="node" data-i18n="why_mac">Your Mac</span>
                     </div>
-                    <p data-i18n="why_before_desc">A fixed desktop squeezed into your window: black bars, scrolling, or tiny text.</p>
+                    <p data-i18n="why_before_desc">An account, a device ID and a relay server between you and your own Mac.</p>
                 </div>
                 <div class="cmp">
                     <div class="cmp-label grad" data-i18n="why_after">Remote Display</div>
-                    <div class="win">
-                        <div class="win-bar"><i></i><i></i><i></i></div>
-                        <div class="win-body"><div class="screen fit"></div></div>
+                    <div class="path">
+                        <span class="node" data-i18n="why_you">You</span><span class="arrow direct">&rarr;</span>
+                        <span class="node hi" data-i18n="why_mac">Your Mac</span>
                     </div>
-                    <p data-i18n="why_after_desc">The Mac gets a virtual monitor with your window's exact size. Resize the window and the monitor follows.</p>
+                    <p data-i18n="why_after_desc">Your Mac, its password, your network. Nothing else in between.</p>
                 </div>
             </div>
         </div>
@@ -506,19 +590,19 @@
         <div class="how-grid">
             <div class="how-content">
                 <div class="section-label" style="text-align:left;" data-i18n="how_label">How it works</div>
-                <h2><span data-i18n="how_title_1">RustDesk underneath, </span><span class="grad" data-i18n="how_title_2">virtual monitors on top</span></h2>
-                <p data-i18n="how_desc">Remote Display is a fork of RustDesk 1.4.9. The engine, the protocol and the client plumbing are RustDesk's; the native virtual display backend for macOS, the per-monitor scale and the per-client profiles are what this project adds.</p>
+                <h2><span data-i18n="how_title_1">RustDesk underneath, </span><span class="grad" data-i18n="how_title_2">a Mac-first server and clients on top</span></h2>
+                <p data-i18n="how_desc">Remote Display is a fork of RustDesk 1.4.9. The engine, the protocol and the client plumbing are RustDesk's; the serverless discovery, the Tailscale-aware clients, the macOS menu-bar server and the stability work for mirrored displays are what this project adds.</p>
                 <div class="how-detail">
                     <h4 data-i18n="how_rustdesk_title">From RustDesk</h4>
                     <p data-i18n="how_rustdesk_desc">Screen capture, video encoding, input injection and the encrypted direct connection all come from the RustDesk engine, vendored with its changes documented in the repository. Remote Display would not exist without it.</p>
                 </div>
                 <div class="how-detail">
                     <h4 data-i18n="how_server_title">Server (macOS 14+)</h4>
-                    <p data-i18n-html="how_server_desc">A menu-bar app bundling the engine. Virtual monitors are <code>CGVirtualDisplay</code>s created in-process and resized in place, so their IDs stay stable and the session never blinks. Each one keeps a stable identity, which is what stops macOS from generating a new ICC profile per display (the ColorSync leak).</p>
+                    <p data-i18n-html="how_server_desc">A menu-bar app bundling the engine as a per-user service. It shows the Mac's displays as macOS reports them — physical ones and any virtual display you add with SimpleDisplay — and ignores the reconfiguration noise a hardware mirror produces, so a mirrored display no longer restarts the video every second.</p>
                 </div>
                 <div class="how-detail">
                     <h4 data-i18n="how_client_title">Client</h4>
-                    <p data-i18n="how_client_desc">A Flutter app on top of the same engine. It owns the monitor profile for each Mac it connects to and reconciles the server with it on connect.</p>
+                    <p data-i18n="how_client_desc">A Flutter app on top of the same engine: known computers with their addresses and which of them answer from where you are, one password per address, a display menu with open-in-new-window and all displays, and hardware H.265 decoding where the device has it.</p>
                 </div>
                 <div class="how-detail">
                     <h4 data-i18n="how_transport_title">Transport</h4>
@@ -526,7 +610,7 @@
                 </div>
                 <div class="how-detail">
                     <h4 data-i18n="how_measured_title">Measured, not assumed</h4>
-                    <p data-i18n="how_measured_desc">macOS 26 has quirks around virtual displays (HiDPI mode selection, mirror sets dissolving on mode changes, per-process display lists). The repository keeps the harnesses that measured them.</p>
+                    <p data-i18n="how_measured_desc">macOS 26 has quirks around display reconfiguration (mirror sets, per-process display lists, capture streams that go silent). The repository keeps the harnesses and VM notes that measured them.</p>
                 </div>
                 <a href="https://github.com/SamuelRioTz/remotedisplay#how-it-works" class="btn btn-outline" style="margin-top:8px;">
                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
@@ -540,15 +624,15 @@
                         <div class="terminal-dot"></div>
                         <div class="terminal-dot"></div>
                     </div>
-                    <div class="terminal-body"><span class="t-cmt"># what the client asks the Mac to do</span>
-<span class="t-ok">&#10003;</span> <span class="t-txt">Connected</span>            mac-studio.local:21118
-<span class="t-ok">&#10003;</span> <span class="t-txt">Create virtual monitor</span> <span class="t-blue">1304&times;721</span> &middot; 100 %
-<span class="t-ok">&#10003;</span> <span class="t-txt">Fit to screen</span>          <span class="t-blue">1920&times;1010</span> &middot; <span class="t-purple">200 % Retina</span>
-<span class="t-ok">&#10003;</span> <span class="t-txt">Profile saved</span>          this client, this Mac
+                    <div class="terminal-body"><span class="t-cmt"># what the client sees</span>
+<span class="t-ok">&#10003;</span> <span class="t-txt">Connected</span>   mac-studio.local:21118 &middot; <span class="t-blue">direct, no relay</span>
+<span class="t-ok">&#10003;</span> <span class="t-txt">Displays</span>    2 &middot; as macOS reports them
+<span class="t-ok">&#10003;</span> <span class="t-txt">Codec</span>       H.265 &middot; <span class="t-purple">VideoToolbox</span> on the Mac, hardware decode here
+<span class="t-ok">&#10003;</span> <span class="t-txt">Fit</span>         Display 2 &rarr; the mode closest to this window
 
-<span class="t-txt">MONITORS</span>
-  <span class="t-ok">&#9679;</span> Monitor 1  <span class="t-cmt">physical</span>  1920&times;1080          on
-  <span class="t-ok">&#9679;</span> Monitor 2  <span class="t-purple">virtual</span>   1920&times;1010 &middot; 200 %  <span class="t-blue">&larr; here</span></div>
+<span class="t-txt">DISPLAYS</span>
+  <span class="t-ok">&#9679;</span> Display 1  <span class="t-cmt">physical</span>  2560&times;1440
+  <span class="t-ok">&#9679;</span> Display 2  <span class="t-purple">virtual</span>   3440&times;1440 &middot; SimpleDisplay  <span class="t-blue">&larr; here</span></div>
                 </div>
             </div>
         </div>
@@ -564,7 +648,7 @@
             <div class="start-card primary">
                 <div class="tag"><span class="dot"></span> <span data-i18n="start_step1">Step 1 &middot; on the Mac</span></div>
                 <h3 data-i18n="start_server_title">Install the server</h3>
-                <p data-i18n="start_server_desc">Install Remote Display Server from the DMG, turn the service on, grant Screen Recording and Accessibility, and set a password. It lives in the menu bar.</p>
+                <p data-i18n-html="start_server_desc">Install Remote Display Server from the DMG, turn the service on, grant Screen Recording and Accessibility, and set a password. It lives in the menu bar. Want a virtual display? Add it with <a href="https://simpledisplay.app">SimpleDisplay</a>; it shows up as one more display.</p>
                 <div class="note-box">
                     <h4 data-i18n="start_first_launch">First launch</h4>
                     <p data-i18n-html="start_first_launch_desc">The DMGs are signed with a Developer ID and notarized by Apple, so macOS opens them without warnings. The server then asks once for Screen Recording and Accessibility in <strong>System Settings &rarr; Privacy &amp; Security</strong>.</p>
@@ -577,7 +661,7 @@
             <div class="start-card">
                 <div class="tag purple"><span class="dot"></span> <span data-i18n="start_step2">Step 2 &middot; on your PC, tablet or phone</span></div>
                 <h3 data-i18n="start_client_title">Install a client</h3>
-                <p data-i18n="start_client_desc">Connect to the Mac's IP on port 21118 with that password. Machines on the same LAN show up by themselves. Then open the display menu in the toolbar: create a virtual monitor, hit Fit to screen, pick a scale.</p>
+                <p data-i18n="start_client_desc">Connect to the Mac's IP on port 21118 with that password, or tap it in Your computers. Then open the display menu in the toolbar: pick a display, open it in a new window, or show all of them.</p>
                 <a href="#download" class="btn btn-outline" style="justify-content:center;">
                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
                     <span data-i18n="start_client_btn">All downloads</span>
@@ -597,7 +681,7 @@
             <div>
                 <div class="tag"><span class="dot"></span> <span data-i18n="dl_host_tag">Host &middot; Apple silicon Mac &middot; macOS 14 or newer</span></div>
                 <h3 data-i18n="dl_host_title">Remote Display Server</h3>
-                <p data-i18n="dl_host_desc">A menu-bar app for the Mac you connect to. Signed ad hoc for now: right-click &rarr; Open the first time.</p>
+                <p data-i18n="dl_host_desc">A menu-bar app for the Mac you connect to. Signed with a Developer ID and notarized by Apple.</p>
             </div>
             <a href="https://github.com/SamuelRioTz/remotedisplay/releases/latest" class="btn btn-primary" data-asset="mac-server">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
@@ -647,15 +731,15 @@
     <div class="container">
         <div class="section-label" data-i18n="lim_label">Good to know</div>
         <h2 class="section-title" data-i18n="lim_title">Known limitations</h2>
-        <p class="section-desc" data-i18n="lim_desc">Remote Display uses a private Apple API and talks directly to your Mac. Here's what that means in practice.</p>
+        <p class="section-desc" data-i18n="lim_desc">Remote Display talks directly to your Mac. Here's what that means in practice.</p>
         <div class="limitations-grid">
             <div class="limitation-item">
                 <svg class="lim-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-                <p data-i18n="lim_1">Retina (2×) virtual monitors need a requested width of at least 1920 pixels; below that macOS 26 only offers the 1× variant and the scale is emulated with fewer points.</p>
+                <p data-i18n-html="lim_1">Remote Display does not create virtual monitors or change the Mac's display configuration: use <a href="https://simpledisplay.app">SimpleDisplay</a> or macOS for that; the client shows whatever displays the Mac has.</p>
             </div>
             <div class="limitation-item">
                 <svg class="lim-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-                <p data-i18n-html="lim_2"><code>CGVirtualDisplay</code> is a private API: no Mac App Store, and behaviour may change between macOS versions.</p>
+                <p data-i18n="lim_2">"All displays" is available on the desktop clients (Windows, macOS); the iPad shows one display at a time, plus one on an external monitor.</p>
             </div>
             <div class="limitation-item">
                 <svg class="lim-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
@@ -663,7 +747,7 @@
             </div>
             <div class="limitation-item">
                 <svg class="lim-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-                <p data-i18n="lim_4">macOS builds are Apple silicon only for now and signed ad hoc; right-click → Open the first time. The iOS build uses development signing.</p>
+                <p data-i18n="lim_4">macOS builds are Apple silicon only for now. The server and the Mac client are notarized; the iOS build uses development signing.</p>
             </div>
         </div>
     </div>
@@ -699,7 +783,7 @@
 
 <footer>
     <div class="container">
-        <p data-i18n-html="footer">&copy; 2026 Remote Display &middot; Licensed under <a href="https://github.com/SamuelRioTz/remotedisplay/blob/main/LICENSE">AGPL-3.0</a> &middot; Built on a modified copy of <a href="https://github.com/rustdesk/rustdesk">RustDesk</a> &middot; <a href="mailto:info@remotedisplay.app">info@remotedisplay.app</a></p>
+        <p data-i18n-html="footer">&copy; 2026 Remote Display &middot; Licensed under <a href="https://github.com/SamuelRioTz/remotedisplay/blob/main/LICENSE">AGPL-3.0</a> &middot; Built on a modified copy of <a href="https://github.com/rustdesk/rustdesk">RustDesk</a> &middot; Pairs with <a href="https://simpledisplay.app">SimpleDisplay</a> &middot; <a href="mailto:info@remotedisplay.app">info@remotedisplay.app</a></p>
     </div>
 </footer>
 
