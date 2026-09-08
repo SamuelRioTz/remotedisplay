@@ -639,3 +639,74 @@ Auto (H265) the Screen menu lists "True color (4:4:4) · VP9"; one click → ser
 to codec changed, H265 -> VP9`, `new encoder: VPX(… VP9 …), i444: true`; the reopened menu shows
 CODEC = VP9 and the engine's own "True color (4:4:4)" checked; quality monitor: Codec VP9,
 Chroma 4:4:4. Screenshots in to_remove/capturas-1.0.11/.
+
+## 2026-09-08 — 1.0.12: frozen picture when SimpleDisplay changes the display, native window chrome
+
+Symptom on Sam's rig (Mac Studio server 1.0.11, Windows PC client 1.0.11, RTX 5070): opening
+SimpleDisplay so that its virtual display takes over froze the picture until the codec was
+switched to anything else and back to H265. It looked like "the codec breaks".
+
+Diagnosis from both logs (server: `~/Library/Logs/RemoteDisplay/server/`, client:
+`%APPDATA%\RemoteDisplay\log\`):
+- 06:06:23 the display list changed: display 0 went from the physical 2048×1280 (id 3) to the
+  SimpleDisplay 3440×1440 (id 30), `#displays=1`. The video loop restarted through the
+  "display topology changed" branch and created a 3440×1440 `hevc_videotoolbox` encoder — the
+  server side was fine. But that branch never announced the new geometry: no `Display … changed`
+  (SwitchDisplay) in the log. connection.rs had asked for a refresh on the list announcement,
+  which would have carried it, but the new loop clears the pending refresh flag when it starts.
+- The client logged `width/height mismatch: (3440,1440) != (2048,1280)` on every frame for 20 s.
+  The first pair is the size Flutter already expected (it had processed the display list), the
+  second is the decoded picture: the D3D11VA HEVC decoder kept producing 2048×1280 pictures.
+  hwcodec's `ffmpeg_ram_decode.cpp` allocates its software frame once (first picture) and never
+  unrefs it; `av_hwframe_transfer_data` then copies into that buffer and the frame keeps the old
+  dimensions. The renderer (`VideoRenderer::on_rgba`) refuses frames whose size does not match
+  the session size, so nothing was drawn. Software decoders (VP8/VP9, software HEVC) output the
+  real size, which is why switching codecs "fixed" it: the decoder was recreated.
+- Same thing happened on 09-07 at 06:15, 09:09 and 15:03; a second display change seconds later
+  sent a SwitchDisplay and hid it.
+
+Changes:
+- `video_service.rs`: the topology branch calls `try_broadcast_display_changed(&sp, display_idx,
+  &c, true)` before restarting, like the refresh path: old capturer vs fresh list → SwitchDisplay
+  → the client recreates its decoder. This restores upstream's invariant (every geometry change
+  is announced before the new stream) for every client, including iPad and iPhone.
+- Client defence (`flutter.rs`, `ui_session_interface.rs`, `client.rs`): the renderer counts
+  consecutive frames refused for their size per display (`rgba_size_mismatches`); after 5 in a
+  row over ≥1 s the video thread asks the server for a refresh and recreates the decoder when
+  the next **keyframe** arrives (never before: a P-frame on a fresh decoder counts as a failed
+  first frame and marks the codec unsupported). 5 s cooldown; cleared by any other reset.
+- Home window (Sam: "keep the OS controls only, not maximizable"): the custom minimize/close
+  buttons are gone; macOS keeps its traffic lights over the hidden title bar (zoom disabled,
+  no full screen: `MainFlutterWindow.swift`), Windows uses its regular title bar
+  (`TitleBarStyle.normal`), both `setMaximizable(false)`. The native close now quits the app
+  (`onWindowClose` in home.dart: save position, close session windows, terminate on macOS);
+  before, with `preventClose` on and no listener, the red button did nothing.
+
+Verification (two fresh VMs: Tart clone of `macos-tahoe-base` 26.6.2 with the server app built
+from this tree + SimpleDisplay 1.6.6 and `simpledisplayctl`; Windows 11 QEMU restored to
+`base-limpio` with the client built on the PC from the same sources, engine DLL included):
+- Steps driven over ssh: `simpledisplayctl create --width 3440 --height 1440`, `mirror --id 1`
+  (the VM's 1024×768 display mirrors the virtual one → display 0 becomes the 3440×1440 virtual,
+  `#displays=1`, Sam's exact case), `unmirror`, `remove`; 3 cycles plus the first pair.
+- Restarts by path: 9 through the refresh path (`Display … changed` then `SWITCH`) and 5 through
+  the topology path (`display topology settled …` then `Display … changed` then `display
+  topology changed`). Three of the topology ones changed the captured geometry
+  (1024×768→3440×1440 on C2 create, 3440×1440→1024×768 on C3 remove, and the first create with
+  `#displays` 1→2): all announced, the client logged `reset video handler` within 1 s each time
+  and the picture followed (screenshots 12, 13-*). Before the fix that line was missing on this
+  path (see the 09-07 logs above).
+- Client log over the whole run: 2 `width/height mismatch` lines, both a single frame of the old
+  stream right at the switch, followed by the reset within 100 ms (the transient case the code
+  comment describes); 0 `refused for their size` warnings — the recovery never triggered
+  spuriously. The stuck-decoder case itself needs a GPU decoder and could not be reproduced in
+  the VM; the server fix removes its trigger, the client code is reviewed only.
+- Windows home: native title bar with minimize, greyed maximize and close, no custom buttons
+  (03b). macOS home in the VM: traffic lights only, zoom greyed (06); the red button quits the
+  process (`pgrep` empty afterwards).
+- Rig notes: QEMU with `-display cocoa` hung twice within a minute of boot (guest dark at 100 %
+  CPU, QMP refused) while the Mac's main display was a SimpleDisplay virtual one; `-display none`
+  (screenshots via QMP `screendump`) ran fine. Tart's VNC needs `move X Y click 1` in ONE
+  `vncdo` call (each call is a new session and the pointer starts at 0,0 → Apple menu). The
+  client process started with `--connect` logs under `log\flutter_ffi\`, not the top-level
+  `remotedisplay_rCURRENT.log`. `dir` shows stale sizes for open log files on NTFS.
+  Screenshots and logs in `to_remove/capturas-1.0.12/`.
