@@ -103,6 +103,10 @@ requests are best reported as [GitHub issues](https://github.com/SamuelRioTz/rem
 For security problems please email instead of opening a public issue (see
 [`SECURITY.md`](SECURITY.md)).
 
+## Support
+
+Remote Display is free and open source. If it saves you time, you can [buy me a coffee on Ko-fi](https://ko-fi.com/samuelriotz). It helps cover the Apple developer account and the machines used for testing.
+
 ## License
 
 Remote Display is free software under the **GNU Affero General Public License v3.0**
