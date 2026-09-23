@@ -1,6 +1,6 @@
 # release/ — Remote Display binaries
 
-> **Current version: 1.0.12** (source of truth: `version:` in `client/pubspec.yaml`; it's
+> **Current version: 1.0.13** (source of truth: `version:` in `client/pubspec.yaml`; it's
 > reflected here, in the main README, and in the `v<version>` tag).
 >
 > **Version bump**: only when explicitly requested. When requested, the number changes
@@ -33,6 +33,10 @@ binaries in git (`release/out/` is in .gitignore).
 3. **Mac** (run by the Mac's Claude or Sam; codesign needs the graphical session):
    `git pull && bash release/release-mac.sh [--upload]` → builds the 4 artifacts into
    `release/out/`; with `--upload` it also uploads them to the `v<ver>` Release (creates it if it doesn't exist).
+   The three Flutter builds (macOS client, iOS, Android) need **Rosetta**: Flutter 3.24.5's host tools
+   (`gen_snapshot`) are x86_64. macOS 27 came without it (1.0.13 shipped server + Windows first for that
+   reason); `sudo softwareupdate --install-rosetta --agree-to-license` brings it back. Without Rosetta,
+   `--skip-client --skip-ios --skip-android` still builds and notarizes the server DMG.
    The Mac ALREADY has `gh` authenticated (`SamuelRioTz`), so it uploads directly — step 4 (fetch
    from Windows) is only an alternative if the Mac didn't have `gh`.
    With the Developer ID identity present the two DMGs come out notarized and stapled

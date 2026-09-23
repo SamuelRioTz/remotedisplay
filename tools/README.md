@@ -96,6 +96,15 @@ Prerequisites: VS Build Tools 2022 (C++), Rust, vcpkg. **Gotchas solved:**
 5. **DLL**: `VCPKG_ROOT=C:\Users\sam\vcpkg cargo build --locked --features flutter,hwcodec --lib --release` → `target/release/librustdesk.dll`
    (`hwcodec` = hardware H264/H265 decoding through the prebuilt ffmpeg of the hwcodec crate — D3D11VA/DXVA2 on
    Windows; without it the client decoded everything in software with VP9).
+   Two environment gotchas (2026-09-23, both hit from a plain ssh/cmd session): the `kcp-sys` build script runs
+   bindgen, and bindgen asks the first `clang` on PATH for its system include dirs — with `llvm-mingw` first on
+   PATH it gets mingw headers, which do not parse for the MSVC target (`stdlib.h: expected ';' after top level
+   declarator`). Point it at the MSVC LLVM: `set CLANG_PATH=C:\Users\sam\llvm-18.1.8\bin\clang.exe` (and keep
+   `LIBCLANG_PATH=C:\Users\sam\llvm-18.1.8\bin`). It also needs the MSVC `INCLUDE`/`LIB` variables, so run
+   `call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"`
+   first, with `set VSCMD_SKIP_SENDTELEMETRY=1` (the telemetry child keeps the shell's redirected log open, which
+   made a Task Scheduler run of the same script fail on every later redirect). `release/release-windows.ps1
+   -SkipBuild` re-assembles zip + installer with a newer DLL without rebuilding the Flutter client.
 6. **Flutter 3.24.5** (NOT the system's 3.44/stable — breaks on DialogTheme/extended_text):
    now via fvm: `C:\Users\sam\fvm\versions\3.24.5\bin` first in PATH (the old folder
    `C:\Users\sam\flutter-3.24.5` was left empty), `flutter build windows --release`. If the build

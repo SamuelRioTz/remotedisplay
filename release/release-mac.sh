@@ -14,7 +14,9 @@
 # (default `remotedisplay-notary`) and the dedicated signing keychain are described in
 # release/README.md ("Signing and notarization").
 #
-# Usage:  release/release-mac.sh [--skip-android] [--skip-ios] [--skip-server] [--skip-notarize] [--upload]
+# Usage:  release/release-mac.sh [--skip-android] [--skip-ios] [--skip-client] [--skip-server] [--skip-notarize] [--upload]
+#   --skip-client: no macOS client DMG (with --skip-android --skip-ios: server-only build, e.g. when the
+#   Flutter host tools cannot run — Flutter 3.24's gen_snapshot is x86_64 and needs Rosetta).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/release/out"; mkdir -p "$OUT"
@@ -23,8 +25,8 @@ VER=$(grep '^version:' "$ROOT/client/pubspec.yaml" | sed 's/version:[[:space:]]*
 export PATH="$HOME/flutter/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 echo "Remote Display $VER"
 
-SKIP_ANDROID=0; SKIP_IOS=0; SKIP_SERVER=0; SKIP_NOTARIZE=0; UPLOAD=0
-for a in "$@"; do case "$a" in --skip-android) SKIP_ANDROID=1;; --skip-ios) SKIP_IOS=1;; --skip-server) SKIP_SERVER=1;; --skip-notarize) SKIP_NOTARIZE=1;; --upload) UPLOAD=1;; esac; done
+SKIP_ANDROID=0; SKIP_IOS=0; SKIP_CLIENT=0; SKIP_SERVER=0; SKIP_NOTARIZE=0; UPLOAD=0
+for a in "$@"; do case "$a" in --skip-android) SKIP_ANDROID=1;; --skip-ios) SKIP_IOS=1;; --skip-client) SKIP_CLIENT=1;; --skip-server) SKIP_SERVER=1;; --skip-notarize) SKIP_NOTARIZE=1;; --upload) UPLOAD=1;; esac; done
 
 # Signing identity (personal team only) and notarization. ~/.config/remotedisplay/signing.env
 # may set RD_NOTARY_PROFILE; it is optional. Notarization is attempted only with a Developer ID.
@@ -90,12 +92,14 @@ if [ $SKIP_ANDROID = 0 ]; then
 fi
 
 # 2) macOS client (signed by build-sign.sh with the personal-team identity, hardened runtime)
-( cd "$ROOT/client" && SIGN_ID="$SIGN_ID" bash ./build-sign.sh )
-CLIENT_APP="$ROOT/client/build/macos/Build/Products/Release/RemoteDisplay.app"
-STAGED="$ROOT/client/build/macos/Build/Products/Release/Remote Display.app"
-rm -rf "$STAGED"; cp -R "$CLIENT_APP" "$STAGED"
-notarize_app "$STAGED"
-make_dmg "$STAGED" "$OUT/RemoteDisplay-$VER-macos-client.dmg" "Remote Display"
+if [ $SKIP_CLIENT = 0 ]; then
+  ( cd "$ROOT/client" && SIGN_ID="$SIGN_ID" bash ./build-sign.sh )
+  CLIENT_APP="$ROOT/client/build/macos/Build/Products/Release/RemoteDisplay.app"
+  STAGED="$ROOT/client/build/macos/Build/Products/Release/Remote Display.app"
+  rm -rf "$STAGED"; cp -R "$CLIENT_APP" "$STAGED"
+  notarize_app "$STAGED"
+  make_dmg "$STAGED" "$OUT/RemoteDisplay-$VER-macos-client.dmg" "Remote Display"
+fi
 
 # 3) macOS Server (stable personal-team signing; the identity lives in the dedicated
 #    signing keychain, so no keychain prompt)

@@ -710,3 +710,77 @@ from this tree + SimpleDisplay 1.6.6 and `simpledisplayctl`; Windows 11 QEMU res
   client process started with `--connect` logs under `log\flutter_ffi\`, not the top-level
   `remotedisplay_rCURRENT.log`. `dir` shows stale sizes for open log files on NTFS.
   Screenshots and logs in `to_remove/capturas-1.0.12/`.
+
+## 2026-09-23 — 1.0.13: the same Mac listed twice, grouping by engine id, dark title bar on Windows
+
+Symptom on Sam's Windows client (1.0.12): the home showed "samuels-mac-studio" (LAN .115 + Tailscale)
+and a second computer "mac" (LAN .119, unreachable) — the same Mac Studio. On the PC the second card
+came only from the recent peer saved on 09-16 for 192.168.1.119: `hostname = 'mac.lan'`, user sam,
+Mac OS; the discovered-peers cache had no .119 at all and nothing answers there today.
+
+Diagnosis: the Mac has no fixed HostName (only LocalHostName "Samuels-Mac-Studio"), and in that
+case macOS derives the kernel hostname from the router's reverse DNS of the current address, falling
+back to LocalHostName.local. Sam's router hands out "Mac.lan" (today it maps it to .161): on the
+09-16 lease the Studio announced `mac.lan`, today `samuels-mac-studio.local`. The engine used that
+kernel hostname in both the discovery reply (`lan.rs`) and the login response (`connection.rs`), the
+client grouped addresses into cards by hostname label only, the vendored `lan.rs` threw away the
+stable engine id the discovery reply carries (`id` became the IP), and nothing expires recent peers.
+
+Changes:
+- `common.rs` `whoami_hostname()`: on macOS returns the LocalHostName (`SCDynamicStoreCopyLocalHostName`,
+  new `platform::local_hostname()`), falling back to the kernel hostname. Covers discovery, login
+  response and the generic `hostname()`.
+- `DiscoveryPeer` and `PeerInfoSerde` (hbb_common `config.rs`) gain `machine_id` (serde default, old
+  TOML files still load). `lan.rs` keeps the pong's `id` in it (also for the advertised Tailscale
+  addresses; the bare port-scan entry does not erase it). `connection.rs` adds `machine_id` to
+  `platform_additions` of the login response; `client.rs` `handle_peer_info` saves it with the peer;
+  `ui_interface.rs` passes `machine_id` (and `online` for discovered peers) to Flutter; `Peer` model
+  gets `machineId` and `online`.
+- `home.dart` `_machines()`: cluster by machine id first (the id's name is the first seen: discovered
+  entries, then recent peers newest first, so it is the host's current name; an address with only a
+  name joins the id that announced that name), hostname/Tailscale/manual/IP as before. The card key
+  stays a hostname label so aliases, selected networks and manual addresses keep working. Old
+  addresses that do not answer, were not found by this scan and are not manual are hidden while the
+  machine answers elsewhere; a machine that is off still shows every address.
+- Windows runner `win32_window.cpp`: the native title bar (kept since 1.0.12) opts into DWM's
+  immersive dark mode following `AppsUseLightTheme`, like Flutter's runner template (attribute 20,
+  fallback 19; refreshed on `WM_DWMCOLORIZATIONCOLORCHANGED` and `WM_SETTINGCHANGE ImmersiveColorSet`);
+  `dwmapi` linked in `CMakeLists.txt`. Before, the bar was always white over the dark home.
+- `home.dart`: on desktop the home follows a system light/dark switch while it is open
+  (`onPlatformBrightnessChanged` → `Get.changeThemeMode`, as the engine's own App does). The client
+  runs its own root widget, which evaluated the theme once at start, so the title bar (live) and the
+  content (static) diverged until a restart.
+- `release-mac.sh --skip-client`; READMEs: Rosetta requirement (macOS 27 came without it, so the macOS
+  client, iOS and Android builds could not be made on this Mac for 1.0.13), PC bindgen gotcha.
+
+Verification (two fresh VMs: Tart clone of `macos-tahoe-base` 26.6.2 with the notarized
+`RemoteDisplay-Server-1.0.13-macos.dmg` installed by `ditto` + `xattr -cr`, config + LaunchAgent
+written as the app does, TCC granted by sqlite, password over stdin; Windows 11 QEMU restored to
+`base-limpio` with the portable zip built on the PC from the same sources, engine DLL included).
+Server VM LocalHostName set to `Test-Mac-Server`; the Windows guest reaches the server through
+two loopback forwards on the Mac, 21119 and 21120 → VM:21118, so the same server is seen at two
+"addresses". Screenshots and logs in `to_remove/capturas-1.0.13/`:
+- Discovery reply (probe script `discover_probe.py`, UDP 21119 from the Mac): `hostname =
+  'test-mac-server'`, `id = '436411194'`. With `sudo scutil --set HostName mac.lan` (what the router
+  imposed on Sam's Mac) the reply is unchanged; renaming the LocalHostName to `Renamed-Mac` changes
+  it to `renamed-mac` at once, no engine restart (01-discovery-pong-hostname.txt).
+- Login path: after `--connect 10.0.2.2:21119` the saved peer has `hostname = 'test-mac-server'`,
+  `machine_id = '436411194'` (02). After the rename, `--connect 10.0.2.2:21120` saves
+  `renamed-mac` with the same id (03-recent-peers-after-rename.txt): two recent peers, two names,
+  one id — the pre-fix situation, which 1.0.12 shows as two cards.
+- Home: ONE card "renamed-mac", admin · Mac OS, chips `LAN · 10.0.2.2:21120` and `LAN · 10.0.2.2:21119`,
+  both reachable (04). Forwarder 21120 killed + refresh: only 21119 on the card (05); forwarder back +
+  refresh: both again (06). Reconnecting through 21119 with the kernel hostname still `mac.lan`
+  saves `renamed-mac`, not `mac.lan` (07).
+- Windows dark mode (`AppsUseLightTheme=0`) + fresh launch: dark title bar over the dark home (08);
+  light mode: light bar over the light home (04–06). Toggling the setting while the home is open
+  (registry + `WM_SETTINGCHANGE ImmersiveColorSet` broadcast from an interactive scheduled task): bar
+  and content switch together to dark (10) and back to light (10b). With the first build the bar
+  switched and the content did not (09) — the `home.dart` theme change above came from that run.
+- Not exercised in this rig: the discovery path on the client side (QEMU user networking carries no
+  broadcast to the Tart VM; the pong content was checked from the Mac, the client-side storage of
+  `machine_id` from the pong is code-reviewed only), the macOS/iOS/Android clients (not built).
+- Rig notes: `screen -X quit` on a `bash -c "sshpass ssh -L …"` session leaves the ssh alive — kill the
+  forwarder with `pkill -f`. A `WM_SETTINGCHANGE` broadcast sent from an ssh session (session 0) does not
+  reach the interactive desktop; send it from a scheduled task. Old macOS `screen` has no `-Logfile`.
+  The Tart VM's sshd rejects the first password attempt now and then — retry.
