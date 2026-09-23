@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart' hide Dialog;
+import 'package:get/get.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
@@ -89,6 +90,21 @@ class _ClientHomeState extends State<ClientHome>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     if (isDesktop) windowManager.addListener(this);
+    if (isDesktop) {
+      // Follow a system light/dark switch while the window is open, as the
+      // engine's own App does (this client runs its own root widget, which
+      // evaluated the theme once). On Windows the runner switches the native
+      // title bar on the same setting, so bar and content stay in step.
+      WidgetsBinding.instance.platformDispatcher.onPlatformBrightnessChanged =
+          () {
+        WidgetsBinding.instance.handlePlatformBrightnessChanged();
+        if (MyTheme.getThemeModePreference() != ThemeMode.system) return;
+        final dark =
+            WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+                Brightness.dark;
+        Get.changeThemeMode(dark ? ThemeMode.dark : ThemeMode.light);
+      };
+    }
     // Reinforce showing the main window once the first frame is mounted
     // (see note in main.dart / RESULT of the handoff about standalone visibility).
     if (isDesktop) {
