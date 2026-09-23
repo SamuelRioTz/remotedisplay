@@ -297,6 +297,7 @@ fn wait_response(
                                     ip_mac: HashMap::from([
                                         (addr.ip().to_string(), p.mac.clone(),)
                                     ]),
+                                    machine_id: p.id.clone(),
                                     username: p.username.clone(),
                                     hostname: p.hostname.clone(),
                                     platform: p.platform.clone(),
@@ -313,6 +314,7 @@ fn wait_response(
                                     allow_err!(tx.send(config::DiscoveryPeer {
                                         id: extra.clone(),
                                         ip_mac: HashMap::from([(extra, p.mac.clone())]),
+                                        machine_id: p.id.clone(),
                                         username: p.username.clone(),
                                         hostname: p.hostname.clone(),
                                         platform: p.platform.clone(),
@@ -368,6 +370,11 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
                         if in_response_set {
                             peer.ip_mac.extend(peer1.ip_mac);
                             peer.online = true;
+                            // remotedisplay: the bare port-scan entry for an address
+                            // must not erase the identity its discovery reply carried.
+                            if peer.machine_id.is_empty() {
+                                peer.machine_id = peer1.machine_id;
+                            }
                         }
                     }
                     peers.insert(0, peer);
@@ -676,6 +683,7 @@ fn spawn_port_scan(tx: UnboundedSender<config::DiscoveryPeer>) {
                 allow_err!(tx.send(config::DiscoveryPeer {
                     id: ip.to_string(),
                     ip_mac: HashMap::from([(ip.to_string(), "".to_owned())]),
+                    machine_id: "".to_owned(),
                     username: "".to_owned(),
                     hostname: ip.to_string(),
                     platform: "".to_owned(),

@@ -1763,6 +1763,11 @@ impl Connection {
                 json!(privacy_mode::get_supported_privacy_mode_impl()),
             );
         }
+        // remotedisplay: the host's engine id travels with the login response, so the
+        // client can file this address under the same machine as the host's other
+        // addresses whatever hostname the host reports today (PeerInfoSerde::machine_id).
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+        platform_additions.insert("machine_id".into(), json!(Config::get_id()));
 
         #[cfg(any(target_os = "windows", feature = "unix-file-copy-paste"))]
         {

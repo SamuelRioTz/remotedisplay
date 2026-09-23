@@ -12,6 +12,9 @@ class Peer {
   String username; // pc username
   String hostname;
   String platform;
+  // remotedisplay: the host's engine id ("" when unknown), the identity the home
+  // groups a host's addresses by; see client/lib/home.dart.
+  String machineId;
   String alias;
   List<dynamic> tags;
   bool forceAlwaysRelay = false;
@@ -37,6 +40,7 @@ class Peer {
         username = json['username'] ?? '',
         hostname = json['hostname'] ?? '',
         platform = json['platform'] ?? '',
+        machineId = json['machine_id'] ?? '',
         alias = json['alias'] ?? '',
         tags = json['tags'] ?? [],
         forceAlwaysRelay = json['forceAlwaysRelay'] == 'true',
@@ -45,7 +49,11 @@ class Peer {
         loginName = json['loginName'] ?? '',
         device_group_name = json['device_group_name'] ?? '',
         note = json['note'] is String ? json['note'] : '',
-        sameServer = json['same_server'];
+        sameServer = json['same_server'] {
+    // remotedisplay: discovered peers say whether this scan found the address
+    // (load_lan_peers carries the engine's `online` flag as a string).
+    online = json['online'] == 'true' || json['online'] == true;
+  }
 
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
@@ -55,6 +63,7 @@ class Peer {
       "username": username,
       "hostname": hostname,
       "platform": platform,
+      "machine_id": machineId,
       "alias": alias,
       "tags": tags,
       "forceAlwaysRelay": forceAlwaysRelay.toString(),
@@ -100,6 +109,7 @@ class Peer {
     required this.username,
     required this.hostname,
     required this.platform,
+    this.machineId = '',
     required this.alias,
     required this.tags,
     required this.forceAlwaysRelay,
@@ -135,6 +145,7 @@ class Peer {
         username == other.username &&
         hostname == other.hostname &&
         platform == other.platform &&
+        machineId == other.machineId &&
         alias == other.alias &&
         tags.equals(other.tags) &&
         forceAlwaysRelay == other.forceAlwaysRelay &&
@@ -153,6 +164,7 @@ class Peer {
         username: other.username,
         hostname: other.hostname,
         platform: other.platform,
+        machineId: other.machineId,
         alias: other.alias,
         tags: other.tags.toList(),
         forceAlwaysRelay: other.forceAlwaysRelay,

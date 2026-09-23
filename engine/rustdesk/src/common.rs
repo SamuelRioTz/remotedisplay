@@ -837,6 +837,17 @@ pub fn username() -> String {
 #[inline(always)]
 #[cfg(not(target_os = "ios"))]
 pub fn whoami_hostname() -> String {
+    // remotedisplay: on macOS the kernel hostname is not the Mac's own name. With no
+    // HostName set (the default) configd derives it from the router's reverse DNS of
+    // the current address and only falls back to LocalHostName.local, so one Mac was
+    // announced as "mac.lan" on one lease and "samuels-mac-studio.local" on the next,
+    // and the client listed it as two computers. LocalHostName is the name the user
+    // gave the Mac (Sharing settings) and does not depend on the network.
+    #[cfg(target_os = "macos")]
+    if let Some(mut name) = crate::platform::local_hostname() {
+        name.make_ascii_lowercase();
+        return name;
+    }
     let mut hostname = whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string());
     hostname.make_ascii_lowercase();
     hostname

@@ -32,10 +32,11 @@ import 'session/mobile_session.dart';
 ///    to: hostname, platform, user, saved password);
 ///  - addresses added by hand in a machine's settings (local option
 ///    `rd-manual-routes`).
-/// IPs (LAN/Tailscale) of the same machine are grouped via hostname (+
-/// `tailscale status` on desktop). Every refresh also probes each address with
-/// a TCP connect to the direct-access port, so a route that does not answer
-/// from the current network shows as such and a tap uses the one that does.
+/// IPs (LAN/Tailscale) of the same machine are grouped by the engine id the
+/// host announces, else via hostname (+ `tailscale status` on desktop). Every
+/// refresh also probes each address with a TCP connect to the direct-access
+/// port, so a route that does not answer from the current network shows as
+/// such and a tap uses the one that does.
 class ClientHome extends StatefulWidget {
   const ClientHome({super.key});
 
@@ -626,7 +627,9 @@ class _ClientHomeState extends State<ClientHome>
         return;
       }
       final prev = byIp[p.id];
-      if (prev == null || (prev.platform.isEmpty && p.platform.isNotEmpty)) {
+      if (prev == null ||
+          (prev.platform.isEmpty && p.platform.isNotEmpty) ||
+          (prev.machineId.isEmpty && p.machineId.isNotEmpty)) {
         byIp[p.id] = p;
       }
     }
@@ -641,30 +644,72 @@ class _ClientHomeState extends State<ClientHome>
       if (!byIp.containsKey(ip)) add(Peer.fromJson({'id': ip}));
     }
 
-    // Then group by machine identity. Sources, in order: hostname from the
-    // LAN broadcast, hostname saved from a previous connection to that IP
-    // (recent peers — so the Mac's Tailscale IP groups with its LAN IP even
-    // if the broadcast doesn't cross into Tailscale), hostname reported by
-    // `tailscale status`, the machine an address was added to by hand. No
-    // name → its own card per IP.
+    // Then group by machine identity. First choice: the engine id the host
+    // announces (in its discovery reply and, since 1.0.13, in the login
+    // response, saved with the recent peer), which survives a new lease and
+    // a hostname change. A Mac with no fixed HostName takes its kernel
+    // hostname from the router's reverse DNS, so one Mac showed up as
+    // "mac.lan" on one address and "samuels-mac-studio.local" on the next,
+    // and grouping by name alone made two computers of it. Names remain the
+    // fallback, in order: hostname from the LAN broadcast, hostname saved
+    // from a previous connection to that IP (recent peers — so the Mac's
+    // Tailscale IP groups with its LAN IP even if the broadcast doesn't cross
+    // into Tailscale), hostname reported by `tailscale status`, the machine
+    // an address was added to by hand. No id and no name → its own card per IP.
     final recentById = {
       for (final r in gFFI.recentPeersModel.peers)
-        if (r.hostname.isNotEmpty) r.id: r
+        if (r.hostname.isNotEmpty || r.machineId.isNotEmpty) r.id: r
     };
-    final byKey = <String, Machine>{};
-    for (final p in byIp.values) {
-      final recent = recentById[p.id];
+    String? labelOf(Peer p, Peer? recent) {
       final knownHost = p.platform.isNotEmpty && p.hostname.isNotEmpty
           ? p.hostname
           : (recent != null && recent.platform.isNotEmpty
               ? recent.hostname
               : null);
-      final identifiedName = knownHost == null ? null : _hostLabel(knownHost);
+      return knownHost == null ? null : _hostLabel(knownHost);
+    }
+    String idOf(Peer p, Peer? recent) =>
+        p.machineId.isNotEmpty ? p.machineId : (recent?.machineId ?? '');
+
+    // Pass 1: the name that stands for each machine id (first seen wins:
+    // discovered entries come first, then the recent peers newest first, so
+    // it is the host's current name) and the machine id behind each name (so
+    // an address that only has a name joins the machine that announced that
+    // name together with its id).
+    final labelOfId = <String, String>{};
+    final idOfLabel = <String, String>{};
+    for (final p in byIp.values) {
+      final recent = recentById[p.id];
+      final mid = idOf(p, recent);
+      final label = labelOf(p, recent);
+      if (mid.isEmpty || label == null) continue;
+      labelOfId.putIfAbsent(mid, () => label);
+      idOfLabel.putIfAbsent(label, () => mid);
+    }
+
+    // Pass 2: the cards. The key stays a hostname label (aliases, selected
+    // networks and manual addresses are stored under it), resolved through
+    // the machine id when there is one.
+    final byKey = <String, Machine>{};
+    for (final p in byIp.values) {
+      final recent = recentById[p.id];
+      final identifiedName = labelOf(p, recent);
+      var mid = idOf(p, recent);
+      if (mid.isEmpty && identifiedName != null) {
+        mid = idOfLabel[identifiedName] ?? '';
+      }
+      final currentName = mid.isEmpty ? null : labelOfId[mid];
       final tsName = _tsName[p.id];
-      final key = identifiedName ?? tsName ?? _manual[p.id] ?? 'ip:${p.id}';
+      final key = currentName ??
+          identifiedName ??
+          tsName ??
+          _manual[p.id] ??
+          'ip:${p.id}';
 
       final m = byKey.putIfAbsent(
-          key, () => Machine(key: key, name: identifiedName ?? tsName ?? p.id));
+          key,
+          () => Machine(
+              key: key, name: currentName ?? identifiedName ?? tsName ?? p.id));
       final route = MachineRoute(p.id,
           tailscale: _isTailscale(p.id), manual: _manual.containsKey(p.id));
       route.reachable = _reach.containsKey(p.id) ? _reach[p.id] : null;
@@ -681,11 +726,25 @@ class _ClientHomeState extends State<ClientHome>
         m.username =
             p.username.isNotEmpty ? p.username : (recent?.username ?? '');
       }
-      if (identifiedName != null) m.name = identifiedName;
+      // The host's current name, never the one an old address was saved under.
+      final name = currentName ?? identifiedName;
+      if (name != null) m.name = name;
     }
 
+    // Addresses known only from the past — not found by this scan, not added
+    // by hand — that do not answer while the machine answers elsewhere are its
+    // old leases: keep them out of the card. They come back if they answer
+    // again, and a machine that is off still shows every address it has.
+    final found = {
+      for (final p in gFFI.lanPeersModel.peers)
+        if (p.online) p.id
+    };
     final machines = byKey.values.toList();
     for (final m in machines) {
+      if (m.routes.any((r) => r.reachable == true)) {
+        m.routes.removeWhere((r) =>
+            r.reachable == false && !r.manual && !found.contains(r.ip));
+      }
       final alias = _aliases[m.key];
       if (alias != null && alias.isNotEmpty) m.name = alias;
       final pref = _preferred[m.key];

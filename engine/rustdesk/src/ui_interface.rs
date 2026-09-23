@@ -803,6 +803,7 @@ pub fn peer_to_map(id: String, p: PeerConfig) -> HashMap<&'static str, String> {
         ("username", p.info.username.clone()),
         ("hostname", p.info.hostname.clone()),
         ("platform", p.info.platform.clone()),
+        ("machine_id", p.info.machine_id.clone()),
         (
             "alias",
             p.options.get("alias").unwrap_or(&"".to_owned()).to_owned(),
@@ -830,6 +831,9 @@ pub fn get_lan_peers() -> Vec<HashMap<&'static str, String>> {
                 ("username", peer.username.clone()),
                 ("hostname", peer.hostname.clone()),
                 ("platform", peer.platform.clone()),
+                // remotedisplay: identity and whether this scan found the address
+                ("machine_id", peer.machine_id.clone()),
+                ("online", peer.online.to_string()),
             ])
         })
         .collect()

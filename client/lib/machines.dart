@@ -25,7 +25,8 @@ class MachineRoute {
 }
 
 class Machine {
-  /// Grouping key: hostname label when identified, else the address.
+  /// Grouping key: the machine's current hostname label when identified
+  /// (aliases and selected networks are stored under it), else the address.
   final String key;
   String name;
   String platform = '';

@@ -1535,6 +1535,7 @@ pub fn main_load_fav_peers() {
                             username: d.username.clone(),
                             hostname: d.hostname.clone(),
                             platform: d.platform.clone(),
+                            machine_id: d.machine_id.clone(),
                         },
                         ..Default::default()
                     },

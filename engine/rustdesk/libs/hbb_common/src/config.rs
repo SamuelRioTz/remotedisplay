@@ -444,6 +444,12 @@ pub struct PeerInfoSerde {
     pub hostname: String,
     #[serde(default, deserialize_with = "deserialize_string")]
     pub platform: String,
+    // remotedisplay: the host's own engine id, stable across address and hostname
+    // changes; the client files this address under the same machine as the host's
+    // other addresses by it. Empty for hosts that predate it (a default, so older
+    // peer files still load).
+    #[serde(default, deserialize_with = "deserialize_string")]
+    pub machine_id: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq)]
@@ -2302,6 +2308,10 @@ pub struct DiscoveryPeer {
     pub online: bool,
     #[serde(default, deserialize_with = "deserialize_hashmap_string_string")]
     pub ip_mac: HashMap<String, String>,
+    // remotedisplay: the host's engine id from its discovery reply (`id` above is the
+    // address in this fork); empty for hosts found by the port scan only.
+    #[serde(default, deserialize_with = "deserialize_string")]
+    pub machine_id: String,
 }
 
 impl DiscoveryPeer {

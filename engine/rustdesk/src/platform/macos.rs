@@ -1287,3 +1287,29 @@ fn get_bundle_id() -> Option<String> {
         Some(bundle_id_str)
     }
 }
+
+// ── remotedisplay: the Mac's own name ────────────────────────────────────────
+#[link(name = "SystemConfiguration", kind = "framework")]
+extern "C" {
+    fn SCDynamicStoreCopyLocalHostName(store: *const std::ffi::c_void) -> CFStringRef;
+}
+
+/// The Mac's LocalHostName ("Samuels-Mac-Studio", the Bonjour name from Sharing
+/// settings): the one hostname that does not change with the network the Mac is on.
+/// `None` when the system has none configured.
+pub fn local_hostname() -> Option<String> {
+    use core_foundation::{base::TCFType, string::CFString};
+    unsafe {
+        let s = SCDynamicStoreCopyLocalHostName(std::ptr::null());
+        if s.is_null() {
+            return None;
+        }
+        let name = CFString::wrap_under_create_rule(s).to_string();
+        let name = name.trim();
+        if name.is_empty() {
+            None
+        } else {
+            Some(name.to_owned())
+        }
+    }
+}

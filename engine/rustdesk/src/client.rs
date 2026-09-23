@@ -2540,10 +2540,17 @@ impl LoginConfigHandler {
             self.version = hbb_common::get_version_number(&pi.version);
         }
         self.features = pi.features.clone().into_option();
+        // remotedisplay: the host's engine id, when it sends one (1.0.13+), so the home
+        // groups this address with the host's other addresses by identity, not by name.
+        let machine_id = serde_json::from_str::<serde_json::Value>(&pi.platform_additions)
+            .ok()
+            .and_then(|v| Some(v.get("machine_id")?.as_str()?.to_owned()))
+            .unwrap_or_default();
         let serde = PeerInfoSerde {
             username: pi.username.clone(),
             hostname: pi.hostname.clone(),
             platform: pi.platform.clone(),
+            machine_id,
         };
         let mut config = self.load_config();
         config.info = serde;
