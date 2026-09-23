@@ -1,5 +1,6 @@
 #include "win32_window.h"
 
+#include <dwmapi.h>
 #include <flutter_windows.h>
 #include <shobjidl_core.h>
 
@@ -15,6 +16,35 @@ constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
+
+// remotedisplay: the home keeps Windows' own title bar, and Win32 paints it light
+// unless the window opts into the immersive dark mode, whatever the system theme.
+// The app follows the system theme (the Flutter engine reads this same registry
+// value), so a dark app came with a white bar. Same approach as Flutter's runner
+// template: read the setting, apply it to the window, refresh when it changes.
+constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
+// Documented value (Windows 10 20H1+ and Windows 11); 19 is the pre-20H1 one.
+constexpr DWORD kDwmwaUseImmersiveDarkMode = 20;
+constexpr DWORD kDwmwaUseImmersiveDarkModeBefore20H1 = 19;
+
+void UpdateTheme(HWND const window) {
+  DWORD light_mode;
+  DWORD light_mode_size = sizeof(light_mode);
+  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
+                               kGetPreferredBrightnessRegValue, RRF_RT_REG_DWORD,
+                               nullptr, &light_mode, &light_mode_size);
+  if (result != ERROR_SUCCESS) {
+    return;
+  }
+  BOOL enable_dark_mode = light_mode == 0;
+  if (FAILED(DwmSetWindowAttribute(window, kDwmwaUseImmersiveDarkMode,
+                                   &enable_dark_mode, sizeof(enable_dark_mode)))) {
+    DwmSetWindowAttribute(window, kDwmwaUseImmersiveDarkModeBefore20H1,
+                          &enable_dark_mode, sizeof(enable_dark_mode));
+  }
+}
 
 // Static variable to hold the custom icon (needs cleanup on exit)
 static HICON g_custom_icon_ = nullptr;
@@ -182,6 +212,8 @@ bool Win32Window::CreateAndShow(const std::wstring& title,
     return false;
   }
 
+  UpdateTheme(window);
+
   if (!showOnTaskBar) {
     // hide from taskbar
     HRESULT hr;
@@ -277,6 +309,19 @@ Win32Window::MessageHandler(HWND hwnd,
         SetFocus(child_content_);
       }
       return 0;
+
+    case WM_DWMCOLORIZATIONCOLORCHANGED:
+      UpdateTheme(hwnd);
+      return 0;
+
+    case WM_SETTINGCHANGE:
+      // Dark/light mode toggled in Settings ("ImmersiveColorSet").
+      if (lparam != 0 &&
+          wcscmp(reinterpret_cast<const wchar_t*>(lparam),
+                 L"ImmersiveColorSet") == 0) {
+        UpdateTheme(hwnd);
+      }
+      break;
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
