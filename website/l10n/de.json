@@ -71,7 +71,7 @@
   "how_server_title": "Server (ab macOS 14)",
   "how_server_desc": "Eine Menüleisten-App, die die Engine als Dienst pro Benutzer mitbringt. Sie zeigt die Displays des Macs so, wie macOS sie meldet – physische und jedes virtuelle, das du mit SimpleDisplay hinzufügst – und ignoriert das Rekonfigurations-Rauschen eines Hardware-Spiegels, sodass ein gespiegeltes Display das Video nicht mehr jede Sekunde neu startet.",
   "how_client_title": "Client",
-  "how_client_desc": "Eine Flutter-App auf derselben Engine: bekannte Rechner mit ihren Adressen und welche davon von deinem Standort antworten, ein Passwort pro Adresse, ein Display-Menü mit „In neuem Fenster öffnen“ und „Alle Displays“ sowie H.265-Decodierung per Hardware, wo das Gerät sie hat.",
+  "how_client_desc": "Eine Flutter-App auf derselben Engine: die Rechner, die von deinem Standort antworten, mit ihren Adressen (die übrigen warten hinter einer aufklappbaren Zeile), ein Passwort pro Adresse, ein Display-Menü mit „In neuem Fenster öffnen“ und „Alle Displays“ sowie H.265-Decodierung per Hardware, wo das Gerät sie hat.",
   "how_transport_title": "Transport",
   "how_transport_desc": "Das RustDesk-Protokoll über eine direkte IP-Verbindung, ohne Rendezvous oder Relay. Geräte im LAN werden automatisch gefunden, und der Server nennt seine Tailscale-Adresse, damit Clients ihn aus anderen Netzen über dein eigenes VPN erreichen.",
   "how_measured_title": "Gemessen, nicht vermutet",

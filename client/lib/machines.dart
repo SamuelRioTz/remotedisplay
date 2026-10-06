@@ -12,9 +12,13 @@ class MachineRoute {
   /// Added by the user in the machine's settings (kept until removed there).
   final bool manual;
 
-  /// TCP probe of the direct-access port on the last refresh: true/false, or
-  /// null while the probe is running.
+  /// TCP probe of the direct-access port: the last answer (true/false), or
+  /// null when the address has never been probed. A re-check in flight keeps
+  /// the previous answer here (see [probing]), so the list does not blink.
   bool? reachable;
+
+  /// A probe of this address is running right now.
+  bool probing = false;
 
   /// The engine has a password saved for this address (one tap connects).
   bool saved = false;
@@ -62,7 +66,17 @@ class Machine {
     return null;
   }
 
-  bool get probing => routes.any((r) => r.reachable == null);
+  /// Some address is being probed, or has never been (no verdict yet).
+  bool get probing => routes.any((r) => r.probing || r.reachable == null);
+
+  /// No first verdict yet for some address. The home holds its judgement
+  /// (empty-state text, the "do not answer" note, a card's dimmed look) only
+  /// in this state; a re-check in flight keeps the last verdict in place.
+  bool get unknown => routes.any((r) => r.reachable == null);
+
+  /// Answers from the current network on at least one address. The home lists
+  /// only these; the others wait behind a one-line "not reachable" note.
+  bool get available => live != null;
 
   /// Route for a plain tap: the first reachable one, else the first (so an
   /// unreachable machine can still be attempted, e.g. right after a network change).

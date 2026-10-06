@@ -784,3 +784,83 @@ two loopback forwards on the Mac, 21119 and 21120 → VM:21118, so the same serv
   forwarder with `pkill -f`. A `WM_SETTINGCHANGE` broadcast sent from an ssh session (session 0) does not
   reach the interactive desktop; send it from a scheduled task. Old macOS `screen` has no `-Logfile`.
   The Tart VM's sshd rejects the first password attempt now and then — retry.
+
+## 2026-10-06 — Home lists only the computers that answer from this network
+
+Symptom on Sam's Windows client (1.0.13): every computer the client had ever known stayed on the
+home — Luz's Mac twice (a live `luzs-mbp` card and a `luzs-macbook-pro` card with four old addresses,
+hotspot, two old leases and an offline Tailscale IP, all struck through, "Not reachable from this
+network right now"). Sam wants to see only what answers from the network he is on.
+
+Diagnosis of the ghost card: a recent peer saved by a pre-1.0.13 client (no `machine_id`) under the
+hostname the router gave Luz's Mac back then; none of its addresses answers, so the 1.0.13 grouping has
+nothing to join it with, and recent peers never expire. Luz's Mac also still runs an older server (its
+pong says `luzs-mbp.lan`, the kernel hostname, not the LocalHostName a 1.0.13 server announces).
+
+Change (`client/lib/home.dart`, `client/lib/machines.dart`):
+- `Machine.available` = some route answered the TCP probe. The home lists only available machines;
+  the rest are counted in one muted line under the cards ("N computers do not answer from this
+  network · Show/Hide"; the whole line is the toggle, 44 pt tall on touch). Shown, they are the same
+  dimmed cards as before, so Forget (gear or long press) and "add a Tailscale address" still work. The
+  toggle is not persisted and folds again once nothing is left to show.
+- `_probe()` no longer resets a known address to "unknown" while re-checking: `_reach` keeps the last
+  verdict and a new `_probing` set (→ `MachineRoute.probing`) marks the probe in flight. `null` now
+  means "never probed" (the chips' "Checking…" dot). `Machine.unknown` (some address without a first
+  verdict) is what the home judges on — the empty-state text, the note and a card's dimmed look;
+  `Machine.probing` (in flight or unknown) is informational. Judging on `probing` made the note, the
+  empty text and the dimmed look blink for up to 1.5 s on every 20-second round, i.e. the same blink
+  the change set out to remove, moved from the cards to the note.
+- A verdict that arrives after the address was forgotten is dropped (the entry is no longer in
+  `_probing`), and the connect is capped at twice the probe timeout so a slow resolver for a hostname
+  typed by hand cannot hold the first verdict for long.
+- `_probeNew()` also re-probes, on every peers change, the addresses the engine reports online while
+  our last verdict said no: a machine that came back is listed on the engine's next discovery push
+  instead of waiting up to 20 s hidden.
+- Empty states: while a scan runs or an address has no first verdict, "Looking for computers on your
+  network…"; then "No computers answer from this network right now." when there are hidden ones, else
+  the original "No computers yet…" text. The manual-connection card still opens by itself only when
+  nothing at all is known. The note is held back only until every known address has a first verdict.
+- Pre-existing, fixed on the way: the old-tailnet ghost filter compared the full id with the bare
+  tailnet IPs, so a Tailscale address with a port (`100.64.0.2:21120`) was dropped from the list.
+- Docs: README quick start, website `how_client_desc` (en/es/de) and the static copy in
+  `website/index.html`.
+
+Verification: `flutter analyze` with the project's Flutter 3.24.5 (`/Users/sam/flutter`) on the Mac —
+20 issues, all pre-existing infos, none on changed lines. Windows client built on the PC with
+`release/release-windows.ps1` (no upload; the released 1.0.13 artifacts were moved aside first, into
+`release/out/released-1.0.13/`). Not exercised: a two-VM run with screenshots (the Windows VM has no
+broadcast path to the Tart server), the iPad and macOS clients (no Rosetta on the Mac yet). Sam checks
+the build on his PC against the Studio and Luz's Mac.
+
+## 2026-10-06 — Server 1.0.13 on Sam's Studio: in-place upgrade, `open` reaches the engine instead of the UI
+
+Server 1.0.13 replaced 1.0.12 on Sam's Mac Studio (macOS 27.0) while a session from the PC was open:
+about one second of downtime, the client reconnected on its own. Sequence that worked, unattended,
+with automatic rollback:
+1. Swap the bundle on disk first: `mv` the installed app out to a backup, `mv` the staged, verified
+   copy from the notarized DMG (`gh release download`, so no quarantine; `codesign --verify --deep
+   --strict`, `spctl -a -t exec`, `stapler validate`) into /Applications. The running processes keep
+   their open inodes. App Management did not object from the VS Code shell.
+2. `kill -TERM` the menu-bar app. AppKit has no SIGTERM handler, so it exits without the quit path
+   (`stopEngineForQuit`), the engine keeps serving and the app's `ensureDesiredState` timer dies with
+   it, so nothing re-bootstraps the agent mid-swap. No `osascript … quit` (an Automation prompt from
+   the shell's host app would need a click).
+3. `launchctl bootout gui/501/app.remotedisplay.server`, wait until `remotedisplayd --server` is gone,
+   `pkill -KILL` the orphaned `--cm-no-ui` (it ignores SIGTERM and a new server would reuse it over
+   `ipc_cm`), then `launchctl bootstrap` the unchanged plist (its program path is the /Applications
+   one). Not `kickstart -k`: the new server must start after the old connection manager is gone.
+4. Verify: LISTEN on 21118 and UDP 21119 by the new pid, `/tmp/RemoteDisplay-501/ipc.pid`, the perms
+   json `{"accessibility":true,"screen":true}` with a fresh mtime (the engine rewrites it every 2 s),
+   sha256 of `RemoteDisplay.toml` and `RemoteDisplay2.toml` unchanged (`RemoteDisplay_hwcodec.toml`
+   changes on every start), the discovery pong (`discover_probe.py`) now `samuels-mac-studio` with the
+   Tailscale address. The audio/encode/SWITCH ERROR lines in the server log are normal.
+
+Finding: with the engine running and the menu-bar app closed, `open "/Applications/Remote Display
+Server.app"` does nothing visible. `remotedisplayd --server` runs an NSApplication inside the same
+bundle, so LaunchServices lists it as the running "Remote Display Server" (same bundle, same bundle id),
+matches it as the already running application and sends it a reopen event; `open -W` never returns.
+`open -n` (new instance) launches the UI. Anyone opening the app from Finder or Spotlight in that state
+hits the same thing (normally the app starts first and starts the engine, so it only shows when the
+engine outlives the app). The engine probably needs its own bundle identity. Anchored patterns for
+`pgrep`/`pkill` (`/Contents/MacOS/remotedisplayd --server$`): an unanchored `-f` matches unrelated
+shells whose command line contains the words.

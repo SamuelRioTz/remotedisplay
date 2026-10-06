@@ -71,7 +71,7 @@
   "how_server_title": "Servidor (macOS 14+)",
   "how_server_desc": "Una app de barra de menús que incluye el motor como servicio por usuario. Muestra las pantallas del Mac tal como las reporta macOS (las físicas y cualquier virtual que añadas con SimpleDisplay) e ignora el ruido de reconfiguración que produce un espejo por hardware, así una pantalla espejada ya no reinicia el video cada segundo.",
   "how_client_title": "Cliente",
-  "how_client_desc": "Una app Flutter sobre el mismo motor: equipos conocidos con sus direcciones y cuáles responden desde donde estás, una contraseña por dirección, un menú de pantallas con abrir en nueva ventana y todas las pantallas, y decodificación H.265 por hardware donde el dispositivo la tiene.",
+  "how_client_desc": "Una app Flutter sobre el mismo motor: los equipos que responden desde donde estás, con sus direcciones (los demás quedan tras una línea desplegable), una contraseña por dirección, un menú de pantallas con abrir en nueva ventana y todas las pantallas, y decodificación H.265 por hardware donde el dispositivo la tiene.",
   "how_transport_title": "Transporte",
   "how_transport_desc": "El protocolo de RustDesk sobre una conexión IP directa, sin rendezvous ni relay. Los equipos de la LAN se descubren solos y el servidor anuncia su dirección de Tailscale, así que los clientes lo alcanzan desde otras redes por tu propia VPN.",
   "how_measured_title": "Medido, no supuesto",

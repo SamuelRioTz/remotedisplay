@@ -59,9 +59,10 @@ notarized by Apple, so macOS opens them without Gatekeeper warnings.
 2. On the client, tap the Mac in *Your computers* (or connect to its IP, port `21118`, with
    that password). Machines on the same LAN are discovered automatically, and the server
    tells the client its Tailscale address too, so the Mac stays reachable from other
-   networks. Each computer lists its addresses (LAN, Tailscale) with whether they answer
-   from where you are: tap a chip to pick the network, the card to connect; the gear
-   renames the computer, adds an address or forgets a password.
+   networks. Only the computers that answer from where you are show up, each with its
+   addresses (LAN, Tailscale); the ones that do not answer wait behind a one-line note you
+   can expand. Tap a chip to pick the network, the card to connect; the gear renames the
+   computer, adds an address or forgets a password.
 3. Open the display menu in the toolbar: pick a display, open it in a new window, or
    show all of them. Want a virtual monitor? Add it on the Mac with SimpleDisplay; it
    shows up as one more display.

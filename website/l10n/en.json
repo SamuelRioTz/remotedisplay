@@ -71,7 +71,7 @@
   "how_server_title": "Server (macOS 14+)",
   "how_server_desc": "A menu-bar app bundling the engine as a per-user service. It shows the Mac's displays as macOS reports them — physical ones and any virtual display you add with SimpleDisplay — and ignores the reconfiguration noise a hardware mirror produces, so a mirrored display no longer restarts the video every second.",
   "how_client_title": "Client",
-  "how_client_desc": "A Flutter app on top of the same engine: known computers with their addresses and which of them answer from where you are, one password per address, a display menu with open-in-new-window and all displays, and hardware H.265 decoding where the device has it.",
+  "how_client_desc": "A Flutter app on top of the same engine: the computers that answer from where you are, with their addresses (the rest wait behind a one-line note), one password per address, a display menu with open-in-new-window and all displays, and hardware H.265 decoding where the device has it.",
   "how_transport_title": "Transport",
   "how_transport_desc": "RustDesk's protocol over a direct IP connection, no rendezvous or relay. LAN peers are discovered automatically, and the server announces its Tailscale address so clients reach it from other networks through your own VPN.",
   "how_measured_title": "Measured, not assumed",

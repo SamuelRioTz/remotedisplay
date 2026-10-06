@@ -36,8 +36,10 @@ import 'session/mobile_session.dart';
 /// IPs (LAN/Tailscale) of the same machine are grouped by the engine id the
 /// host announces, else via hostname (+ `tailscale status` on desktop). Every
 /// refresh also probes each address with a TCP connect to the direct-access
-/// port, so a route that does not answer from the current network shows as
-/// such and a tap uses the one that does.
+/// port. Only the computers that answer on some address from the current
+/// network are listed (a route that does not answer shows as such and a tap
+/// uses the one that does); the others — old leases, machines that are off,
+/// another network — stay behind a one-line note the user can expand.
 class ClientHome extends StatefulWidget {
   const ClientHome({super.key});
 
@@ -80,8 +82,14 @@ class _ClientHomeState extends State<ClientHome>
   Map<String, String> _preferred = {};
   // Names given by the user (machine key → alias).
   Map<String, String> _aliases = {};
-  // TCP probe of each known address on the last refresh (null = probing).
+  // Last TCP probe verdict per known address (null = never probed). A
+  // re-check keeps the previous verdict until the new one arrives.
   final Map<String, bool?> _reach = {};
+  // Addresses whose probe is in flight right now.
+  final Set<String> _probing = {};
+  // The user asked to see the computers that do not answer from this network
+  // (hidden by default; not persisted, every launch starts clean).
+  bool _showUnreachable = false;
   // Bumped on every change the sheets should redraw for.
   final _rev = ValueNotifier<int>(0);
 
@@ -256,9 +264,20 @@ class _ClientHomeState extends State<ClientHome>
 
   Future<void> _probeAll() => _probe(_knownIps());
 
-  /// Only the addresses that have never been probed (new discoveries).
-  Future<void> _probeNew() =>
-      _probe(_knownIps().where((ip) => !_reach.containsKey(ip)).toSet());
+  /// Addresses that have never been probed (new discoveries), plus the ones
+  /// the engine just saw online while our last verdict said no: a machine
+  /// that came back, or a first hop slower than our timeout. A hidden
+  /// machine would otherwise wait for the next 20-second round to reappear.
+  Future<void> _probeNew() => _probe({
+        for (final ip in _knownIps())
+          if (!_reach.containsKey(ip)) ip,
+        for (final p in gFFI.lanPeersModel.peers)
+          if (p.online &&
+              _reach[p.id] == false &&
+              !_probing.contains(p.id) &&
+              !_tsSelf.contains(p.id))
+            p.id,
+      });
 
   /// Addresses may carry a port ("host:port") when the server is not on the
   /// default direct-access port; the engine accepts them as ids.
@@ -276,7 +295,11 @@ class _ClientHomeState extends State<ClientHome>
     if (mounted) {
       setState(() {
         for (final ip in ips) {
-          _reach[ip] = null;
+          // Keep the last verdict while re-checking: the home lists only the
+          // computers that answer, so resetting to "unknown" every 20 s would
+          // make every card blink out of the list during each probe.
+          _probing.add(ip);
+          _reach.putIfAbsent(ip, () => null);
         }
       });
     }
@@ -285,11 +308,21 @@ class _ClientHomeState extends State<ClientHome>
       var ok = false;
       try {
         final a = _split(ip);
-        final s = await Socket.connect(a.host, a.port, timeout: _probeTimeout);
+        // The connect timeout only starts once the name is resolved; the
+        // outer one caps a slow resolver for a hostname typed by hand.
+        final s = await Socket.connect(a.host, a.port, timeout: _probeTimeout)
+            .timeout(_probeTimeout * 2);
         s.destroy();
         ok = true;
       } catch (_) {}
-      if (mounted) setState(() => _reach[ip] = ok);
+      // An address forgotten while its probe ran is gone from _probing:
+      // drop that verdict instead of resurrecting the entry.
+      if (mounted && _probing.contains(ip)) {
+        setState(() {
+          _reach[ip] = ok;
+          _probing.remove(ip);
+        });
+      }
     }));
     _bump();
   }
@@ -609,6 +642,7 @@ class _ClientHomeState extends State<ClientHome>
       await bind.mainRemovePeer(id: r.ip);
     } catch (_) {}
     _reach.remove(r.ip);
+    _probing.remove(r.ip);
     bind.mainLoadLanPeers();
     bind.mainLoadRecentPeers();
     if (mounted) setState(() {});
@@ -639,7 +673,9 @@ class _ClientHomeState extends State<ClientHome>
       if (p.id.isEmpty || _tsSelf.contains(p.id)) return; // never ourselves
       // CGNAT IP that no longer exists in the tailnet (left over from a
       // previous tailnet): ghost card, don't list it.
-      if (_isTailscale(p.id) && _tsAll.isNotEmpty && !_tsAll.contains(p.id)) {
+      if (_isTailscale(p.id) &&
+          _tsAll.isNotEmpty &&
+          !_tsAll.contains(_split(p.id).host)) {
         return;
       }
       final prev = byIp[p.id];
@@ -729,6 +765,7 @@ class _ClientHomeState extends State<ClientHome>
       final route = MachineRoute(p.id,
           tailscale: _isTailscale(p.id), manual: _manual.containsKey(p.id));
       route.reachable = _reach.containsKey(p.id) ? _reach[p.id] : null;
+      route.probing = _probing.contains(p.id);
       route.saved = _savedIps.contains(p.id);
       m.routes.add(route);
       if (m.platform.isEmpty) {
@@ -840,6 +877,13 @@ class _ClientHomeState extends State<ClientHome>
                           ]),
                           builder: (context, _) {
                             final machines = _machines();
+                            // Only the computers that answer from this
+                            // network are listed; the rest stay behind a
+                            // one-line note the user can expand.
+                            final available =
+                                machines.where((m) => m.available).toList();
+                            final unreachable =
+                                machines.where((m) => !m.available).toList();
                             return Column(
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -849,7 +893,7 @@ class _ClientHomeState extends State<ClientHome>
                                 _sectionTitle(ui, 'YOUR COMPUTERS',
                                     trailing: _scanIndicator(ui)),
                                 const SizedBox(height: 10),
-                                _machineCards(ui, machines),
+                                _machineCards(ui, available, unreachable),
                                 const SizedBox(height: 16),
                                 _manualCard(ui, forceOpen: machines.isEmpty),
                               ],
@@ -1051,31 +1095,58 @@ class _ClientHomeState extends State<ClientHome>
           ),
         );
 
-  Widget _machineCards(HomeUi ui, List<Machine> machines) {
-    if (machines.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 20),
-        decoration: ui.cardDeco,
-        child: Row(
-          children: [
-            Icon(Icons.radar, size: 18, color: ui.muted),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                _scanning
-                    ? 'Looking for computers on your network…'
-                    : 'No computers yet. Start Remote Display Server on the Mac (same network, or Tailscale on both) or enter its address below.',
-                style: TextStyle(color: ui.muted, fontSize: 13),
-              ),
-            ),
-          ],
-        ),
-      );
+  /// The cards: [available] computers always, [unreachable] ones only when
+  /// the user expands the note under the list (so an old lease or a machine
+  /// that is off does not sit on the home, yet can still be forgotten or
+  /// given a Tailscale address from its settings).
+  Widget _machineCards(
+      HomeUi ui, List<Machine> available, List<Machine> unreachable) {
+    // Once nothing is left to show, fold the toggle again so the next machine
+    // that goes off does not come straight back as a dimmed card.
+    if (_showUnreachable && unreachable.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _showUnreachable = false);
+      });
     }
+    final shown = [
+      ...available,
+      if (_showUnreachable) ...unreachable,
+    ];
+    // Judge only on first verdicts: a re-check in flight keeps the last one,
+    // so the note and the texts below do not blink on every 20-second round.
+    final unknown = unreachable.any((m) => m.unknown);
+    // Nothing answers yet: while a scan runs or an address has no verdict the
+    // list is simply filling up; afterwards say which situation it is.
+    final settling = _scanning || unknown;
+    final empty = shown.isEmpty
+        ? Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 20),
+            decoration: ui.cardDeco,
+            child: Row(
+              children: [
+                Icon(Icons.radar, size: 18, color: ui.muted),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    settling
+                        ? 'Looking for computers on your network…'
+                        : unreachable.isNotEmpty
+                            ? 'No computers answer from this network right now.'
+                            : 'No computers yet. Start Remote Display Server on the Mac (same network, or Tailscale on both) or enter its address below.',
+                    style: TextStyle(color: ui.muted, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          )
+        : null;
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final m in machines)
+        if (empty != null)
+          Padding(padding: const EdgeInsets.only(bottom: 10), child: empty),
+        for (final m in shown)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: _MachineCard(
@@ -1088,9 +1159,45 @@ class _ClientHomeState extends State<ClientHome>
               onForget: () => _forgetMachine(m),
             ),
           ),
+        if (unreachable.isNotEmpty && !unknown)
+          _unreachableNote(ui, unreachable.length),
       ],
     );
   }
+
+  /// One muted line under the cards: how many known computers do not answer
+  /// from this network. The whole line toggles their cards (Show/Hide), so
+  /// it is a comfortable target on touch and the only way back to a machine
+  /// that has to be forgotten or given another address.
+  Widget _unreachableNote(HomeUi ui, int count) => InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => setState(() => _showUnreachable = !_showUnreachable),
+        child: Padding(
+          padding:
+              EdgeInsets.symmetric(horizontal: 6, vertical: isDesktop ? 6 : 14),
+          child: Row(
+            children: [
+              Icon(Icons.visibility_off_outlined,
+                  size: 14, color: ui.muted.withOpacity(0.8)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  count == 1
+                      ? '1 computer does not answer from this network'
+                      : '$count computers do not answer from this network',
+                  style: TextStyle(color: ui.muted, fontSize: 12),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(_showUnreachable ? 'Hide' : 'Show',
+                  style: TextStyle(
+                      color: ui.accentSoft,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      );
 
   /// "Manual connection" card, collapsed by default (opens on its own if no
   /// machine is known). A machine connected this way joins the list above.
@@ -1219,7 +1326,9 @@ class _MachineCardState extends State<_MachineCard> {
       if (m.username.isNotEmpty) m.username,
       if (m.platform.isNotEmpty) m.platform,
     ].join(' · ');
-    final offline = !m.probing && m.live == null;
+    // Dimmed only once every address has a verdict and none answers; a
+    // re-check in flight keeps the last verdict, so the look does not flip.
+    final offline = !m.unknown && m.live == null;
     final pref = m.preferred;
     final prefLost = pref != null && pref.reachable == false;
 
