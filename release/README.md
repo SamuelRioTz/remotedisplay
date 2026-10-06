@@ -35,8 +35,11 @@ binaries in git (`release/out/` is in .gitignore).
    `release/out/`; with `--upload` it also uploads them to the `v<ver>` Release (creates it if it doesn't exist).
    The three Flutter builds (macOS client, iOS, Android) need **Rosetta**: Flutter 3.24.5's host tools
    (`gen_snapshot`) are x86_64. macOS 27 came without it (1.0.13 shipped server + Windows first for that
-   reason); `sudo softwareupdate --install-rosetta --agree-to-license` brings it back. Without Rosetta,
-   `--skip-client --skip-ios --skip-android` still builds and notarizes the server DMG.
+   reason); `softwareupdate --install-rosetta --agree-to-license` brings it back (on macOS 27.0 it ran
+   without sudo). Without Rosetta, `--skip-client --skip-ios --skip-android` still builds and notarizes
+   the server DMG. Xcode 27 notes (2026-10-06): deployment targets must be ≥ 12.0 (macOS) / 15.0 (iOS),
+   set in the two Podfiles and Runner projects; the client dylib is linked unstripped and stripped with
+   Xcode's `strip -x` (rustc's strip mis-aligns the LINKEDIT string pool and Xcode 27's `ld` refuses it).
    The Mac ALREADY has `gh` authenticated (`SamuelRioTz`), so it uploads directly — step 4 (fetch
    from Windows) is only an alternative if the Mac didn't have `gh`.
    With the Developer ID identity present the two DMGs come out notarized and stapled

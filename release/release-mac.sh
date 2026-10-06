@@ -82,7 +82,14 @@ export VCPKG_ROOT="${VCPKG_ROOT:-$HOME/vcpkg}"   # scrap/build.rs needs libyuv f
 #    `hwcodec` = hardware H264/H265 through the prebuilt ffmpeg the hwcodec crate ships
 #    (VideoToolbox here; the iOS and Android builds already had it). Without it everything
 #    was VP9 in software, even at 3440x1440.
-( cd "$ROOT/engine/rustdesk" && cargo build --release --features flutter,hwcodec --lib && cargo build --release --features hwcodec --bin rustdesk )
+#    The client dylib is linked WITHOUT cargo's `strip = true` and stripped with Xcode's
+#    `strip -x` afterwards: rustc's own strip leaves the LINKEDIT string pool 4-byte
+#    aligned and Xcode 27's linker refuses to link the app against it ("ld: mis-aligned
+#    LINKEDIT string pool"); Xcode's strip keeps it 8-byte aligned (same final size).
+( cd "$ROOT/engine/rustdesk" \
+  && CARGO_PROFILE_RELEASE_STRIP=false cargo build --release --features flutter,hwcodec --lib \
+  && strip -x target/release/liblibrustdesk.dylib \
+  && cargo build --release --features hwcodec --bin rustdesk )
 
 # 1) Android
 if [ $SKIP_ANDROID = 0 ]; then

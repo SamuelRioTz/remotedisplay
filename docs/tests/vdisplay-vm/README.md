@@ -831,9 +831,28 @@ built on the PC with `release/release-windows.ps1` (`gh` there is unauthenticate
 installer were copied to the Mac with `scp` and uploaded from there); server DMG rebuilt, signed and
 notarized on the Mac from the same engine binary as 1.0.13 (server code unchanged, version only — the
 website resolves its download buttons against the latest release, so the Mac button needs the DMG in
-it). macOS client, iOS and Android still pending (no Rosetta on the Mac). Not exercised: a two-VM run
-with screenshots (the Windows VM has no broadcast path to the Tart server). Sam checks the build on
-his PC against the Studio and Luz's Mac.
+it). The three Flutter clients followed the same day once Rosetta was back —
+`softwareupdate --install-rosetta --agree-to-license` ran fine WITHOUT sudo on macOS 27.0 — and after
+three fixes the first macOS 27 / Xcode 27 / Android 15 build round forced:
+- Xcode 27 rejects the deployment targets the Flutter templates carried (`MACOSX_DEPLOYMENT_TARGET`
+  10.14 in the client's Runner project and the plugin pods, 10.13 in some pods: "the range of supported
+  deployment target versions is 12.0 to 27.0"; the iOS SDK's floor is 15.0). `client/macos`: Podfile
+  `platform :osx, '12.0'` + a post_install hook forcing `MACOSX_DEPLOYMENT_TARGET = '12.0'` on every
+  pod, Runner.xcodeproj 10.14 → 12.0. `client/ios`: `platform :ios, '15.0'`, the existing hook and the
+  Runner project 14.0 → 15.0.
+- Xcode 27's linker refuses the engine dylib cargo produces with `strip = true`: "ld: mis-aligned
+  LINKEDIT string pool" — rustc's strip leaves `stroff` 4-byte aligned (25511404 % 8 = 4), Xcode's
+  `strip -x` leaves it 8-byte aligned. `release-mac.sh` now links `liblibrustdesk.dylib` with
+  `CARGO_PROFILE_RELEASE_STRIP=false` and runs `strip -x` on it (same final size, 25.7 MB).
+- Android 15 (Lenovo TB373FU, Play services current): Play Protect REJECTS the sideload of the APK —
+  "Unsafe app blocked: This app was built for an older version of Android and doesn't include the
+  latest privacy protections" (logcat `VerifyApps … result=REJECT`, `INSTALL_FAILED_VERIFICATION_FAILURE`).
+  The APK targets SDK 33 (`client/android/app/build.gradle`, same as the engine's). Not changed in this
+  release (a targetSdk bump needs a run of the Android client first: foreground-service types, etc.);
+  installed with the verifier paused for adb (`settings put global verifier_verify_adb_installs 0`,
+  then `settings delete …` to restore the default). Pending: target SDK 34/35.
+Not exercised: a two-VM run with screenshots (the Windows VM has no broadcast path to the Tart server).
+Sam checks the build on his PC against the Studio and Luz's Mac.
 
 ## 2026-10-06 — Server 1.0.13 on Sam's Studio: in-place upgrade, `open` reaches the engine instead of the UI
 
