@@ -785,7 +785,7 @@ two loopback forwards on the Mac, 21119 and 21120 → VM:21118, so the same serv
   reach the interactive desktop; send it from a scheduled task. Old macOS `screen` has no `-Logfile`.
   The Tart VM's sshd rejects the first password attempt now and then — retry.
 
-## 2026-10-06 — Home lists only the computers that answer from this network
+## 2026-10-06 — 1.0.14: the home lists only the computers that answer from this network
 
 Symptom on Sam's Windows client (1.0.13): every computer the client had ever known stayed on the
 home — Luz's Mac twice (a live `luzs-mbp` card and a `luzs-macbook-pro` card with four old addresses,
@@ -826,11 +826,14 @@ Change (`client/lib/home.dart`, `client/lib/machines.dart`):
   `website/index.html`.
 
 Verification: `flutter analyze` with the project's Flutter 3.24.5 (`/Users/sam/flutter`) on the Mac —
-20 issues, all pre-existing infos, none on changed lines. Windows client built on the PC with
-`release/release-windows.ps1` (no upload; the released 1.0.13 artifacts were moved aside first, into
-`release/out/released-1.0.13/`). Not exercised: a two-VM run with screenshots (the Windows VM has no
-broadcast path to the Tart server), the iPad and macOS clients (no Rosetta on the Mac yet). Sam checks
-the build on his PC against the Studio and Luz's Mac.
+20 issues, all pre-existing infos, none on changed lines. Released as **1.0.14 (15)**: Windows client
+built on the PC with `release/release-windows.ps1` (`gh` there is unauthenticated, so the zip and the
+installer were copied to the Mac with `scp` and uploaded from there); server DMG rebuilt, signed and
+notarized on the Mac from the same engine binary as 1.0.13 (server code unchanged, version only — the
+website resolves its download buttons against the latest release, so the Mac button needs the DMG in
+it). macOS client, iOS and Android still pending (no Rosetta on the Mac). Not exercised: a two-VM run
+with screenshots (the Windows VM has no broadcast path to the Tart server). Sam checks the build on
+his PC against the Studio and Luz's Mac.
 
 ## 2026-10-06 — Server 1.0.13 on Sam's Studio: in-place upgrade, `open` reaches the engine instead of the UI
 
