@@ -950,3 +950,10 @@ gets past it — then `libsodium-sys` fails). Until the iPad run passes, the 1.0
 IPA and the notes say why; 1.0.12 is what runs on the iPad when the new build is not installed.
 Also: `tools/build-ios.sh` now exports `IPHONEOS_DEPLOYMENT_TARGET=15.0` for the Rust library, matching
 the app.
+End of day: the iPad stayed locked for the whole evening (three retry windows, ~2.5 h). On the last
+window the launch attempt failed with a `devicectl` transport error instead of the lock error (the iPad
+had moved from USB to the network pairing: `com.apple.dt.CoreDeviceError error 3`, "connection was
+invalidated"); the loop's fallback took that as an early exit and reinstalled 1.0.12, so the iPad is
+back on the known-good build. The UIScene IPA stays at `release/out/RemoteDisplay-1.0.14-ios.ipa`
+(25.2 MB, 19:32), to be installed and launched with the iPad unlocked and on USB; the v1.0.14 release
+gets its IPA after that run.
