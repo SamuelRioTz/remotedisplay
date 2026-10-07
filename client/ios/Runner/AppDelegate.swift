@@ -6,6 +6,14 @@ import Flutter
 // hidden natively with UIPointerInteraction. Dart (MobileSessionScreen)
 // sends over the `remotedisplay/pointer` channel whether to hide it and in
 // which rects (pill, menus) it must stay visible.
+//
+// UIScene life cycle (mandatory for apps linked against the iOS 27 SDK; Flutter
+// 3.24.5 has no scene support of its own, see SceneDelegate.swift): the
+// storyboard RunnerFlutterViewController is created when the main scene
+// connects — AFTER didFinishLaunching — and UIKit never fills
+// FlutterAppDelegate.window. SceneDelegate hands the window over and calls
+// attachFlutter(); everything that needs the FlutterViewController lives
+// there. The external monitor is ExternalDisplayController (scene-based too).
 @main
 @objc class AppDelegate: FlutterAppDelegate, UIPointerInteractionDelegate {
   private var pointerHidden = false
@@ -13,184 +21,103 @@ import Flutter
   private var pointerInteraction: UIPointerInteraction?
   // Pointer capture (pointer lock + GCMouse → deltas to Dart).
   private var pointerCaptureBridge: PointerCaptureBridge?
-
-  // External monitor (iPad, scene-less app → classic UIScreen API): a
-  // second FlutterEngine with route /extscreen draws into a UIWindow on the
-  // external screen (replaces system mirroring while it exists). Dart (main
-  // isolate) governs attach/detach/setDisplay over `remotedisplay/extdisplay`;
-  // the external isolate is talked to over `remotedisplay/extview`.
-  private var extWindow: UIWindow?
-  private var extEngine: FlutterEngine?
-  private var extViewChannel: FlutterMethodChannel?
-  private var extDisplayChannel: FlutterMethodChannel?
+  // External monitor; owned here so it lives as long as its host controller.
+  private var externalDisplay: ExternalDisplayController?
+  /// The FlutterViewController the plugins and channels are installed on.
+  /// UIKit builds a NEW one from Main.storyboard every time the scene
+  /// connects — it may disconnect and reconnect the scene while the process
+  /// lives — and each one owns its own implicit FlutterEngine, so the setup
+  /// is keyed on the controller, not on a "done once" flag.
+  private weak var attachedController: FlutterViewController?
+  private var replayingLaunch = false
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
-    dummyMethodToEnforceBundling();
-    if let controller = window?.rootViewController as? FlutterViewController {
-      setupExternalDisplayChannel(controller: controller)
-      let channel = FlutterMethodChannel(
-        name: "remotedisplay/pointer", binaryMessenger: controller.binaryMessenger)
-      pointerCaptureBridge = PointerCaptureBridge(channel: channel)
-      pointerCaptureBridge?.installRecognizers(on: controller.view)
-      channel.setMethodCallHandler { [weak self, weak controller] call, result in
-        guard let self = self, let controller = controller else { return }
-        switch call.method {
-        case "capture":
-          let args = call.arguments as? [String: Any]
-          let on = args?["on"] as? Bool ?? false
-          self.pointerCaptureBridge?.setActive(on)
-          result(nil)
-        case "setHidden":
-          let args = call.arguments as? [String: Any]
-          self.pointerHidden = args?["hidden"] as? Bool ?? false
-          if let rects = args?["visible"] as? [[Double]] {
-            self.visibleRects = rects.compactMap {
-              $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil
-            }
-          } else {
-            self.visibleRects = []
-          }
-          if #available(iOS 13.4, *) {
-            if self.pointerInteraction == nil {
-              let interaction = UIPointerInteraction(delegate: self)
-              controller.view.addInteraction(interaction)
-              self.pointerInteraction = interaction
-            }
-            self.pointerInteraction?.invalidate()
-          }
-          result(nil)
-        default:
-          result(FlutterMethodNotImplemented)
-        }
-      }
+    if !replayingLaunch {
+      dummyMethodToEnforceBundling()
     }
+    // FlutterAppDelegate forwards this to the plugins registered through
+    // addApplicationDelegate (uni_links reads launchOptions[.url] in it). At
+    // the real launch none is registered yet (window is nil under scenes);
+    // SceneDelegate replays it through replayLaunch(options:).
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  public func dummyMethodToEnforceBundling() {
-      dummy_method_to_enforce_bundling();
-    session_get_rgba(nil, 0);
-  }
-
-  // MARK: - External monitor
-
-  private func setupExternalDisplayChannel(controller: FlutterViewController) {
+  /// Plugin registration and the native channels for the CURRENT storyboard
+  /// controller. Called by SceneDelegate once UIKit has created the window
+  /// from Main.storyboard (and, belt and braces, from
+  /// RunnerFlutterViewController.viewDidLoad). No-op while the window is
+  /// unknown or the controller is already set up; redone for a new controller
+  /// (scene reconnect), exactly as Flutter's own scene embedder re-registers
+  /// plugins per implicit engine.
+  func attachFlutter() {
+    guard let controller = window?.rootViewController as? FlutterViewController,
+          controller !== attachedController else { return }
+    attachedController = controller
+    // State bound to a previous controller: release it first (the external
+    // display controller unregisters its scene accessory and drops its
+    // observers in deinit; the pointer interaction belonged to the old view).
+    externalDisplay = nil
+    pointerCaptureBridge = nil
+    pointerInteraction = nil
+    GeneratedPluginRegistrant.register(with: self)
+    externalDisplay = ExternalDisplayController(host: controller)
     let channel = FlutterMethodChannel(
-      name: "remotedisplay/extdisplay", binaryMessenger: controller.binaryMessenger)
-    extDisplayChannel = channel
-    channel.setMethodCallHandler { [weak self] call, result in
-      guard let self = self else { return }
+      name: "remotedisplay/pointer", binaryMessenger: controller.binaryMessenger)
+    let bridge = PointerCaptureBridge(channel: channel)
+    pointerCaptureBridge = bridge
+    bridge.installRecognizers(on: controller.view)
+    channel.setMethodCallHandler { [weak self, weak controller] call, result in
+      guard let self = self, let controller = controller else { return }
       switch call.method {
-      case "isConnected":
-        result(UIScreen.screens.count > 1)
-      case "screenSize":
-        // Pixel size of the external monitor's current mode (the one the
-        // external window is on, or the first non-main screen).
-        let screen = self.extWindow?.screen ?? UIScreen.screens.first(where: { $0 != UIScreen.main })
-        if let screen = screen {
-          let size = screen.currentMode?.size
-            ?? CGSize(width: screen.bounds.width * screen.scale, height: screen.bounds.height * screen.scale)
-          result([Double(size.width), Double(size.height)])
-        } else {
-          result(nil)
-        }
-      case "attach":
-        self.attachExternalScreen()
-        result(nil)
-      case "detach":
-        self.teardownExternalScreen(notifyDart: false)
-        result(nil)
-      case "setDisplay":
+      case "capture":
         let args = call.arguments as? [String: Any]
-        let display = args?["display"] as? Int ?? -1
-        self.extViewChannel?.invokeMethod("setDisplay", arguments: ["display": display])
+        let on = args?["on"] as? Bool ?? false
+        self.pointerCaptureBridge?.setActive(on)
         result(nil)
-      case "cursorPos":
-        // Remote cursor position (global coords) → external view's overlay.
-        // High frequency: direct forwarding, without touching anything else.
-        self.extViewChannel?.invokeMethod("cursorPos", arguments: call.arguments)
+      case "setHidden":
+        let args = call.arguments as? [String: Any]
+        self.pointerHidden = args?["hidden"] as? Bool ?? false
+        if let rects = args?["visible"] as? [[Double]] {
+          self.visibleRects = rects.compactMap {
+            $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil
+          }
+        } else {
+          self.visibleRects = []
+        }
+        if #available(iOS 13.4, *) {
+          if self.pointerInteraction == nil {
+            let interaction = UIPointerInteraction(delegate: self)
+            controller.view.addInteraction(interaction)
+            self.pointerInteraction = interaction
+          }
+          self.pointerInteraction?.invalidate()
+        }
         result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }
     }
-    NotificationCenter.default.addObserver(
-      forName: UIScreen.didConnectNotification, object: nil, queue: .main
-    ) { [weak self] _ in
-      self?.extDisplayChannel?.invokeMethod("connected", arguments: nil)
-    }
-    NotificationCenter.default.addObserver(
-      forName: UIScreen.didDisconnectNotification, object: nil, queue: .main
-    ) { [weak self] _ in
-      self?.teardownExternalScreen(notifyDart: true)
-    }
-    // The monitor can renegotiate its mode AFTER connecting (also on real
-    // hardware): refit the external window to the new bounds.
-    NotificationCenter.default.addObserver(
-      forName: UIScreen.modeDidChangeNotification, object: nil, queue: .main
-    ) { [weak self] note in
-      guard let self = self, let win = self.extWindow else { return }
-      guard let screen = note.object as? UIScreen, screen == win.screen else { return }
-      win.frame = screen.bounds
-      win.rootViewController?.view.frame = win.bounds
-    }
   }
 
-  private func attachExternalScreen() {
-    guard extEngine == nil else { return }
-    guard let screen = UIScreen.screens.first(where: { $0 != UIScreen.main }) else { return }
-    // Switch to the best available mode ONLY if it improves on the current
-    // one — never downgrade: availableModes can come back incomplete (e.g.
-    // simulated TVOut lists only 720x480 even though the screen is already at 1080p).
-    let area = { (m: UIScreenMode) in m.size.width * m.size.height }
-    if let best = screen.availableModes.max(by: { area($0) < area($1) }) {
-      let currentArea = screen.currentMode.map(area) ?? 0
-      if area(best) > currentArea {
-        screen.currentMode = best
-      }
-    }
-    screen.overscanCompensation = .scale
-    let engine = FlutterEngine(name: "extscreen")
-    // Same Dart main(); the initial route picks the _runExtScreen bootstrap.
-    engine.run(withEntrypoint: nil, initialRoute: "/extscreen")
-    GeneratedPluginRegistrant.register(with: engine)
-    let viewController = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
-    let win = UIWindow(frame: screen.bounds)
-    win.screen = screen
-    win.rootViewController = viewController
-    win.isHidden = false
-    extEngine = engine
-    extWindow = win
-    extViewChannel = FlutterMethodChannel(
-      name: "remotedisplay/extview", binaryMessenger: engine.binaryMessenger)
+  /// Under scenes UIKit passes nil launch options to didFinishLaunching; the
+  /// URL / source app arrive in UIScene.ConnectionOptions instead. SceneDelegate
+  /// converts them and replays the launch so every plugin sees exactly one
+  /// didFinishLaunching per scene connection, now with the data (uni_links:
+  /// initialLink for a cold start by remotedisplay://…). Routed through our
+  /// override so the `super` call resolves exactly like the one Flutter's
+  /// template makes.
+  func replayLaunch(options: [UIApplication.LaunchOptionsKey: Any]) {
+    replayingLaunch = true
+    defer { replayingLaunch = false }
+    _ = application(UIApplication.shared, didFinishLaunchingWithOptions: options)
   }
 
-  /// Closes the external view: first `dispose` to the isolate (gracefully
-  /// closes its rust ui-session) and shortly after the engine is destroyed.
-  private func teardownExternalScreen(notifyDart: Bool) {
-    guard let engine = extEngine else {
-      if notifyDart { extDisplayChannel?.invokeMethod("disconnected", arguments: nil) }
-      return
-    }
-    extViewChannel?.invokeMethod("dispose", arguments: nil)
-    extEngine = nil
-    extViewChannel = nil
-    let win = extWindow
-    extWindow = nil
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-      win?.isHidden = true
-      // Order matters: release the FlutterViewController BEFORE destroying
-      // the engine — the UIWindow's dealloc triggers viewDidDisappear, which
-      // touches the engine (iosPlatformView) and segfaults if it's already destroyed.
-      win?.rootViewController = nil
-      engine.viewController = nil
-      engine.destroyContext()
-    }
-    if notifyDart { extDisplayChannel?.invokeMethod("disconnected", arguments: nil) }
+  public func dummyMethodToEnforceBundling() {
+      dummy_method_to_enforce_bundling();
+    session_get_rgba(nil, 0);
   }
 
   // No region → normal pointer (over pill/menus); with a region → hidden style.

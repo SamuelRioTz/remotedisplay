@@ -21,6 +21,22 @@ class RunnerFlutterViewController: FlutterViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
     RunnerFlutterViewController.current = self
+    // UIScene flow, belt and braces: SceneDelegate.willConnect normally runs
+    // attachFlutter() before this view loads (it is what loads it); should UIKit
+    // ever load the view first, plugins and channels still get installed
+    // (attachFlutter is idempotent and a no-op while the window is unknown).
+    (UIApplication.shared.delegate as? AppDelegate)?.attachFlutter()
+  }
+
+  // iPadOS 26+ property-update pass. On iPadOS 27 the external monitor's
+  // presence is UISceneAccessoryRegistration.isAvailable, which Apple documents
+  // as observable during updateProperties: reading it from here makes UIKit
+  // call this method again whenever it changes (ExternalDisplayController then
+  // sends connected/disconnected to Dart).
+  @available(iOS 26.0, *)
+  override func updateProperties() {
+    super.updateProperties()
+    ExternalDisplayController.shared?.accessoryAvailabilityChanged()
   }
 
   func setPointerCapture(_ on: Bool) {

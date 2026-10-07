@@ -20,7 +20,7 @@ export PATH="${FLUTTER_HOME:-$HOME/flutter}/bin:$PATH"
 # Same minimum target for the C objects (cc-rs), rustc's link step, and the Runner: without this
 # cc-rs builds aom for the SDK's iOS (26.x, emits ___chkstk_darwin) and rustc links with a minimum
 # of 10.0 → "Undefined symbols: ___chkstk_darwin".
-export IPHONEOS_DEPLOYMENT_TARGET=14.0
+export IPHONEOS_DEPLOYMENT_TARGET=15.0
 
 DO_DEPS=0; DO_INSTALL=0; UDID=""
 while [ $# -gt 0 ]; do

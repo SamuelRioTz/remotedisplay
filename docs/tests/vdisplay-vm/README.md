@@ -886,3 +886,67 @@ hits the same thing (normally the app starts first and starts the engine, so it 
 engine outlives the app). The engine probably needs its own bundle identity. Anchored patterns for
 `pgrep`/`pkill` (`/Contents/MacOS/remotedisplayd --server$`): an unanchored `-f` matches unrelated
 shells whose command line contains the words.
+
+## 2026-10-06 — iOS 27 SDK: the client must adopt the UIScene life cycle (1.0.14 iPad build)
+
+Symptom: the 1.0.14 IPA, the first one built with Xcode 27 (iOS 27.0 SDK), installs on Sam's iPad Pro
+(iPadOS 27.0) and is terminated at launch; the 1.0.12 IPA from Xcode 26 runs on the same iPad. Six
+crash reports (`Runner-2026-10-06-18xxxx.ips`): EXC_BREAKPOINT in
+`UIKitCore ___UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption_block_invoke`, called from
+`-[UIApplication workspace:didCreateScene:…]`, before any app code (frame 23 is `UIApplicationMain`).
+Apple (TN3187, UIKit release notes): apps linked against the iOS 27 SDK must adopt the UIScene life
+cycle; there is no opt-out. Flutter 3.24.5 has no scene support of its own (no `FlutterSceneDelegate`,
+`grep -i scene` over the pinned Flutter.framework headers: 0 hits), and `client/ios/Runner/Info.plist`
+had no `UIApplicationSceneManifest`.
+
+Change (`client/ios/Runner`):
+- `Info.plist`: `UIApplicationSceneManifest` with `UIApplicationSupportsMultipleScenes = false`; the
+  Application role keeps `Main.storyboard` (`UISceneStoryboardFile`), so `RunnerFlutterViewController`
+  is still created by UIKit through `initWithCoder` exactly as before, with
+  `$(PRODUCT_MODULE_NAME).SceneDelegate`; the `UIWindowSceneSessionRoleExternalDisplayNonInteractive`
+  role points at `ExternalDisplaySceneDelegate`. `UIViewControllerBasedStatusBarAppearance` flips to
+  true: the iOS 27 SDK makes `UIApplication.statusBarHidden/statusBarStyle` setters no-ops, which is the
+  path Flutter 3.24.5 takes when the key is false, so the session's status-bar hiding would have
+  silently stopped working; with true Flutter drives `FlutterViewController.prefersStatusBarHidden`.
+- `SceneDelegate.swift` (new): under scenes UIKit never fills `FlutterAppDelegate.window` and the
+  storyboard controller exists only AFTER `didFinishLaunching`. The scene delegate hands the window to
+  the app delegate, calls `attachFlutter()`, replays the launch options UIKit no longer passes
+  (`connectionOptions.urlContexts` → `launchOptions[.url]`, so uni_links keeps the cold-start
+  `remotedisplay://` link) and forwards `openURLContexts` / `continue userActivity` to the
+  `UIApplicationDelegate` methods FlutterAppDelegate still implements. No lifecycle forwarding is
+  needed: FlutterViewController and the plugin life-cycle delegate observe the UIApplication
+  notifications, which UIKit keeps posting under scenes.
+- `AppDelegate.swift`: `didFinishLaunching` keeps only the bundling dummy + `super` (`window` is nil
+  there now; the old `window?.rootViewController` gate would silently skip every channel and hand nil
+  registrars to the plugins). Plugin registration, the `remotedisplay/pointer` channel and the
+  `PointerCaptureBridge` moved verbatim into `attachFlutter()`, keyed on the controller's identity:
+  UIKit builds a new storyboard controller (and implicit FlutterEngine) on every scene connection.
+- `ExternalDisplayController.swift` (new, replaces the UIScreen/`UIWindow(frame:).screen` code): in a
+  scene-based app every window belongs to a `UIWindowScene`, and the supported way to replace mirroring
+  is a window attached to the scene with the `windowExternalDisplayNonInteractive` role. iPadOS 16–26:
+  the system connects that scene by itself (Info.plist role) and the controller adopts it; iPadOS 27:
+  the system no longer offers it, so the host controller registers a `UISceneAccessory`
+  (`.externalNonInteractive`), disabled until Dart attaches; presence = `registration.isAvailable`,
+  read from `RunnerFlutterViewController.updateProperties()`. The Dart contract
+  (`remotedisplay/extdisplay`: isConnected · screenSize · attach · detach · setDisplay · cursorPos;
+  events connected/disconnected; `remotedisplay/extview`: setDisplay · cursorPos · dispose) is
+  unchanged, so `client/lib` needed no change.
+- `project.pbxproj`: the two new files in the Runner target.
+
+Also fixed on the way (same Xcode 27 round): deployment targets ≥ 12.0 (macOS) / 15.0 (iOS) in both
+Podfiles and Runner projects; the macOS client dylib linked without cargo's strip (see the 1.0.14
+section above).
+
+Verification so far: the IPA builds (Xcode 27, 15.0 deployment target) and installs on the iPad; its
+Info.plist carries the manifest (`Runner.SceneDelegate` + `Main`, `Runner.ExternalDisplaySceneDelegate`).
+The launch test itself is PENDING: the iPad locked itself before the first attempt and iPadOS refuses to
+launch apps on a locked device (`FBSOpenApplicationErrorDomain error 7: the device was not, or could
+not be, unlocked`; a `devicectl` screenshot of a locked iPad is black). A retry loop (`devicectl device
+process launch --console`, alive after 25 s, screenshot, new `Runner-*.ips`) runs until the iPad is
+unlocked. The iOS Simulator is no substitute here: only the iOS 26.5 runtime is installed (the trap needs
+27), and the engine does not build for `aarch64-apple-ios-sim` anyway (`coreaudio-sys` bindgen rejects
+the triple — `BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim=--target=arm64-apple-ios15.0-simulator`
+gets past it — then `libsodium-sys` fails). Until the iPad run passes, the 1.0.14 release carries no
+IPA and the notes say why; 1.0.12 is what runs on the iPad when the new build is not installed.
+Also: `tools/build-ios.sh` now exports `IPHONEOS_DEPLOYMENT_TARGET=15.0` for the Rust library, matching
+the app.
