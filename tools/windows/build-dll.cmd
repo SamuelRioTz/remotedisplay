@@ -9,9 +9,12 @@ REM Override LLVM18 / VCPKG_ROOT / VCVARS in the environment for another machine
 setlocal EnableDelayedExpansion
 set VSCMD_SKIP_SENDTELEMETRY=1
 if "%LLVM18%"=="" set "LLVM18=C:\Users\sam\llvm-18.1.8\bin"
-if "%VCPKG_ROOT%"=="" set "VCPKG_ROOT=C:\Users\sam\vcpkg"
+if "%RD_VCPKG_ROOT%"=="" set "RD_VCPKG_ROOT=C:\Users\sam\vcpkg"
 if "%VCVARS%"=="" set "VCVARS=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
 call "%VCVARS%" || exit /b 1
+REM vcvars64 (VS 17.6+) points VCPKG_ROOT at the vcpkg bundled with Visual Studio, which has none of
+REM our deps (opus, vpx, yuv, aom, the hwcodec ffmpeg); ours is set AFTER it on purpose.
+set "VCPKG_ROOT=%RD_VCPKG_ROOT%"
 set "CLANG_PATH=%LLVM18%\clang.exe"
 set "LIBCLANG_PATH=%LLVM18%"
 set "BINDGEN_EXTRA_CLANG_ARGS=--target=x86_64-pc-windows-msvc"
