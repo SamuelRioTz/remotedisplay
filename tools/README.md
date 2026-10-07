@@ -94,6 +94,8 @@ Prerequisites: VS Build Tools 2022 (C++), Rust, vcpkg. **Gotchas solved:**
    `flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --llvm-path "C:\Program Files\LLVM"`
    (ffigen needs libclang; install LLVM.LLVM).
 5. **DLL**: `VCPKG_ROOT=C:\Users\sam\vcpkg cargo build --locked --features flutter,hwcodec --lib --release` → `target/release/librustdesk.dll`
+   (`tools\windows\build-dll.cmd` does this step with the whole environment of this list set up, from any
+   cmd or ssh session)
    (`hwcodec` = hardware H264/H265 decoding through the prebuilt ffmpeg of the hwcodec crate — D3D11VA/DXVA2 on
    Windows; without it the client decoded everything in software with VP9).
    Two environment gotchas (2026-09-23, both hit from a plain ssh/cmd session): the `kcp-sys` build script runs
@@ -114,6 +116,27 @@ Prerequisites: VS Build Tools 2022 (C++), Rust, vcpkg. **Gotchas solved:**
    `flutter/build/windows/x64/runner/Release/` (next to `rustdesk.exe`).
 
 The final .exe: `flutter/build/windows/x64/runner/Release/rustdesk.exe` + LAN-only config in `%APPDATA%\RustDesk\config\RemoteDisplay2.toml`.
+
+## Diagnosing discovery on a Windows client
+
+`tools/scripts/discovery-diag.ps1` (read-only) prints what the home groups computers from on that PC:
+the discovered peers cache (address, engine id, name — an entry with an address only was found by the
+port scan, a reply never arrived), every recent peer's saved identity, the home's `rd-*` local options
+(fingerprints, last keys, aliases, remembered routes), the Windows Firewall rules that name
+`remotedisplay.exe`, and the last `discover …` lines of the client log (`discover done: N replies, M port
+hits` — hits without replies means the UDP replies are being dropped). Run it over ssh or locally:
+
+```
+powershell -ExecutionPolicy Bypass -File tools\scripts\discovery-diag.ps1 [-Out report.txt]
+```
+
+The replies travel from the host's UDP 21119 to the ephemeral port the client's ping left from, so a
+firewall rule on a *local* port 21119 changes nothing on the client; what lets them in is a per-program
+inbound rule (elevated PowerShell, adjust the path for a per-user install):
+
+```
+New-NetFirewallRule -DisplayName "Remote Display discovery" -Direction Inbound -Action Allow -Protocol UDP -Program "$env:LOCALAPPDATA\Programs\Remote Display\remotedisplay.exe"
+```
 
 ## Building for Android (tablet/phone → Mac) — tested recipe, August 2026
 

@@ -21,6 +21,9 @@ class Peer {
   String rdpPort;
   String rdpUsername;
   bool online = false;
+  // remotedisplay: the engine said itself whether this scan found the peer
+  // (`online` in load_lan_peers); such a verdict is kept as is by _updatePeers.
+  bool onlineKnown = false;
   String loginName; //login username
   String device_group_name;
   String note;
@@ -52,6 +55,7 @@ class Peer {
         sameServer = json['same_server'] {
     // remotedisplay: discovered peers say whether this scan found the address
     // (load_lan_peers carries the engine's `online` flag as a string).
+    onlineKnown = json.containsKey('online');
     online = json['online'] == 'true' || json['online'] == true;
   }
 
@@ -272,6 +276,9 @@ class Peers extends ChangeNotifier {
     }
 
     for (var peer in peers) {
+      // remotedisplay: a discovered peer carries the engine's own verdict for
+      // this scan; only the lists without one keep the previous state.
+      if (peer.onlineKnown) continue;
       final state = onlineStates[peer.id];
       peer.online = state != null && state != false;
     }

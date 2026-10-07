@@ -22,9 +22,9 @@
         <string>MacOSX</string>
     </array>
     <key>CFBundleVersion</key>
-    <string>15</string>
+    <string>16</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.14</string>
+    <string>1.0.15</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSPrincipalClass</key>

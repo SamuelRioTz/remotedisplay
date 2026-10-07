@@ -1768,6 +1768,21 @@ impl Connection {
         // addresses whatever hostname the host reports today (PeerInfoSerde::machine_id).
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
         platform_additions.insert("machine_id".into(), json!(Config::get_id()));
+        // remotedisplay: and the host's Tailscale addresses, the same set its discovery
+        // reply advertises, so a client that logged in through one address learns the
+        // identity of the others even where discovery replies never reach it (see
+        // client.rs spread_identity). After authentication only, and only while LAN
+        // discovery is on, which already discloses these addresses on the network.
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+        if hbb_common::config::option2bool(
+            "enable-lan-discovery",
+            &Config::get_option("enable-lan-discovery"),
+        ) {
+            let addrs = crate::lan::host_tailscale_addrs(Some(self.stream.local_addr().ip()));
+            if !addrs.is_empty() {
+                platform_additions.insert("addrs".into(), json!(addrs));
+            }
+        }
 
         #[cfg(any(target_os = "windows", feature = "unix-file-copy-paste"))]
         {

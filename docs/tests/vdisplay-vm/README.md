@@ -957,3 +957,93 @@ invalidated"); the loop's fallback took that as an early exit and reinstalled 1.
 back on the known-good build. The UIScene IPA stays at `release/out/RemoteDisplay-1.0.14-ios.ipa`
 (25.2 MB, 19:32), to be installed and launched with the iPad unlocked and on USB; the v1.0.14 release
 gets its IPA after that run.
+
+## 2026-10-07 — 1.0.15: one card per computer, even when discovery replies never arrive
+
+Symptom on Sam's Windows client (1.0.14): the Mac Studio listed twice — `mac` with its Tailscale address
+100.64.0.2 and `samuels-mac-studio` with its LAN address 192.168.1.115, both answering, same user.
+
+Diagnosis (on the Studio itself, server 1.0.14): the UDP discovery reply is right — pinged on the LAN
+address it carries the engine id, the LocalHostName and `misc {"addrs":["100.64.0.2"]}`; pinged over
+Tailscale, id and name. The shipped Windows DLL contains the matching client code. So the home would have
+grouped both routes the moment any identified entry for 100.64.0.2 reached it. The only identity the PC
+had for that address was a recent peer saved when the server was 1.0.12: hostname `mac` (the router's
+reverse-DNS name of that lease) and no `machine_id`. The LAN entry had been refreshed by a 1.0.13+ login
+(new name + id). No shared id, different names → two cards. The replies evidently never reach that PC
+(its TCP probes do: the server log shows them from 192.168.1.149 and 100.64.0.4 every 20 s); a firewall
+rule on the PC is the usual cause, not verified there (`tools/scripts/discovery-diag.ps1` now dumps what
+would settle it).
+
+A second fact found on the way, and the base of the fix: on a direct connection the host speaks first —
+`Connection::on_open` sends `Hash{salt, challenge}` before reading anything (the direct listener in
+`rendezvous_mediator.rs` runs `create_tcp_connection(.., secure=false, ..)`, no `SignedId`). The salt is
+generated once per installation (`Config::get_salt`, `RemoteDisplay.toml`) and came back identical on
+127.0.0.1, 192.168.1.115 and 100.64.0.2 (45-byte frame; `docs/tests/vdisplay-vm/harness/discover-probe.py`'s
+sibling `first_frame.py` lives in the session scratchpad, the captured frame is in
+`client/test/first_frame_test.dart`). Any server version sends it, and the client's 20-second probe is
+already a TCP connect to that port.
+
+Change:
+- **Client fingerprint** (`client/lib/first_frame.dart`, `home.dart` `_probe`, `machines.dart`
+  `groupMachines`): the probe reads the first frame (bounded to 1 s) and keeps ip → salt in the local
+  option `rd-fingerprints`. `groupMachines()` — the former `_machines()`, moved to `machines.dart` as a
+  pure function over `GroupingInput` so it can be unit-tested — ties an address without an engine id to
+  the machine whose other address answered with the same salt (it takes that machine's id), or keys the
+  machine by `fp:<salt>` when no id is known anywhere. Guards: an empty salt links nothing; a salt seen
+  with two different engine ids links nothing; a fingerprint-linked address only adds a name where the
+  machine has none and never maps its (stale) name to the id, so another computer called `mac` stays its
+  own card. `MachineRoute.identity` + `Machine.donorFor()` restrict password borrowing between routes: the
+  borrowing route must carry the engine id on its own (`ownId`: from its discovery reply or a login
+  through it) and share it with the donor — a route tied in by the salt alone, or by name, asks for the
+  password once (the salt is public: a rogue port echoing it must not be lent a password hash). After
+  that login the engine has saved the route's identity and it borrows like any other.
+  `_migrateKeys()` (`movedKeys` in machines.dart) moves aliases, remembered route and manual addresses
+  stored under a key that vanished (`mac`) to the key its addresses sit under now (`rd-last-keys`, and
+  the remembered route's own address for the first run) — only while the address still answers as the
+  same host (probe finished, same salt as recorded in `rd-last-fingerprints`), so an address re-leased
+  to another computer moves nothing; a key kept alive only by a manual address does not block the move.
+- **Login propagation** (engine, `remotedisplay:`-marked): `server/connection.rs` adds `addrs` (the
+  host's Tailscale addresses, the same set the discovery reply advertises; after authentication; only
+  while `enable-lan-discovery` is on) next to `machine_id` in the login response; `client.rs`
+  `spread_identity` files that identity (hostname, platform, user, id) into the peer file of every such
+  address — healing the stale `mac` entry on the first LAN connection and learning the Tailscale route
+  without UDP — never touching passwords or options (`lan.rs` `host_tailscale_addrs`/`login_addrs`,
+  unit-tested).
+- **Diagnostics**: `lan.rs` tallies each discovery run (replies to the UDP pings vs hosts the port scan
+  found; `discover done: N replies, M port hits` in the client log), `flutter_ffi.rs` adds it as the
+  `discovery` key of the `load_lan_peers` event, and the home shows a muted line after two finished runs
+  with port hits and no reply: "No reply to network discovery: computers are found by their open port
+  only. A firewall on this computer may be blocking the UDP replies to Remote Display (allow the app for
+  inbound UDP)." (The replies come from the host's port 21119 to the ephemeral port the ping left from,
+  so a local-port rule changes nothing; a per-program inbound UDP rule for remotedisplay.exe does.)
+  `tools/scripts/discovery-diag.ps1` (read-only) dumps the PC's discovered peers, recent peers, home
+  options, firewall rules naming remotedisplay.exe and the last discovery log lines.
+- Fixed on the way: `Peers._updatePeers` (engine Flutter model, HOOKS.md row 2) overwrote the engine's
+  `online` flag with the previous list's state, so the home's `found` set and `_probeNew` never saw it;
+  peers that carry the flag (`Peer.onlineKnown`) now keep it.
+- Also seen, left for its own change: every 20-second probe runs `create_tcp_connection` on the Mac,
+  which spawns `caffeinate -u -t 5` and a full `Connection` — a client home left open keeps the Mac's
+  display awake.
+
+Review: three adversarial reviewers (engine, Dart, security/compatibility) with one skeptic per finding
+confirmed 12 of 15 findings, all fixed before the release: the dual-stack listener reports the local
+address as IPv4-mapped IPv6, so the server-side exclusion never matched (`to_canonical`); the discovery
+tally is tagged with its run so an overlapping run cannot corrupt it; `spread_identity` refreshes the
+recent peers off the thread that holds the session lock and never re-identifies a file already tied to
+another engine id; `_migrateKeys` moves nothing for an address that answers as another host and is not
+blocked by a manual-only card; a salt-only identity yields to the shared-name rule (the other probe may
+not have finished) unless that id answers with another salt; a route tied in by the salt alone borrows
+no password (`ownId`); the note no longer names a local UDP port; the PowerShell script is pure ASCII
+(Windows PowerShell 5.1 reads a BOM-less file in the ANSI code page). Refuted: unbounded growth of
+`rd-fingerprints` (bounded by the known addresses, pruned on Forget), preset-salt sharing (no preset
+password in this product).
+
+Verification: `cargo test --release --lib --features flutter,hwcodec advertised_addrs_tests` — 5 passed
+(`pick_tailscale_addrs` incl. the mapped-IPv6 exclusion, `login_addrs` cases); `flutter test` in
+`client/` — 30 passed (`first_frame_test.dart`: the captured frame, trailing bytes, truncation, no Hash
+member, odd salt, 2-byte header; `machines_test.dart`: the reported case with and without fingerprints,
+password borrowing before and after the identity is saved, a one-sided salt, a different salt under one
+name, the mirror case, one salt with two ids, empty salt, two bare addresses with one salt, the stale
+name pulling nobody in, name-joins-id, a machine that is off, own/other tailnet filtering, a rogue port
+echoing the salt, `movedKeys` upgrade/last-key/re-leased/live/manual-only cases, the discovery tally);
+`flutter analyze` — the 20 pre-existing infos only.

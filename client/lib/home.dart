@@ -2,12 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show setEquals;
+import 'package:flutter/foundation.dart' show mapEquals, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart' hide Dialog;
 import 'package:get/get.dart';
 import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_hbb/utils/platform_channel.dart';
@@ -17,6 +16,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'app_version.dart';
 import 'connect_sheet.dart';
+import 'first_frame.dart';
 import 'home_ui.dart';
 import 'machines.dart';
 import 'update_check.dart';
@@ -34,12 +34,17 @@ import 'session/mobile_session.dart';
 ///  - addresses added by hand in a machine's settings (local option
 ///    `rd-manual-routes`).
 /// IPs (LAN/Tailscale) of the same machine are grouped by the engine id the
-/// host announces, else via hostname (+ `tailscale status` on desktop). Every
-/// refresh also probes each address with a TCP connect to the direct-access
-/// port. Only the computers that answer on some address from the current
-/// network are listed (a route that does not answer shows as such and a tap
-/// uses the one that does); the others — old leases, machines that are off,
-/// another network — stay behind a one-line note the user can expand.
+/// host announces (in its discovery reply, in the login response, and since
+/// 1.0.15 also for the other addresses it names there), else by the salt the
+/// host sends first on every direct TCP connection — the probes below read it,
+/// so two addresses answering with one salt are one computer even when no
+/// discovery reply ever reaches this client (see `first_frame.dart`) —, else
+/// via hostname (+ `tailscale status` on desktop). Every refresh also probes
+/// each address with a TCP connect to the direct-access port. Only the
+/// computers that answer on some address from the current network are listed
+/// (a route that does not answer shows as such and a tap uses the one that
+/// does); the others — old leases, machines that are off, another network —
+/// stay behind a one-line note the user can expand.
 class ClientHome extends StatefulWidget {
   const ClientHome({super.key});
 
@@ -52,7 +57,15 @@ class _ClientHomeState extends State<ClientHome>
   static const _manualKey = 'rd-manual-routes';
   static const _preferredKey = 'rd-preferred-routes';
   static const _aliasKey = 'rd-aliases';
+  static const _fingerprintKey = 'rd-fingerprints';
+  static const _lastKeysKey = 'rd-last-keys';
+  static const _lastFpsKey = 'rd-last-fingerprints';
+  static const _discoveryHandler = 'rd-home-discovery';
+  // The engine's event with the discovered peers (LoadEvent.lan in flutter_hbb).
+  static const _lanPeersEvent = 'load_lan_peers';
   static const _probeTimeout = Duration(milliseconds: 1500);
+  // How long a probe waits for the host's first frame once connected.
+  static const _frameTimeout = Duration(milliseconds: 1000);
   static const _probeEvery = Duration(seconds: 20);
 
   final _ip = TextEditingController();
@@ -82,11 +95,27 @@ class _ClientHomeState extends State<ClientHome>
   Map<String, String> _preferred = {};
   // Names given by the user (machine key → alias).
   Map<String, String> _aliases = {};
+  // Fingerprint per address (ip → the salt its host sent first, see
+  // first_frame.dart), from the probes; persisted so a machine that is off
+  // keeps its routes together. Grouping only: never written to a peer file.
+  Map<String, String> _fp = {};
+  // The card each address was filed under last time (ip → machine key), and
+  // the salt it answered with then, so what the user stored under a key
+  // follows the addresses when the key changes — and only while an address
+  // still answers as the same host (see _migrateKeys).
+  Map<String, String> _lastKeys = {};
+  Map<String, String> _lastFps = {};
   // Last TCP probe verdict per known address (null = never probed). A
   // re-check keeps the previous verdict until the new one arrives.
   final Map<String, bool?> _reach = {};
   // Addresses whose probe is in flight right now.
   final Set<String> _probing = {};
+  // Discovery runs in a row that found hosts on the port but got no reply
+  // to the UDP pings (see _onDiscoveryStats); two of them show the note.
+  int _silentScans = 0;
+  int _lastDiscoveryRun = -1;
+  bool _discoveryBlocked = false;
+  bool _migrationQueued = false;
   // The user asked to see the computers that do not answer from this network
   // (hidden by default; not persisted, every launch starts clean).
   bool _showUnreachable = false;
@@ -126,9 +155,17 @@ class _ClientHomeState extends State<ClientHome>
     }
     gFFI.lanPeersModel.addListener(_onPeersChanged);
     gFFI.recentPeersModel.addListener(_onPeersChanged);
+    // The same event the lan peers model consumes also carries the engine's
+    // tally of the discovery run; a second handler reads that part.
+    platformFFI.registerEventHandler(
+        _lanPeersEvent, _discoveryHandler, _onDiscoveryStats,
+        replace: true);
     _manual = _loadMap(_manualKey);
     _preferred = _loadMap(_preferredKey);
     _aliases = _loadMap(_aliasKey);
+    _fp = _loadMap(_fingerprintKey);
+    _lastKeys = _loadMap(_lastKeysKey);
+    _lastFps = _loadMap(_lastFpsKey);
     bind.mainLoadLanPeers(); // the cached ones, instantly
     UpdateCheck.run();
     AppVersion.load();
@@ -179,6 +216,7 @@ class _ClientHomeState extends State<ClientHome>
     if (isDesktop) windowManager.removeListener(this);
     gFFI.lanPeersModel.removeListener(_onPeersChanged);
     gFFI.recentPeersModel.removeListener(_onPeersChanged);
+    platformFFI.unregisterEventHandler(_lanPeersEvent, _discoveryHandler);
     _linkSub?.cancel();
     _scanTimer?.cancel();
     _probeTimer?.cancel();
@@ -221,7 +259,117 @@ class _ClientHomeState extends State<ClientHome>
   }
 
   void _bump() {
-    if (mounted) _rev.value++;
+    if (!mounted) return;
+    _rev.value++;
+    // Cards may have been re-keyed by what just changed: let what the user
+    // stored under the old keys follow (once per burst of changes).
+    if (_migrationQueued) return;
+    _migrationQueued = true;
+    scheduleMicrotask(() {
+      _migrationQueued = false;
+      _migrateKeys();
+    });
+  }
+
+  /// The engine's tally of the discovery run, pushed with every
+  /// `load_lan_peers`: replies to its UDP pings against hosts the port scan
+  /// found. Two finished runs in a row with hosts on the port and no reply at
+  /// all mean the replies do not reach this client — a firewall rule on this
+  /// computer, typically; computers are then found by their open port only
+  /// and identified once connected to. The home says so under the cards.
+  Future<void> _onDiscoveryStats(Map<String, dynamic> evt) async {
+    final r = foldDiscoveryTally(DiscoveryTally.parse(evt['discovery']),
+        silentScans: _silentScans, lastRun: _lastDiscoveryRun);
+    _silentScans = r.silentScans;
+    _lastDiscoveryRun = r.lastRun;
+    final blocked = _silentScans >= 2;
+    if (blocked != _discoveryBlocked && mounted) {
+      setState(() => _discoveryBlocked = blocked);
+    }
+  }
+
+  /// Aliases, remembered routes and manual addresses are stored under a
+  /// machine's key. When an address moves to another card — its host got an
+  /// engine id, a fingerprint tied it to the machine it belongs to, the host
+  /// was renamed — what the user stored under the vanished key follows it:
+  /// by the key each address was filed under last time (`rd-last-keys`) and,
+  /// for a remembered route, by the address itself (so it works the first
+  /// time too, before any key was recorded).
+  Future<void> _migrateKeys() async {
+    if (!mounted || _migrating) return;
+    _migrating = true;
+    try {
+      await _migrateKeysNow();
+    } finally {
+      _migrating = false;
+    }
+  }
+
+  bool _migrating = false;
+
+  Future<void> _migrateKeysNow() async {
+    final machines = _machines();
+    final keyOf = keyOfRoutes(machines);
+    // The address still answers as the host it was filed under: a probe that
+    // finished this session, with the salt recorded when its key was (an
+    // address re-leased to another computer moves nothing of the old one).
+    bool sameHost(String ip) {
+      if (_reach[ip] != true || _probing.contains(ip)) return false;
+      final was = _lastFps[ip], now = _fp[ip];
+      return was == null || was.isEmpty || now == null || was == now;
+    }
+
+    // vanished key → the key its addresses sit under now
+    final moved = movedKeys(
+        lastKeys: _lastKeys,
+        preferred: _preferred,
+        machines: machines,
+        sameHost: sameHost);
+    var aliases = false, preferred = false, manual = false;
+    moved.forEach((old, now) {
+      final a = _aliases.remove(old);
+      if (a != null) {
+        aliases = true;
+        _aliases.putIfAbsent(now, () => a);
+      }
+      final p = _preferred.remove(old);
+      if (p != null) {
+        preferred = true;
+        if (!_preferred.containsKey(now) && keyOf[p] == now) _preferred[now] = p;
+      }
+      _manual.updateAll((ip, k) {
+        if (k != old) return k;
+        manual = true;
+        return now;
+      });
+    });
+    if (!mapEquals(keyOf, _lastKeys)) {
+      _lastKeys = keyOf;
+      await bind.mainSetLocalOption(
+          key: _lastKeysKey, value: jsonEncode(_lastKeys));
+    }
+    final fps = {
+      for (final ip in keyOf.keys)
+        if (_fp[ip] != null) ip: _fp[ip]!
+    };
+    if (!mapEquals(fps, _lastFps)) {
+      _lastFps = fps;
+      await bind.mainSetLocalOption(
+          key: _lastFpsKey, value: jsonEncode(_lastFps));
+    }
+    if (aliases) {
+      await bind.mainSetLocalOption(
+          key: _aliasKey, value: jsonEncode(_aliases));
+    }
+    if (preferred) {
+      await bind.mainSetLocalOption(
+          key: _preferredKey, value: jsonEncode(_preferred));
+    }
+    if (manual) await _saveManual();
+    if ((aliases || preferred || manual) && mounted) {
+      setState(() {});
+      _rev.value++;
+    }
   }
 
   /// Everything: engine discovery, Tailscale identities, saved passwords and
@@ -281,14 +429,7 @@ class _ClientHomeState extends State<ClientHome>
 
   /// Addresses may carry a port ("host:port") when the server is not on the
   /// default direct-access port; the engine accepts them as ids.
-  ({String host, int port}) _split(String id) {
-    final i = id.lastIndexOf(':');
-    if (i > 0 && !id.contains(']')) {
-      final p = int.tryParse(id.substring(i + 1));
-      if (p != null && p > 0) return (host: id.substring(0, i), port: p);
-    }
-    return (host: id, port: _port);
-  }
+  ({String host, int port}) _split(String id) => splitAddress(id, _port);
 
   Future<void> _probe(Set<String> ips) async {
     if (ips.isEmpty) return;
@@ -304,16 +445,24 @@ class _ClientHomeState extends State<ClientHome>
       });
     }
     _bump();
+    var fingerprints = false;
     await Future.wait(ips.map((ip) async {
       var ok = false;
+      String? salt;
       try {
         final a = _split(ip);
         // The connect timeout only starts once the name is resolved; the
         // outer one caps a slow resolver for a hostname typed by hand.
         final s = await Socket.connect(a.host, a.port, timeout: _probeTimeout)
             .timeout(_probeTimeout * 2);
-        s.destroy();
         ok = true;
+        // The host speaks first on a direct connection: the salt in its first
+        // frame fingerprints the machine (first_frame.dart). Bounded, so a
+        // host that sends nothing costs the verdict a second at most.
+        try {
+          salt = firstFrameSalt(await s.first.timeout(_frameTimeout));
+        } catch (_) {}
+        s.destroy();
       } catch (_) {}
       // An address forgotten while its probe ran is gone from _probing:
       // drop that verdict instead of resurrecting the entry.
@@ -321,9 +470,17 @@ class _ClientHomeState extends State<ClientHome>
         setState(() {
           _reach[ip] = ok;
           _probing.remove(ip);
+          if (salt != null && _fp[ip] != salt) {
+            _fp[ip] = salt;
+            fingerprints = true;
+          }
         });
       }
     }));
+    if (fingerprints) {
+      await bind.mainSetLocalOption(
+          key: _fingerprintKey, value: jsonEncode(_fp));
+    }
     _bump();
   }
 
@@ -491,13 +648,14 @@ class _ClientHomeState extends State<ClientHome>
 
   /// Connects to [m] through [ip], remembering that choice. Without a typed
   /// password, an address that has none saved borrows the one saved for
-  /// another address of the same machine (same salt, so the hash is valid).
+  /// another address seen to be the same computer (same engine id or salt,
+  /// so the hash is valid) — not from one grouped here by name alone.
   Future<void> _connectVia(Machine m, String ip,
       {String? password, bool remember = true}) async {
     await _rememberRoute(m.key, ip);
     final route = m.route(ip);
     if (password == null && route != null && !route.saved) {
-      final donor = m.savedRoute;
+      final donor = m.donorFor(route);
       if (donor != null) {
         try {
           await bind.mainSetPeerOption(
@@ -538,7 +696,7 @@ class _ClientHomeState extends State<ClientHome>
       }
       // several networks and none chosen yet → ask
     }
-    if (target != null && (target.saved || m.saved)) {
+    if (target != null && (target.saved || m.donorFor(target) != null)) {
       return _connectVia(m, target.ip);
     }
     if (!mounted) return;
@@ -643,6 +801,18 @@ class _ClientHomeState extends State<ClientHome>
     } catch (_) {}
     _reach.remove(r.ip);
     _probing.remove(r.ip);
+    if (_fp.remove(r.ip) != null) {
+      await bind.mainSetLocalOption(
+          key: _fingerprintKey, value: jsonEncode(_fp));
+    }
+    if (_lastKeys.remove(r.ip) != null) {
+      await bind.mainSetLocalOption(
+          key: _lastKeysKey, value: jsonEncode(_lastKeys));
+    }
+    if (_lastFps.remove(r.ip) != null) {
+      await bind.mainSetLocalOption(
+          key: _lastFpsKey, value: jsonEncode(_lastFps));
+    }
     bind.mainLoadLanPeers();
     bind.mainLoadRecentPeers();
     if (mounted) setState(() {});
@@ -650,174 +820,28 @@ class _ClientHomeState extends State<ClientHome>
   }
 
   // 100.64.0.0/10 — CGNAT range used by Tailscale.
-  bool _isTailscale(String ip) {
-    final parts = _split(ip).host.split('.');
-    if (parts.length != 4 || parts[0] != '100') return false;
-    final b = int.tryParse(parts[1]) ?? -1;
-    return b >= 64 && b <= 127;
-  }
+  bool _isTailscale(String ip) => isTailscaleAddress(ip);
 
   /// First label of the hostname, normalized ("Mac.lan" → "mac").
-  String? _hostLabel(String hostname) {
-    final label = hostname.split('.').first.trim().toLowerCase();
-    return label.isEmpty ? null : label;
-  }
+  String? _hostLabel(String hostname) => hostLabel(hostname);
 
-  /// Groups every known address (1 entry per IP) into machines (1 per computer).
-  List<Machine> _machines() {
-    // The engine can save the same IP twice (entry identified by broadcast +
-    // bare entry from the port scan): first dedupe by IP, preferring the
-    // identified one. Recent peers and manual addresses join as bare entries.
-    final byIp = <String, Peer>{};
-    void add(Peer p) {
-      if (p.id.isEmpty || _tsSelf.contains(p.id)) return; // never ourselves
-      // CGNAT IP that no longer exists in the tailnet (left over from a
-      // previous tailnet): ghost card, don't list it.
-      if (_isTailscale(p.id) &&
-          _tsAll.isNotEmpty &&
-          !_tsAll.contains(_split(p.id).host)) {
-        return;
-      }
-      final prev = byIp[p.id];
-      if (prev == null ||
-          (prev.platform.isEmpty && p.platform.isNotEmpty) ||
-          (prev.machineId.isEmpty && p.machineId.isNotEmpty)) {
-        byIp[p.id] = p;
-      }
-    }
-
-    for (final p in gFFI.lanPeersModel.peers) {
-      add(p);
-    }
-    for (final p in gFFI.recentPeersModel.peers) {
-      add(p);
-    }
-    for (final ip in _manual.keys) {
-      if (!byIp.containsKey(ip)) add(Peer.fromJson({'id': ip}));
-    }
-
-    // Then group by machine identity. First choice: the engine id the host
-    // announces (in its discovery reply and, since 1.0.13, in the login
-    // response, saved with the recent peer), which survives a new lease and
-    // a hostname change. A Mac with no fixed HostName takes its kernel
-    // hostname from the router's reverse DNS, so one Mac showed up as
-    // "mac.lan" on one address and "samuels-mac-studio.local" on the next,
-    // and grouping by name alone made two computers of it. Names remain the
-    // fallback, in order: hostname from the LAN broadcast, hostname saved
-    // from a previous connection to that IP (recent peers — so the Mac's
-    // Tailscale IP groups with its LAN IP even if the broadcast doesn't cross
-    // into Tailscale), hostname reported by `tailscale status`, the machine
-    // an address was added to by hand. No id and no name → its own card per IP.
-    final recentById = {
-      for (final r in gFFI.recentPeersModel.peers)
-        if (r.hostname.isNotEmpty || r.machineId.isNotEmpty) r.id: r
-    };
-    String? labelOf(Peer p, Peer? recent) {
-      final knownHost = p.platform.isNotEmpty && p.hostname.isNotEmpty
-          ? p.hostname
-          : (recent != null && recent.platform.isNotEmpty
-              ? recent.hostname
-              : null);
-      return knownHost == null ? null : _hostLabel(knownHost);
-    }
-    String idOf(Peer p, Peer? recent) =>
-        p.machineId.isNotEmpty ? p.machineId : (recent?.machineId ?? '');
-
-    // Pass 1: the name that stands for each machine id (first seen wins:
-    // discovered entries come first, then the recent peers newest first, so
-    // it is the host's current name) and the machine id behind each name (so
-    // an address that only has a name joins the machine that announced that
-    // name together with its id).
-    final labelOfId = <String, String>{};
-    final idOfLabel = <String, String>{};
-    for (final p in byIp.values) {
-      final recent = recentById[p.id];
-      final mid = idOf(p, recent);
-      final label = labelOf(p, recent);
-      if (mid.isEmpty || label == null) continue;
-      labelOfId.putIfAbsent(mid, () => label);
-      idOfLabel.putIfAbsent(label, () => mid);
-    }
-
-    // Pass 2: the cards. The key stays a hostname label (aliases, selected
-    // networks and manual addresses are stored under it), resolved through
-    // the machine id when there is one.
-    final byKey = <String, Machine>{};
-    for (final p in byIp.values) {
-      final recent = recentById[p.id];
-      final identifiedName = labelOf(p, recent);
-      var mid = idOf(p, recent);
-      if (mid.isEmpty && identifiedName != null) {
-        mid = idOfLabel[identifiedName] ?? '';
-      }
-      final currentName = mid.isEmpty ? null : labelOfId[mid];
-      final tsName = _tsName[p.id];
-      final key = currentName ??
-          identifiedName ??
-          tsName ??
-          _manual[p.id] ??
-          'ip:${p.id}';
-
-      final m = byKey.putIfAbsent(
-          key,
-          () => Machine(
-              key: key, name: currentName ?? identifiedName ?? tsName ?? p.id));
-      final route = MachineRoute(p.id,
-          tailscale: _isTailscale(p.id), manual: _manual.containsKey(p.id));
-      route.reachable = _reach.containsKey(p.id) ? _reach[p.id] : null;
-      route.probing = _probing.contains(p.id);
-      route.saved = _savedIps.contains(p.id);
-      m.routes.add(route);
-      if (m.platform.isEmpty) {
-        m.platform = p.platform.isNotEmpty
-            ? p.platform
-            : (recent?.platform ?? '').isNotEmpty
-                ? recent!.platform
-                : (_tsPlatform[p.id] ?? '');
-      }
-      if (m.username.isEmpty) {
-        m.username =
-            p.username.isNotEmpty ? p.username : (recent?.username ?? '');
-      }
-      // The host's current name, never the one an old address was saved under.
-      final name = currentName ?? identifiedName;
-      if (name != null) m.name = name;
-    }
-
-    // Addresses known only from the past — not found by this scan, not added
-    // by hand — that do not answer while the machine answers elsewhere are its
-    // old leases: keep them out of the card. They come back if they answer
-    // again, and a machine that is off still shows every address it has.
-    final found = {
-      for (final p in gFFI.lanPeersModel.peers)
-        if (p.online) p.id
-    };
-    final machines = byKey.values.toList();
-    for (final m in machines) {
-      if (m.routes.any((r) => r.reachable == true)) {
-        m.routes.removeWhere((r) =>
-            r.reachable == false && !r.manual && !found.contains(r.ip));
-      }
-      final alias = _aliases[m.key];
-      if (alias != null && alias.isNotEmpty) m.name = alias;
-      final pref = _preferred[m.key];
-      if (pref != null && m.route(pref) != null) m.preferredIp = pref;
-      // LAN before Tailscale; within a kind, reachable first.
-      m.routes.sort((a, b) {
-        final k = (a.tailscale ? 1 : 0) - (b.tailscale ? 1 : 0);
-        if (k != 0) return k;
-        return (a.reachable == true ? 0 : 1) - (b.reachable == true ? 0 : 1);
-      });
-    }
-    // Reachable machines on top, then identified ones, then loose IPs.
-    int rank(Machine m) =>
-        (m.live != null ? 0 : 2) + (m.identified ? 0 : 1);
-    machines.sort((a, b) {
-      final r = rank(a) - rank(b);
-      return r != 0 ? r : a.name.compareTo(b.name);
-    });
-    return machines;
-  }
+  /// Groups every known address into machines (1 card per computer); the
+  /// rules live in `machines.dart` (`groupMachines`) so they can be tested.
+  List<Machine> _machines() => groupMachines(GroupingInput(
+        discovered: gFFI.lanPeersModel.peers,
+        recent: gFFI.recentPeersModel.peers,
+        manual: _manual,
+        fingerprints: _fp,
+        tsName: _tsName,
+        tsPlatform: _tsPlatform,
+        tsSelf: _tsSelf,
+        tsAll: _tsAll,
+        reach: _reach,
+        probing: _probing,
+        saved: _savedIps,
+        aliases: _aliases,
+        preferred: _preferred,
+      ));
 
   /// Removes the machine (long press on the card): every address from every
   /// source; it reappears if it is still on the network on the next scan.
@@ -1161,9 +1185,39 @@ class _ClientHomeState extends State<ClientHome>
           ),
         if (unreachable.isNotEmpty && !unknown)
           _unreachableNote(ui, unreachable.length),
+        if (_discoveryBlocked) _discoveryNote(ui),
       ],
     );
   }
+
+  /// One muted line: the engine's discovery pings get no reply although
+  /// computers answer on their port (two runs in a row), so new computers are
+  /// found by the port scan only and identified once connected to. On a PC
+  /// this is what a firewall rule dropping the app's inbound UDP looks like.
+  Widget _discoveryNote(HomeUi ui) => Padding(
+        padding:
+            EdgeInsets.symmetric(horizontal: 6, vertical: isDesktop ? 6 : 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Icon(Icons.wifi_tethering_off_rounded,
+                  size: 14, color: ui.muted.withOpacity(0.8)),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'No reply to network discovery: computers are found by their '
+                'open port only. A firewall on this computer may be blocking '
+                'the UDP replies to Remote Display (allow the app for inbound '
+                'UDP).',
+                style: TextStyle(color: ui.muted, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      );
 
   /// One muted line under the cards: how many known computers do not answer
   /// from this network. The whole line toggles their cards (Show/Hide), so

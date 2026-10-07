@@ -127,9 +127,10 @@ class _ConnectSheetState extends State<ConnectSheet> {
   MachineRoute get _route =>
       widget.machine.route(_ip) ?? widget.machine.routes.first;
 
-  /// A password is known for the route itself or for another address of the
-  /// same machine (the home copies it over on connect).
-  bool get _known => _route.saved || widget.machine.saved;
+  /// A password is known for the route itself or for another address seen to
+  /// be the same computer (the home copies it over on connect).
+  MachineRoute? get _donor => widget.machine.donorFor(_route);
+  bool get _known => _route.saved || _donor != null;
 
   Future<void> _go() async {
     if (_busy) return;
@@ -227,7 +228,7 @@ class _ConnectSheetState extends State<ConnectSheet> {
                 Text(
                     r.saved
                         ? 'Password saved for this address'
-                        : 'Password saved for this computer (${widget.machine.savedRoute!.kind})',
+                        : 'Password saved for this computer (${_donor!.kind})',
                     style: TextStyle(color: ui.fgSoft, fontSize: 13)),
               ],
             )

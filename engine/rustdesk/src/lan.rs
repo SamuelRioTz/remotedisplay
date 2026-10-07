@@ -18,10 +18,51 @@ use hbb_common::{
 use std::{
     collections::{HashMap, HashSet},
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket},
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
     time::Instant,
 };
 
 type Message = RendezvousMessage;
+
+// remotedisplay: how the last discovery run went, for the client's home: replies to our
+// UDP pings against hosts the port scan found. A run with port hits and no reply at all
+// means the replies do not reach this client (a firewall rule on it, typically); the home
+// says so under its cards instead of silently listing bare addresses. `run` tells one
+// run's pushes apart from the next one's.
+static DISCOVERY_RUN: AtomicU32 = AtomicU32::new(0);
+static DISCOVERY_REPLIES: AtomicU32 = AtomicU32::new(0);
+static DISCOVERY_PORT_HITS: AtomicU32 = AtomicU32::new(0);
+static DISCOVERY_DONE: AtomicBool = AtomicBool::new(false);
+
+/// `(run, replies, port_hits, done)` of the discovery run in progress or just finished.
+pub fn discovery_stats() -> (u32, u32, u32, bool) {
+    (
+        DISCOVERY_RUN.load(Ordering::Relaxed),
+        DISCOVERY_REPLIES.load(Ordering::Relaxed),
+        DISCOVERY_PORT_HITS.load(Ordering::Relaxed),
+        DISCOVERY_DONE.load(Ordering::Relaxed),
+    )
+}
+
+/// Opens a new tally and returns its run number. Runs can overlap (the previous
+/// run's threads drain for a few seconds): every count is tagged with its run and
+/// only the current run's counts land, see [`tally`].
+fn begin_discovery_run() -> u32 {
+    DISCOVERY_DONE.store(false, Ordering::Relaxed);
+    DISCOVERY_REPLIES.store(0, Ordering::Relaxed);
+    DISCOVERY_PORT_HITS.store(0, Ordering::Relaxed);
+    DISCOVERY_RUN.fetch_add(1, Ordering::Relaxed) + 1
+}
+
+fn is_current_run(run: u32) -> bool {
+    DISCOVERY_RUN.load(Ordering::Relaxed) == run
+}
+
+fn tally(counter: &AtomicU32, run: u32) {
+    if is_current_run(run) {
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+}
 
 #[cfg(not(target_os = "ios"))]
 pub(super) fn start_listening() -> ResultType<()> {
@@ -76,9 +117,11 @@ pub(super) fn start_listening() -> ResultType<()> {
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn discover() -> ResultType<()> {
+    // remotedisplay: a fresh tally for this run (see discovery_stats).
+    let run = begin_discovery_run();
     let sockets = send_query()?;
-    let rx = spawn_wait_responses(sockets);
-    handle_received_peers(rx).await?;
+    let rx = spawn_wait_responses(sockets, run);
+    handle_received_peers(rx, run).await?;
 
     log::info!("discover ping done");
     Ok(())
@@ -250,6 +293,7 @@ fn wait_response(
     socket: UdpSocket,
     timeout: Option<std::time::Duration>,
     tx: UnboundedSender<config::DiscoveryPeer>,
+    run: u32,
 ) -> ResultType<()> {
     let mut last_recv_time = Instant::now();
 
@@ -291,6 +335,7 @@ fn wait_response(
                             };
 
                             if local_mac.is_empty() && p.mac.is_empty() || local_mac != p.mac {
+                                tally(&DISCOVERY_REPLIES, run);
                                 allow_err!(tx.send(config::DiscoveryPeer {
                                     // remotedisplay: use the IP as the identifier (direct connection, no ID)
                                     id: addr.ip().to_string(),
@@ -335,7 +380,10 @@ fn wait_response(
     Ok(())
 }
 
-fn spawn_wait_responses(sockets: Vec<UdpSocket>) -> UnboundedReceiver<config::DiscoveryPeer> {
+fn spawn_wait_responses(
+    sockets: Vec<UdpSocket>,
+    run: u32,
+) -> UnboundedReceiver<config::DiscoveryPeer> {
     let (tx, rx) = unbounded_channel::<_>();
     for socket in sockets {
         let tx_clone = tx.clone();
@@ -343,16 +391,20 @@ fn spawn_wait_responses(sockets: Vec<UdpSocket>) -> UnboundedReceiver<config::Di
             allow_err!(wait_response(
                 socket,
                 Some(std::time::Duration::from_millis(10)),
-                tx_clone
+                tx_clone,
+                run
             ));
         });
     }
     // remotedisplay: active port scan using the same channel
-    spawn_port_scan(tx.clone());
+    spawn_port_scan(tx.clone(), run);
     rx
 }
 
-async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>) -> ResultType<()> {
+async fn handle_received_peers(
+    mut rx: UnboundedReceiver<config::DiscoveryPeer>,
+    run: u32,
+) -> ResultType<()> {
     let mut peers = config::LanPeers::load().peers;
     peers.iter_mut().for_each(|peer| {
         peer.online = false;
@@ -392,6 +444,16 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
         }
     }
 
+    // remotedisplay: the run is over; the final push carries the tally (see
+    // discovery_stats) — unless a newer run has taken over the counters meanwhile.
+    if is_current_run(run) {
+        DISCOVERY_DONE.store(true, Ordering::Relaxed);
+        log::info!(
+            "discover done: {} replies, {} port hits",
+            DISCOVERY_REPLIES.load(Ordering::Relaxed),
+            DISCOVERY_PORT_HITS.load(Ordering::Relaxed)
+        );
+    }
     config::LanPeers::store(&peers);
     #[cfg(feature = "flutter")]
     crate::flutter_ffi::main_load_lan_peers();
@@ -419,20 +481,68 @@ fn is_tailscale_ip(u: u32) -> bool {
 /// other than the one the reply leaves from: a client that saw the Mac on the LAN then knows
 /// how to reach it from anywhere, without typing the address by hand.
 fn advertised_addrs(self_addr: &IpAddr) -> String {
-    let mut addrs: Vec<String> = Vec::new();
-    for (ip, _) in local_ipv4_networks() {
-        if is_tailscale_ip(u32::from(ip)) && IpAddr::V4(ip) != *self_addr {
-            let s = ip.to_string();
-            if !addrs.contains(&s) {
-                addrs.push(s);
-            }
-        }
-    }
+    let addrs = host_tailscale_addrs(Some(*self_addr));
     if addrs.is_empty() {
         String::new()
     } else {
         serde_json::json!({ "addrs": addrs }).to_string()
     }
+}
+
+/// remotedisplay: this host's own Tailscale (CGNAT) addresses, other than `except` (the
+/// address a client is already talking to), deduplicated. The set a discovery reply
+/// advertises in `misc`, and, since 1.0.15, the login response in its `addrs` (see
+/// server/connection.rs): a client that reached the host one way learns the other.
+pub(crate) fn host_tailscale_addrs(except: Option<IpAddr>) -> Vec<String> {
+    pick_tailscale_addrs(local_ipv4_networks().into_iter().map(|(ip, _)| ip), except)
+}
+
+fn pick_tailscale_addrs(ips: impl Iterator<Item = Ipv4Addr>, except: Option<IpAddr>) -> Vec<String> {
+    // The direct listener is a dual-stack socket: an accepted connection's local
+    // address is the IPv4-mapped IPv6 form (::ffff:100.64.0.2). Compare the plain IPv4.
+    let except = except.map(|a| a.to_canonical());
+    let mut addrs: Vec<String> = Vec::new();
+    for ip in ips {
+        if !is_tailscale_ip(u32::from(ip)) || except == Some(IpAddr::V4(ip)) {
+            continue;
+        }
+        let s = ip.to_string();
+        if !addrs.contains(&s) {
+            addrs.push(s);
+        }
+    }
+    addrs
+}
+
+/// remotedisplay: the addresses a host named in its login response (`addrs` in
+/// `platform_additions`, Tailscale IPv4 only, anything else ignored), without the one the
+/// client is connected through (`this_id`, an address with an optional `:port`). The
+/// client files these under the host's identity; see client.rs `spread_identity`.
+pub(crate) fn login_addrs(platform_additions: &str, this_id: &str) -> Vec<String> {
+    let this_host = match this_id.rsplit_once(':') {
+        Some((host, port)) if port.parse::<u16>().is_ok() && !host.contains(']') => host,
+        _ => this_id,
+    }
+    .trim();
+    let mut out = Vec::new();
+    if platform_additions.is_empty() {
+        return out;
+    }
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(platform_additions) {
+        if let Some(list) = v.get("addrs").and_then(|a| a.as_array()) {
+            for a in list.iter().take(16) {
+                if let Some(s) = a.as_str() {
+                    if let Ok(ip) = s.trim().parse::<Ipv4Addr>() {
+                        let s = ip.to_string();
+                        if is_tailscale_ip(u32::from(ip)) && s != this_host && !out.contains(&s) {
+                            out.push(s);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The addresses of an `advertised_addrs` payload, Tailscale ones only (anything else, or
@@ -475,6 +585,39 @@ mod advertised_addrs_tests {
     fn round_trip_with_the_payload_format() {
         let payload = serde_json::json!({ "addrs": ["100.64.0.7"] }).to_string();
         assert_eq!(parse_advertised_addrs(&payload), vec!["100.64.0.7".to_string()]);
+    }
+
+    #[test]
+    fn pick_tailscale_addrs_filters_and_dedupes() {
+        let ips = ["192.168.1.5", "100.64.0.2", "100.64.0.2", "100.64.0.9", "10.0.0.1"]
+            .iter()
+            .map(|s| s.parse::<Ipv4Addr>().unwrap());
+        let except: IpAddr = "100.64.0.9".parse().unwrap();
+        assert_eq!(pick_tailscale_addrs(ips, Some(except)), vec!["100.64.0.2".to_string()]);
+    }
+
+    #[test]
+    fn pick_tailscale_addrs_excludes_a_mapped_ipv6_local_address() {
+        // What a dual-stack listener reports as the local address of a v4 connection.
+        let ips = ["100.64.0.2", "100.64.0.9"].iter().map(|s| s.parse::<Ipv4Addr>().unwrap());
+        let except: IpAddr = "::ffff:100.64.0.9".parse().unwrap();
+        assert_eq!(pick_tailscale_addrs(ips, Some(except)), vec!["100.64.0.2".to_string()]);
+    }
+
+    #[test]
+    fn login_addrs_keeps_other_tailscale_addresses_only() {
+        let pa = r#"{"machine_id":"526326377","addrs":["100.64.0.2","192.168.1.115","100.64.0.2","nope","100.64.0.7"]}"#;
+        // Connected through the LAN: both Tailscale addresses are news to us.
+        assert_eq!(
+            login_addrs(pa, "192.168.1.115"),
+            vec!["100.64.0.2".to_string(), "100.64.0.7".to_string()]
+        );
+        // Connected through one of them (with a port): it is left out.
+        assert_eq!(login_addrs(pa, "100.64.0.2:21120"), vec!["100.64.0.7".to_string()]);
+        assert!(login_addrs("", "1.2.3.4").is_empty());
+        assert!(login_addrs("garbage", "1.2.3.4").is_empty());
+        assert!(login_addrs(r#"{"addrs":"100.64.0.2"}"#, "1.2.3.4").is_empty());
+        assert!(login_addrs(r#"{"machine_id":"1"}"#, "1.2.3.4").is_empty());
     }
 }
 
@@ -645,7 +788,7 @@ fn known_tailscale_ips() -> Vec<Ipv4Addr> {
 // we avoid relaunching the scan (128 threads) more than once every 4s.
 static LAST_SCAN: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 
-fn spawn_port_scan(tx: UnboundedSender<config::DiscoveryPeer>) {
+fn spawn_port_scan(tx: UnboundedSender<config::DiscoveryPeer>, run: u32) {
     {
         let mut last = LAST_SCAN.lock().unwrap();
         if let Some(t) = *last {
@@ -680,6 +823,7 @@ fn spawn_port_scan(tx: UnboundedSender<config::DiscoveryPeer>) {
             if std::net::TcpStream::connect_timeout(&sa, std::time::Duration::from_millis(300))
                 .is_ok()
             {
+                tally(&DISCOVERY_PORT_HITS, run);
                 allow_err!(tx.send(config::DiscoveryPeer {
                     id: ip.to_string(),
                     ip_mac: HashMap::from([(ip.to_string(), "".to_owned())]),

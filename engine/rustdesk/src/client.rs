@@ -2553,7 +2553,7 @@ impl LoginConfigHandler {
             machine_id,
         };
         let mut config = self.load_config();
-        config.info = serde;
+        config.info = serde.clone();
         let password = self.password.clone();
         let password0 = config.password.clone();
         let remember = self.remember;
@@ -2627,8 +2627,57 @@ impl LoginConfigHandler {
         }
         // no matter if change, for update file time
         self.save_config(config);
+        self.spread_identity(&serde, &pi.platform_additions);
         self.supported_encoding = pi.encoding.clone().unwrap_or_default();
         log::info!("peer info supported_encoding:{:?}", self.supported_encoding);
+    }
+
+    /// remotedisplay: the host named its other (Tailscale) addresses in the login
+    /// response (`addrs`, see server/connection.rs): file them under this same identity,
+    /// so the home shows one computer even where discovery replies never arrive — an
+    /// address saved by an older server under the name the router gave it then, or one
+    /// never seen before. Identity only: a password belongs to its address and stays
+    /// where it is. A new file carries the platform, or `batch_peers` would drop it.
+    /// A host is not trusted about addresses already known to belong to another
+    /// machine (a file with a different engine id stays as it is).
+    fn spread_identity(&self, info: &PeerInfoSerde, platform_additions: &str) {
+        if info.machine_id.is_empty() || info.platform.is_empty() {
+            return;
+        }
+        let mut written = 0;
+        for addr in crate::lan::login_addrs(platform_additions, &self.id) {
+            let mut c = if PeerConfig::exists(&addr) {
+                PeerConfig::load(&addr)
+            } else {
+                PeerConfig::default()
+            };
+            if c.info == *info {
+                continue;
+            }
+            if !c.info.machine_id.is_empty() && c.info.machine_id != info.machine_id {
+                log::info!(
+                    "{}: not re-identifying {}, it belongs to {}",
+                    self.id,
+                    addr,
+                    c.info.machine_id
+                );
+                continue;
+            }
+            c.info = info.clone();
+            c.store(&addr);
+            written += 1;
+        }
+        if written > 0 {
+            log::info!(
+                "identity of {} filed under {} other address(es) the host advertised",
+                self.id,
+                written
+            );
+            // The refresh reads and decrypts every peer file: off this thread, which
+            // holds the session's config lock while handling the peer info.
+            #[cfg(feature = "flutter")]
+            std::thread::spawn(crate::flutter_ffi::main_load_recent_peers);
+        }
     }
 
     pub fn get_remote_dir(&self) -> String {

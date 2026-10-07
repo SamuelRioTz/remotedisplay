@@ -1555,12 +1555,20 @@ pub fn main_load_fav_peers() {
 }
 
 pub fn main_load_lan_peers() {
+    // remotedisplay: the tally of the discovery run rides along (lan::discovery_stats),
+    // so the home can tell when replies never arrive. Same event, one more key.
+    let (run, replies, port_hits, done) = crate::lan::discovery_stats();
+    let discovery = serde_json::json!({
+        "run": run, "replies": replies, "port_hits": port_hits, "done": done
+    })
+    .to_string();
     let data = HashMap::from([
         ("name", "load_lan_peers".to_owned()),
         (
             "peers",
             serde_json::to_string(&get_lan_peers()).unwrap_or_default(),
         ),
+        ("discovery", discovery),
     ]);
     let _res = flutter::push_global_event(
         flutter::APP_TYPE_MAIN,
