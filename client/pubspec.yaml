@@ -1,7 +1,7 @@
 name: remotedisplay_client
 description: Remote Display — our own client (new UI) on top of the flutter_hbb engine.
 publish_to: "none"
-version: 1.0.15+16
+version: 1.0.16+17
 
 environment:
   sdk: '^3.1.0'

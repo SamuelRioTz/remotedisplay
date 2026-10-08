@@ -62,7 +62,7 @@ vendoring itself.
 | `src/` | serverless (rendezvous → 127.0.0.1), headless CM `--cm-no-ui`, active LAN + Tailscale discovery (`lan.rs`: pong keeps the host's engine id, advertises its Tailscale addresses, per-run tally for the client), host identity in the login response (`server/connection.rs`: `machine_id` + `addrs`) and its filing under every advertised address on the client (`client.rs` `spread_identity`), `load_lan_peers` event with the discovery tally (`flutter_ffi.rs`), no tray in non-flutter builds, no chat / update check |
 | `src/platform/macos.mm`, `src/virtual_display_manager.rs`, `src/server/display_service.rs` | dynamic virtual displays on macOS (in-process CGVirtualDisplay, dynamic main, turning physical displays off/on, mirrored-physical mode guard, display topology hash) |
 | `libs/scrap` | mirrored-display filter on macOS (`CGDisplayMirrorsDisplay`); a stopped stream is an error, not `WouldBlock` |
-| `libs/hbb_common` | serverless defaults in `config.rs` |
+| `libs/hbb_common` | serverless defaults in `config.rs`; `machine_id` in `DiscoveryPeer`/`PeerInfoSerde` (kept before the maps: confy stores with toml 0.5, which rejects a value after a table) |
 | `libs/enigo` | macOS input tweaks |
 | `flutter/` | hooks for `client/` (see `HOOKS.md`): `showToolbar`/`keyHelpHorizontal`, mobile keyboard focus, cursor crossing to an external display, etc. |
 | `res/`, `fastlane/` | assets upstream force-adds against its `.gitignore` (here too, with `git add -f`) |
