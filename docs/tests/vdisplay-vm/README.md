@@ -1089,3 +1089,15 @@ struct confy stores, keep plain fields before maps and nested structs.
 Also verified on the way: the 1.0.15 IPA (UIScene adoption, Xcode 27) launches on the iPhone 17 Pro
 (iOS 27.0), stays up, and its home shows the Studio as one card with the LAN and Tailscale routes
 (`capture screenshot`); the iPad was not connected. The IPA ships with 1.0.16.
+
+Released as **1.0.16 (17)**, tag `v1.0.16` on `9b2eb6d`, six assets (the IPA included this time), same
+pipeline as 1.0.15 (Mac: `release-mac.sh`; PC: one `schtasks` job running `build-dll.cmd` then
+`release-windows.ps1`). Installed on request: server on the Studio (hot swap, 2 s), client on the PC
+(per-user install through an interactive scheduled task: `taskkill`, `Setup.exe /VERYSILENT
+/NORESTART /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS`, relaunch), client on the iPhone (`devicectl`).
+Proof of the fix on the real machines: the PC's 1.0.16 log has zero `Failed to store lan peers` and
+`RemoteDisplay_lan_peers.toml` was rewritten at the first scan (its previous date was 2026-10-05);
+the iPhone's console shows `discover done: 3 replies, 3 port hits` with no store error. The iPad was
+still not connected; Luz's Mac (192.168.1.174) refuses ssh for `luzchoque` and `sam` (no key) and her
+iPhone is not paired with the Studio, so those two installs are left to her (DMG from the release;
+the IPA needs USB pairing and her UDID in the development profile).
