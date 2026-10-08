@@ -1047,3 +1047,18 @@ name, the mirror case, one salt with two ids, empty salt, two bare addresses wit
 name pulling nobody in, name-joins-id, a machine that is off, own/other tailnet filtering, a rogue port
 echoing the salt, `movedKeys` upgrade/last-key/re-leased/live/manual-only cases, the discovery tally);
 `flutter analyze` — the 20 pre-existing infos only.
+
+Released as **1.0.15 (16)**, tag `v1.0.15` on `62f6dda`, five assets: Windows installer + portable
+(built on the PC: `tools\windows\build-dll.cmd` for the engine DLL, then `release\release-windows.ps1`,
+both run through one-shot `schtasks` jobs because a process started with `Start-Process` from the ssh
+session dies with it; the zip and the installer copied to the Mac with `scp` and uploaded from there),
+macOS client DMG and server DMG (notarized, stapled, `spctl` = Notarized Developer ID), Android APK —
+all from `release/release-mac.sh`. Checked before publishing: version 1.0.15 (16) in both DMGs and the
+IPA; the engine inside the server app, the client dylib and the Windows DLL carry the new strings
+(`discover done`, `not re-identifying`), the Dart snapshots of the macOS and Windows clients carry the
+new home (`No reply to network discovery`, `rd-fingerprints`, `rd-last-keys`). Gotcha found on the way:
+`vcvars64.bat` (VS 17.6+) sets `VCPKG_ROOT` to the vcpkg bundled with Visual Studio, so the DLL build
+failed on missing opus/vpx/ffmpeg headers until `build-dll.cmd` set ours after it (`62f6dda`). The iOS
+build (`release/out/RemoteDisplay-1.0.15-ios.ipa`) stays out of the release until the UIScene
+adoption is verified on the iPad, which was not connected. The website resolves its download buttons
+against the latest release, so it needed no deploy.
