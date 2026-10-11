@@ -1101,3 +1101,7 @@ the iPhone's console shows `discover done: 3 replies, 3 port hits` with no store
 still not connected; Luz's Mac (192.168.1.174) refuses ssh for `luzchoque` and `sam` (no key) and her
 iPhone is not paired with the Studio, so those two installs are left to her (DMG from the release;
 the IPA needs USB pairing and her UDID in the development profile).
+2026-10-11: Luz's Mac (MacBook Pro, arm64, macOS 26.7.1) upgraded from server 1.0.4 to 1.0.16 over ssh
+(Tailscale) with the same hot-swap recipe: same bundle id and designated requirement, so the TCC grants
+carried over; 3 s without a listener, configs untouched; its discovery reply now carries the engine id,
+the LocalHostName (`luzs-macbook-pro`, not the router's `luzs-mbp.lan`) and its Tailscale address.
